@@ -21,8 +21,17 @@ class DatabaseManager:
         self.connection = None
         self._last_health_check = 0
         self._health_check_interval = 300  # 5 minutes
-        self.connect()
-        self.initialize_dummy_data()
+        self._initialized = False
+        # Don't connect immediately - lazy initialization
+        logger.info("DatabaseManager created (lazy initialization)")
+
+    def ensure_connection(self):
+        """Ensure database connection is established (lazy initialization)"""
+        if not self.connection or self.connection.closed:
+            self.connect()
+        if self.connection and not self._initialized:
+            self.initialize_dummy_data()
+            self._initialized = True
 
     def connect(self):
         "Establish database connection using db_config property"
@@ -45,14 +54,18 @@ class DatabaseManager:
                 sslmode=db_config.get("sslmode", "prefer"),
                 cursor_factory=RealDictCursor
             )
-            logger.info(f"Database connection established to {db_config['host']}")
+            logger.info(f"✅ Database connection established to {db_config['host']}")
         except Exception as e:
-            logger.error(f"Failed to connect to database: {e}")
+            logger.warning(f"⚠️ Failed to connect to database: {e}")
+            logger.info("📄 App will continue without database support (PDF/Chat only)")
             self.connection = None
-            raise
 
     def initialize_dummy_data(self):
         "Initialize database with dummy data for demonstration"
+        # DON'T call ensure_connection here - it causes infinite recursion
+        if not self.connection:
+            logger.warning("Cannot initialize dummy data: database not connected")
+            return
         try:
             with self.connection.cursor() as cursor:
                 # Create tables
@@ -94,36 +107,42 @@ class DatabaseManager:
                 cursor.execute("SELECT COUNT(*) FROM user_profiles;")
 
                 if cursor.fetchone()['count'] == 0:
-                    # Insert dummy user profiles
+                    # Insert dummy user profiles - updated untuk match dengan test questions
                     cursor.execute("""
                         INSERT INTO user_profiles (name, email, department, position, phone) VALUES
-                        ('Ahmad Wijaya', 'ahmad.wijaya@company.com', 'IT', 'Software Engineer', '+62-812-3456-7890'),
-                        ('Sari Dewi', 'sari.dewi@company.com', 'HR', 'HR Manager', '+62-813-4567-8901'),
-                        ('Budi Santoso', 'budi.santoso@company.com', 'Finance', 'Finance Analyst', '+62-814-5678-9012'),
-                        ('Maya Sari', 'maya.sari@company.com', 'Marketing', 'Marketing Specialist', '+62-815-6789-0123'),
-                        ('Rizki Pratama', 'rizki.pratama@company.com', 'IT', 'System Administrator', '+62-816-7890-1234');
+                        ('Ahmad Wijaya', 'ahmad.wijaya@tmb.co.id', 'IT', 'IT Manager', '+62-812-3456-7890'),
+                        ('Sari Dewi', 'sari.dewi@tmb.co.id', 'IT', 'Business Analyst', '+62-813-4567-8901'),
+                        ('Budi Santoso', 'budi.santoso@tmb.co.id', 'IT', 'Senior Developer', '+62-814-5678-9012'),
+                        ('Maya Sari', 'maya.sari@tmb.co.id', 'IT', 'QA Lead', '+62-815-6789-0123'),
+                        ('Rizki Pratama', 'rizki.pratama@tmb.co.id', 'IT', 'DevOps Engineer', '+62-816-7890-1234'),
+                        ('Andi Firmansyah', 'andi.firmansyah@vendor.com', 'External', 'Vendor PM', '+62-817-8901-2345');
                     """)
 
                 cursor.execute("SELECT COUNT(*) as count FROM products")
                 if cursor.fetchone()['count'] == 0:
                     cursor.execute("""
                         INSERT INTO products (name, category, price, description, stock_quantity) VALUES
-                        ('Laptop ThinkPad X1', 'Electronics', 15000000, 'Business laptop dengan processor Intel i7 dan RAM 16GB', 25),
-                        ('Smartphone Galaxy S23', 'Electronics', 12000000, 'Flagship smartphone dengan kamera 108MP', 50),
-                        ('Office Chair Ergonomic', 'Furniture', 2500000, 'Kursi kantor ergonomis dengan lumbar support', 15),
-                        ('Project Management Software', 'Software', 5000000, 'Software manajemen proyek dengan fitur kolaborasi tim', 100),
-                        ('Wireless Mouse', 'Electronics', 350000, 'Mouse nirkabel dengan precision sensor', 75);
+                        ('JetBrains All Products Pack', 'Software Tools', 1500000, 'IDE development tools - IntelliJ IDEA, PyCharm, WebStorm, DataGrip, etc', 100),
+                        ('SAP S/4HANA License', 'Enterprise Software', 35000000, 'SAP ERP system license untuk enterprise resource planning', 10),
+                        ('Jira Software Cloud', 'Project Management', 2500000, 'Agile project management dan issue tracking untuk tim software', 50),
+                        ('Confluence Cloud', 'Collaboration', 1800000, 'Team collaboration dan documentation platform', 50),
+                        ('AWS Enterprise Support', 'Cloud Services', 8000000, 'AWS cloud support dengan TAM dan 24/7 assistance', 5),
+                        ('Datadog Pro', 'Monitoring Tools', 2000000, 'Infrastructure dan application monitoring platform', 20),
+                        ('SonarQube Enterprise', 'Security Tools', 3500000, 'Code quality dan security scanning platform', 15),
+                        ('GitLab Ultimate', 'DevOps Platform', 4500000, 'Complete DevOps platform dengan CI/CD dan security', 25),
+                        ('Laptop ThinkPad X1', 'Hardware', 15000000, 'Business laptop dengan processor Intel i7 dan RAM 16GB', 25),
+                        ('Wireless Mouse', 'Hardware', 350000, 'Mouse nirkabel dengan precision sensor', 75);
                     """)
 
                 cursor.execute("SELECT COUNT(*) as count FROM orders")
                 if cursor.fetchone()['count'] == 0:
                     cursor.execute("""
                         INSERT INTO orders (user_id, product_id, quantity, total_amount, status, order_date) VALUES
-                        (1, 1, 1, 15000000, 'completed', '2024-01-15'),
-                        (2, 3, 2, 5000000, 'completed', '2024-01-16'),
-                        (3, 2, 1, 12000000, 'pending', '2024-01-17'),
-                        (1, 4, 1, 5000000, 'completed', '2024-01-18'),
-                        (4, 5, 5, 1750000, 'shipped', '2024-01-19');
+                        (1, 2, 1, 35000000, 'completed', '2024-11-15'),
+                        (1, 1, 10, 15000000, 'completed', '2024-12-01'),
+                        (4, 3, 5, 12500000, 'completed', '2024-12-10'),
+                        (5, 5, 1, 8000000, 'processing', '2025-01-02'),
+                        (3, 6, 3, 6000000, 'processing', '2025-01-03');
                     """)
 
                 self.connection.commit()
@@ -195,15 +214,13 @@ class DatabaseManager:
             logger.warning(f"FTS initialization failed (will use fallback ILIKE): {e}")
             self.connection.rollback()
 
-    def ensure_connection(self) -> bool:
-        """Ensure database connection is alive, reconnect if needed"""
+    def check_connection_health(self) -> bool:
+        """Check if database connection is alive, reconnect if needed"""
         import time
         
-        # Check if we need to do health check
-        current_time = time.time()
-        if current_time - self._last_health_check < self._health_check_interval:
-            if self.connection and not self.connection.closed:
-                return True
+        # Return False immediately if no connection
+        if not self.connection:
+            return False
         
         try:
             # Test current connection
@@ -229,7 +246,7 @@ class DatabaseManager:
     def is_healthy(self) -> Dict[str, Any]:
         """Check database health status"""
         try:
-            if not self.ensure_connection():
+            if not self.check_connection_health():
                 return {
                     "status": "disconnected",
                     "message": "Database connection failed",
@@ -257,8 +274,11 @@ class DatabaseManager:
     
     def get_table_schema(self, table_name: str) -> List[Dict[str, Any]]:
         """Get schema information for a table"""
-        if not self.ensure_connection():
-            raise ConnectionError("Database connection not available")
+        self.ensure_connection()
+        
+        if not self.connection:
+            logger.warning("No database connection available")
+            return []
             
         try:
             with self.connection.cursor() as cursor:
@@ -276,6 +296,9 @@ class DatabaseManager:
 
     def execute_query(self, query: str, params: Optional[tuple[Any, ...]] = None) -> List[Dict[str, Any]]:
         """Execute a SQL query and return results"""
+        self.ensure_connection()
+        if not self.connection:
+            return []
         try:
             with self.connection.cursor() as cursor:
                 cursor.execute(query, params)
@@ -286,6 +309,9 @@ class DatabaseManager:
     
     def search_accross_tables(self, search_terms: List[str], limit: int = 10) -> Dict[str, List[Dict[str, Any]]]:
         """Search across all configured tables"""
+        self.ensure_connection()
+        if not self.connection:
+            return {}
         results = {}
        
         for table_name in Config().db_tables:
@@ -302,6 +328,9 @@ class DatabaseManager:
     def search_in_specific_tables(self, search_terms: List[str], tables: List[str], limit: int = 10) -> Dict[str, List[Dict[str, Any]]]:
         """Search across specific tables only (smart routing)"""
         logger.info(f"🔎 search_in_specific_tables called with terms: {search_terms}, tables: {tables}")
+        self.ensure_connection()
+        if not self.connection:
+            return {}
         results = {}
         
         configured_tables = Config().db_tables
@@ -358,25 +387,36 @@ class DatabaseManager:
     # database.py - Add this method if not exists
     def search_in_table(self, table_name: str, search_terms: List[str], limit: int = 10) -> List[Dict[str, Any]]:
         """Search for terms across all columns in a table with FTS and scoring"""
+        self.ensure_connection()
+        if not self.connection:
+            return []
         try:
+            logger.info(f"🔎 Searching table '{table_name}' with terms: {search_terms}")
+            
             # Detect phrases first
             phrases, remaining_terms = self.detect_phrases(search_terms)
+            logger.info(f"🔎 Detected phrases: {phrases}, remaining terms: {remaining_terms}")
             
             # Try Full-Text Search first
             results = self.search_with_fts(table_name, search_terms, limit, phrases)
             if results:
+                logger.info(f"✅ FTS returned {len(results)} results from {table_name}")
                 return results
             
+            logger.info(f"⚠️ FTS returned no results, trying ILIKE fallback...")
             # Fallback to ILIKE if FTS fails or returns no results
-            return self.search_with_ilike(table_name, search_terms, limit, phrases)
+            ilike_results = self.search_with_ilike(table_name, search_terms, limit, phrases)
+            logger.info(f"{'✅' if ilike_results else '❌'} ILIKE returned {len(ilike_results)} results from {table_name}")
+            return ilike_results
             
         except Exception as e:
             logger.error(f"Search in table {table_name} failed: {str(e)}")
             return []
 
     def search_with_fts(self, table_name: str, search_terms: List[str], limit: int = 10, phrases: List[str] = None) -> List[Dict[str, Any]]:
-        """Full-Text Search with ts_rank scoring - prioritizes phrase matches"""
-        if not self.ensure_connection():
+        """Full-Text Search with ts_rank scoring - prioritizes exact matches and phrases"""
+        self.ensure_connection()
+        if not self.connection:
             logger.error("Database connection not available for FTS search")
             return []
             
@@ -406,33 +446,42 @@ class DatabaseManager:
             tsquery_string = ' | '.join(query_parts)
             
             logger.info(f"🔍 FTS query for {table_name}: {tsquery_string}")
+            logger.info(f"🔍 Original search terms: {search_terms}")
             
-            # Get text columns for phrase matching boost
+            # Get text columns for exact match and phrase boost
             text_columns = [col['column_name'] for col in schema 
                            if col['data_type'] in ['text', 'character varying', 'varchar']
                            and col['column_name'] != 'search_vector']
             
-            # Build phrase boost expressions if phrases detected
-            phrase_boost_parts = []
-            phrase_params = []
+            # Build boost expressions
+            boost_parts = []
+            boost_params = []
+            
+            # 1. Exact term match boost (50 points for exact match in name column)
+            for term in search_terms:
+                if term:  # Original term, not stemmed
+                    # Check if term appears as whole word in name
+                    boost_parts.append(f"CASE WHEN LOWER(name) LIKE LOWER(%s) THEN 50.0 ELSE 0.0 END")
+                    boost_params.append(f"%{term}%")
+            
+            # 2. Phrase match boost (20 points)
             if phrases:
                 for phrase in phrases:
                     for col in text_columns:
-                        # Boost score by 10 if exact phrase found
-                        phrase_boost_parts.append(f"CASE WHEN LOWER({col}) LIKE LOWER(%s) THEN 10.0 ELSE 0.0 END")
-                        phrase_params.append(f"%{phrase}%")
+                        boost_parts.append(f"CASE WHEN LOWER({col}) LIKE LOWER(%s) THEN 20.0 ELSE 0.0 END")
+                        boost_params.append(f"%{phrase}%")
             
-            if phrase_boost_parts:
-                phrase_boost_expr = " + ".join(phrase_boost_parts)
+            if boost_parts:
+                boost_expr = " + ".join(boost_parts)
                 query = f"""
                     SELECT *, 
-                           ts_rank(search_vector, to_tsquery('simple', %s)) + ({phrase_boost_expr}) as relevance_score
+                           ts_rank(search_vector, to_tsquery('simple', %s)) + ({boost_expr}) as relevance_score
                     FROM {table_name}
                     WHERE search_vector @@ to_tsquery('simple', %s)
                     ORDER BY relevance_score DESC
                     LIMIT %s
                 """
-                params = tuple([tsquery_string] + phrase_params + [tsquery_string, limit])
+                params = tuple([tsquery_string] + boost_params + [tsquery_string, limit])
             else:
                 query = f"""
                     SELECT *, 
@@ -446,26 +495,12 @@ class DatabaseManager:
             
             results = self.execute_query(query, params)
             
-            # Post-filter: If phrases detected, prioritize exact phrase matches
-            if phrases and results:
-                def has_phrase_match(record):
-                    for col in text_columns:
-                        val = str(record.get(col, '')).lower()
-                        for phrase in phrases:
-                            if phrase.lower() in val:
-                                return True
-                    return False
-                
-                # Separate exact matches from partial matches
-                exact_matches = [r for r in results if has_phrase_match(r)]
-                partial_matches = [r for r in results if not has_phrase_match(r)]
-                
-                # If we have exact matches, return only those (up to limit)
-                if exact_matches:
-                    logger.info(f"🎯 Found {len(exact_matches)} exact phrase matches in {table_name}")
-                    return exact_matches[:limit]
+            logger.info(f"✅ FTS found {len(results)} results in {table_name}")
+            if results:
+                # Log top 3 results for debugging
+                for i, r in enumerate(results[:3], 1):
+                    logger.info(f"  {i}. {r.get('name', 'N/A')} - score: {r.get('relevance_score', 0):.4f}")
             
-            logger.info(f"FTS found {len(results)} results in {table_name}")
             return results
             
         except Exception as e:
@@ -474,7 +509,8 @@ class DatabaseManager:
 
     def search_with_ilike(self, table_name: str, search_terms: List[str], limit: int = 10, phrases: List[str] = None) -> List[Dict[str, Any]]:
         """Fallback ILIKE search with basic scoring - case insensitive, prioritizes phrase matches"""
-        if not self.ensure_connection():
+        self.ensure_connection()
+        if not self.connection:
             logger.error("Database connection not available for ILIKE search")
             return []
             
@@ -565,6 +601,9 @@ class DatabaseManager:
       
     def get_table_sample(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
         """Get sample rows from a table"""
+        self.ensure_connection()
+        if not self.connection:
+            return []
         try:
             # Validate table name against whitelist
             table_name = validate_table_name(table_name)
@@ -582,7 +621,8 @@ class DatabaseManager:
 
     def get_all_tables(self) -> List[str]:
         """Get list of all tables in the database"""
-        if not self.ensure_connection():
+        self.ensure_connection()
+        if not self.connection:
             logger.error("Database connection not available for listing tables")
             return []
             

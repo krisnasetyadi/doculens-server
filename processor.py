@@ -12,6 +12,7 @@ from langchain_community.vectorstores import FAISS
 import threading
 import torch
 import os
+import re
 from typing import List, Dict, Any, Optional, Tuple
 from models import SearchType, DatabaseResult, SourceInfo
 from database import db_manager
@@ -29,12 +30,12 @@ class PDFQAProcessor:
         self._initialized = False
         self._init_lock = threading.Lock()
         self.db_manager = None
+        self._db_initialized = False
         
         # Multi-LLM support
         self._llm_cache = {}  # Cache for loaded LLMs: {provider_model: llm_instance}
         self._current_provider = None
         self._current_model = None
-        self._db_initialized = False
 
         self.query_expansion_terms = {
             "apa itu": ["definisi", "pengertian", "arti", "makna", "jelaskan"],
@@ -65,7 +66,9 @@ class PDFQAProcessor:
             'sun', 'sbn', 'djppr', 'mofids', 'dealer utama', 'settlement',
             'quotation', 'kuotasi', 'alokasi', 'staple bonds', 'securities',
             'fungsional', 'persyaratan', 'kode a', 'lpdu-bcds', 'lpdu-sa', 'lpdu-dssb',
-            'maker checker', 'enrich data', 'plte', 'bank indonesia'
+            'maker checker', 'enrich data', 'plte', 'bank indonesia',
+            'sop', 'prosedur', 'standar', 'approval', 'deployment', 'testing',
+            'development', 'sdlc', 'requirement', 'design', 'maintenance'
         ]
 
         # Smart table routing - map keywords to specific tables
@@ -79,20 +82,100 @@ class PDFQAProcessor:
             ],
             "products": [
                 'product', 'produk', 'barang', 'item', 'harga', 'price',
-                'stock', 'stok', 'kategori', 'category', 'jual', 'beli'
+                'stock', 'stok', 'kategori', 'category', 'jual', 'beli',
+                'license', 'software', 'tools', 'service'
             ],
             "orders": [
                 'order', 'pesanan', 'pembelian', 'transaksi', 'beli', 'pesan',
                 'status', 'pending', 'completed', 'shipped', 'quantity',
-                'total', 'amount', 'tanggal', 'invoice'
+                'total', 'amount', 'tanggal', 'invoice', 'processing', 'proyek'
             ]
         }
         
         # Person name patterns (untuk deteksi nama orang tanpa hardcode)
         self.person_question_patterns = [
             'siapa', 'who is', 'nama', 'karyawan bernama', 'user bernama',
-            'cari orang', 'find person', 'profile'
+            'cari orang', 'find person', 'profile', 'kontak', 'contact',
+            'email', 'telepon', 'phone'
         ]
+        
+        # Tambahkan patterns untuk intent detection yang lebih baik
+        self.intent_patterns = {
+            'data_retrieval': [
+                r'berapa\s+(harga|jumlah|total|stock)',
+                r'(harga|price)\s+[a-zA-Z0-9\s]+',
+                r'siapa\s+yang',
+                r'(cari|tampilkan|lihat)\s+(data|informasi)',
+                r'^[a-zA-Z]+\s+\d+$',  # Pattern seperti "Laptop 5"
+            ],
+            'comparison': [
+                r'(bandingkan|perbandingan|vs\.?)',
+                r'(lebih|paling)\s+(murah|mahal|banyak|sedikit)',
+                r'mana\s+yang\s+(lebih|paling)',
+            ],
+            'aggregation': [
+                r'(total|jumlah|rata-rata|rerata|average|sum)\s+[a-zA-Z]',
+                r'berapa\s+total',
+                r'hitung\s+(total|jumlah)',
+                r'(semua|semua\s+data)\s+[a-zA-Z]',
+            ],
+            'explanation': [
+                r'apa\s+itu',
+                r'jelaskan\s+tentang',
+                r'definisi\s+dari',
+                r'bagaimana\s+cara',
+                r'proses\s+[a-zA-Z]',
+            ]
+        }
+        
+        # Enhanced table routing
+        self.enhanced_table_keywords = {
+            "user_profiles": {
+                "keywords": ['user', 'pengguna', 'karyawan', 'staff', 'employee', 'profil'],
+                "fields": ['name', 'email', 'department', 'position', 'phone'],
+                "query_types": ['siapa', 'cari orang', 'kontak', 'pegawai']
+            },
+            "products": {
+                "keywords": ['product', 'produk', 'barang', 'item', 'harga', 'price'],
+                "fields": ['name', 'category', 'price', 'description', 'stock_quantity'],
+                "query_types": ['harga', 'stok', 'barang', 'produk']
+            },
+            "orders": {
+                "keywords": ['order', 'pesanan', 'pembelian', 'transaksi'],
+                "fields": ['quantity', 'total_amount', 'status', 'order_date'],
+                "query_types": ['transaksi', 'pesanan', 'pembelian', 'order']
+            }
+        }
+    
+    def analyze_intent(self, question: str) -> Dict[str, Any]:
+        """Enhanced intent analysis"""
+        question_lower = question.lower()
+        
+        detected_intents = []
+        for intent_type, patterns in self.intent_patterns.items():
+            for pattern in patterns:
+                if re.search(pattern, question_lower, re.IGNORECASE):
+                    detected_intents.append(intent_type)
+                    break
+        
+        # Determine primary intent
+        primary_intent = 'unknown'
+        if detected_intents:
+            # Priority: aggregation > comparison > data_retrieval > explanation
+            priority_order = ['aggregation', 'comparison', 'data_retrieval', 'explanation']
+            for intent in priority_order:
+                if intent in detected_intents:
+                    primary_intent = intent
+                    break
+        
+        return {
+            "primary_intent": primary_intent,
+            "all_intents": detected_intents,
+            "is_aggregation": 'aggregation' in detected_intents,
+            "is_comparison": 'comparison' in detected_intents,
+            "is_data_retrieval": 'data_retrieval' in detected_intents,
+            "is_explanation": 'explanation' in detected_intents
+        }
 
     def expand_query(self, query):
         """Expand query with synonyms and related terms"""
@@ -735,13 +818,16 @@ Answer:"""
     def _load_gemini_llm(self, model_name: str):
         """Load Google Gemini model (cloud - free tier)"""
         if not config.gemini_api_key:
-            raise ValueError("GEMINI_API_KEY not set in .env")
+            logger.error("❌ GEMINI_API_KEY not set in .env file")
+            raise ValueError("GEMINI_API_KEY not configured. Please add it to .env file or use HuggingFace/Ollama")
         
         try:
             from langchain_google_genai import ChatGoogleGenerativeAI
         except ImportError:
-            raise ImportError("Install langchain-google-genai: pip install langchain-google-genai")
+            logger.error("❌ langchain-google-genai not installed")
+            raise ImportError("Please install: pip install langchain-google-genai")
         
+        logger.info(f"🔑 Using Gemini API with model: {model_name}")
         return ChatGoogleGenerativeAI(
             model=model_name,
             google_api_key=config.gemini_api_key,
@@ -891,64 +977,112 @@ Answer:"""
         
         return target_tables
 
-    def extract_search_terms(self, question: str) -> List[str]:
-        """Extract meaningful search terms from question - NO hardcoded values"""
+    # def extract_search_terms(self, question: str) -> List[str]:
+    #     """Extract meaningful search terms from question - NO hardcoded values"""
+    #     import re
+        
+    #     # Stop words to filter out (common question words, not search-worthy)
+    #     stop_words = {
+    #         'apa', 'siapa', 'dimana', 'kapan', 'berapa', 'bagaimana', 'mengapa',
+    #         'yang', 'dan', 'atau', 'di', 'ke', 'dari', 'dalam', 'pada', 'untuk',
+    #         'adalah', 'ini', 'itu', 'dengan', 'seperti', 'jika', 'maka',
+    #         'cari', 'tampilkan', 'semua', 'lihat', 'tunjukkan', 'show',
+    #         'find', 'search', 'get', 'the', 'what', 'who', 'where', 'when', 'how',
+    #         'jumlah', 'total', 'hitung', 'count', 'berapa', 'banyak', 'orang'  # aggregation + generic words
+    #     }
+        
+    #     # Column/field words that indicate we're looking for a value, not searching
+    #     field_indicators = {'department', 'departemen', 'divisi', 'bagian', 'posisi', 'jabatan'}
+        
+    #     # Remove punctuation but keep alphanumeric and spaces
+    #     cleaned = re.sub(r'[^\w\s]', ' ', question)
+    #     words = cleaned.split()
+        
+    #     logger.info(f"🔍 Words from query: {words}")
+        
+    #     meaningful_terms = []
+        
+    #     for i, word in enumerate(words):
+    #         word_lower = word.lower().strip()
+            
+    #         # Skip stop words first
+    #         if word_lower in stop_words:
+    #             continue
+            
+    #         # If previous word was a field indicator, this word is likely a VALUE
+    #         # Keep original case for proper nouns like "IT", "HR", "Finance"
+    #         if i > 0 and words[i-1].lower() in field_indicators:
+    #             # This is likely a value like "IT", "HR", "Finance"
+    #             logger.info(f"🔍 Found value after field indicator: {word}")
+    #             meaningful_terms.append(word.strip())  # Keep original case
+    #             continue
+            
+    #         # Skip field indicators themselves
+    #         if word_lower in field_indicators:
+    #             continue
+            
+    #         # For short words (2 chars), only keep if they look like acronyms (all caps)
+    #         if len(word_lower) <= 2:
+    #             if word.isupper() and len(word) >= 2:
+    #                 logger.info(f"🔍 Keeping acronym: {word}")
+    #                 meaningful_terms.append(word)  # Keep "IT", "HR", etc.
+    #             continue
+                
+    #         # Add other meaningful terms
+    #         meaningful_terms.append(word_lower)
+        
+    #     unique_terms = list(set(meaningful_terms))
+        
+    #     logger.info(f"🔍 Extracted search terms: {unique_terms}")
+    #     return unique_terms
+
+    # processor.py - perbaiki extract_search_terms
+    def extract_search_terms(self, question: str) -> Dict[str, Any]:
+        """Enhanced search terms extraction dengan entity recognition"""
         import re
         
-        # Stop words to filter out (common question words, not search-worthy)
-        stop_words = {
-            'apa', 'siapa', 'dimana', 'kapan', 'berapa', 'bagaimana', 'mengapa',
-            'yang', 'dan', 'atau', 'di', 'ke', 'dari', 'dalam', 'pada', 'untuk',
-            'adalah', 'ini', 'itu', 'dengan', 'seperti', 'jika', 'maka',
-            'cari', 'tampilkan', 'semua', 'lihat', 'tunjukkan', 'show',
-            'find', 'search', 'get', 'the', 'what', 'who', 'where', 'when', 'how',
-            'jumlah', 'total', 'hitung', 'count', 'berapa', 'banyak', 'orang'  # aggregation + generic words
+        # Entity patterns - UPDATED to include more software/brand names
+        patterns = {
+            'product_names': r'\b(Laptop|Smartphone|Chair|Software|Mouse|ThinkPad|Galaxy|Ergonomic|Project|JetBrains|SAP|Jira|Confluence|AWS|Azure|Datadog|SonarQube|GitLab|Jenkins|Docker|Kubernetes)\b',
+            'departments': r'\b(IT|HR|Finance|Marketing|Sales|Operations)\b',
+            'positions': r'\b(Engineer|Manager|Analyst|Specialist|Administrator|Director)\b',
+            'currencies': r'Rp\s*\d+[.,]\d+|\d+\s*(juta|ribu)',
+            'numbers': r'\b\d+\b',
+            'dates': r'\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{4}[-/]\d{1,2}[-/]\d{1,2}',
         }
         
-        # Column/field words that indicate we're looking for a value, not searching
-        field_indicators = {'department', 'departemen', 'divisi', 'bagian', 'posisi', 'jabatan'}
+        entities = {}
+        for entity_type, pattern in patterns.items():
+            matches = re.findall(pattern, question, re.IGNORECASE)
+            if matches:
+                entities[entity_type] = matches
         
-        # Remove punctuation but keep alphanumeric and spaces
-        cleaned = re.sub(r'[^\w\s]', ' ', question)
-        words = cleaned.split()
+        # Extract keywords (improved version)
+        stop_words = {'apa', 'siapa', 'dimana', 'kapan', 'berapa', 'bagaimana', 
+                    'yang', 'dan', 'atau', 'di', 'ke', 'dari', 'dalam', 'untuk'}
         
-        logger.info(f"🔍 Words from query: {words}")
+        question_lower = question.lower()
+        words = re.findall(r'\b[\w+]+\b', question_lower)
+        keywords = [w for w in words if w not in stop_words and len(w) > 2]
         
-        meaningful_terms = []
+        # Detect if query contains specific field references
+        field_refs = []
+        field_mapping = {
+            'harga': 'price', 'nama': 'name', 'email': 'email', 
+            'departemen': 'department', 'posisi': 'position',
+            'jumlah': 'quantity', 'stok': 'stock_quantity', 'status': 'status'
+        }
         
-        for i, word in enumerate(words):
-            word_lower = word.lower().strip()
-            
-            # Skip stop words first
-            if word_lower in stop_words:
-                continue
-            
-            # If previous word was a field indicator, this word is likely a VALUE
-            # Keep original case for proper nouns like "IT", "HR", "Finance"
-            if i > 0 and words[i-1].lower() in field_indicators:
-                # This is likely a value like "IT", "HR", "Finance"
-                logger.info(f"🔍 Found value after field indicator: {word}")
-                meaningful_terms.append(word.strip())  # Keep original case
-                continue
-            
-            # Skip field indicators themselves
-            if word_lower in field_indicators:
-                continue
-            
-            # For short words (2 chars), only keep if they look like acronyms (all caps)
-            if len(word_lower) <= 2:
-                if word.isupper() and len(word) >= 2:
-                    logger.info(f"🔍 Keeping acronym: {word}")
-                    meaningful_terms.append(word)  # Keep "IT", "HR", etc.
-                continue
-                
-            # Add other meaningful terms
-            meaningful_terms.append(word_lower)
+        for idn_field, eng_field in field_mapping.items():
+            if idn_field in question_lower:
+                field_refs.append(eng_field)
         
-        unique_terms = list(set(meaningful_terms))
-        
-        logger.info(f"🔍 Extracted search terms: {unique_terms}")
-        return unique_terms
+        return {
+            "keywords": list(set(keywords)),
+            "entities": entities,
+            "field_references": field_refs,
+            "original_terms": words
+        }
 
     def query_structured_data(self, search_terms: List[str], target_tables: Optional[List[str]] = None) -> Dict[str, DatabaseResult]:
         """Query structured data from database with query expansion and smart routing"""
@@ -962,7 +1096,7 @@ Answer:"""
         try:
             # Apply query expansion to search terms
             expanded_terms = self.expand_search_terms_for_db(search_terms)
-            logger.info(f"Original terms: {search_terms} -> Expanded: {expanded_terms}")
+            logger.info(f"🔍 Original terms: {search_terms} -> Expanded: {expanded_terms}")
             
             # Use target tables if provided, otherwise search all
             tables_to_search = target_tables if target_tables else config.db_tables
@@ -990,6 +1124,12 @@ Answer:"""
         """Expand search terms with synonyms and stemming for better DB matches"""
         expanded = set(search_terms)
         
+        # Brand/product names that should NOT be stemmed
+        brand_whitelist = {
+            'jetbrains', 'jira', 'confluence', 'aws', 'azure', 'datadog', 
+            'sonarqube', 'gitlab', 'jenkins', 'docker', 'kubernetes', 'sap'
+        }
+        
         for term in search_terms:
             term_lower = term.lower()
             
@@ -999,10 +1139,11 @@ Answer:"""
                     expanded.add(key)
                     expanded.update(synonyms)
             
-            # Apply simple Indonesian stemming
-            stemmed = self.simple_indonesian_stem(term_lower)
-            if stemmed != term_lower:
-                expanded.add(stemmed)
+            # Apply simple Indonesian stemming ONLY if not a brand name
+            if term_lower not in brand_whitelist:
+                stemmed = self.simple_indonesian_stem(term_lower)
+                if stemmed != term_lower:
+                    expanded.add(stemmed)
         
         return list(expanded)
 
@@ -1028,6 +1169,149 @@ Answer:"""
         
         return word
 
+    # def hybrid_search(
+    #     self, 
+    #     question: str, 
+    #     collection_ids: Optional[List[str]] = None,
+    #     include_chat: bool = True,
+    #     include_pdf: bool = True,
+    #     include_db: bool = True,
+    #     chat_collection_ids: Optional[List[str]] = None
+    # ) -> Dict[str, Any]:
+    #     """Perform hybrid search across PDF, database, and chat data with collection selection"""
+        
+    #     logger.info(f"🔍 Hybrid search flags - PDF: {include_pdf}, DB: {include_db}, Chat: {include_chat}")
+
+    #     analysis = self.analyze_question_type(question)
+    #     search_terms = analysis["search_terms"]
+    #     target_tables = analysis.get("target_tables", [])  # Get smart-routed tables
+
+    #     pdf_docs = []
+    #     # FIXED: When user explicitly enables PDF search via include_pdf=True,
+    #     # always search PDFs regardless of question type analysis
+    #     if include_pdf:
+    #         logger.info("📄 Searching PDF collections (explicitly enabled)...")
+    #         pdf_docs = self.search_across_collections(
+    #             question,
+    #             collection_ids=collection_ids,
+    #             top_k=config.k_per_collection
+    #         )
+    #     else:
+    #         logger.info("⏭️ PDF search skipped (disabled by user)")
+
+    #     db_results = {}
+    #     # FIXED: When user explicitly enables DB search, always search DB
+    #     if include_db:
+    #         logger.info("🗄️ Searching database...")
+    #         # Pass target_tables for smart routing
+    #         db_results = self.query_structured_data(search_terms, target_tables)
+    #     else:
+    #         logger.info("⏭️ Database search skipped (disabled or not relevant)")
+
+    #     # Search chat collections with collection selection
+    #     chat_docs = []
+    #     if include_chat:
+    #         logger.info("💬 Searching chat collections...")
+    #         # Auto-detect file reference from question
+    #         file_filter = self.extract_file_reference(question)
+    #         if file_filter:
+    #             logger.info(f"🎯 File filter detected: {file_filter}")
+            
+    #         chat_docs = self.search_across_chat_collections(
+    #             question,
+    #             collection_ids=chat_collection_ids,  # Use specific chat collections
+    #             file_filter=file_filter,
+    #             top_k=config.k_per_collection
+    #         )
+    #     else:
+    #         logger.info("⏭️ Chat search skipped (disabled)")
+
+    #     return {
+    #         "pdf_documents": pdf_docs,
+    #         "database_results": db_results,
+    #         "chat_documents": chat_docs,  # NEW
+    #         "search_analysis": analysis,
+    #         "search_terms": search_terms,
+    #         "target_tables": target_tables  # Include for debugging/transparency
+    #     }
+
+    # def hybrid_search(
+    #     self, 
+    #     question: str, 
+    #     collection_ids: Optional[List[str]] = None,
+    #     include_chat: bool = True,
+    #     include_pdf: bool = True,
+    #     include_db: bool = True,
+    #     chat_collection_ids: Optional[List[str]] = None
+    # ) -> Dict[str, Any]:
+    #     """Perform hybrid search across PDF, database, and chat data with collection selection"""
+        
+    #     logger.info(f"🔍 Hybrid search flags - PDF: {include_pdf}, DB: {include_db}, Chat: {include_chat}")
+
+    #     analysis = self.analyze_question_type(question)
+    #     search_terms = analysis["search_terms"]
+    #     target_tables = analysis.get("target_tables", [])  # Get smart-routed tables
+
+    #     pdf_docs = []
+    #     # FIXED: When user explicitly enables PDF search via include_pdf=True,
+    #     # always search PDFs regardless of question type analysis
+    #     if include_pdf:
+    #         logger.info("📄 Searching PDF collections (explicitly enabled)...")
+    #         pdf_docs = self.search_across_collections(
+    #             question,
+    #             collection_ids=collection_ids,
+    #             top_k=config.k_per_collection
+    #         )
+    #     else:
+    #         logger.info("⏭️ PDF search skipped (disabled by user)")
+
+    #     db_results = {}
+    #     # FIXED: When user explicitly enables DB search, always search DB
+    #     if include_db:
+    #         logger.info("🗄️ Searching database...")
+    #         # Pass target_tables for smart routing
+    #         db_results = self.query_structured_data(search_terms, target_tables)
+    #     else:
+    #         logger.info("⏭️ Database search skipped (disabled or not relevant)")
+
+    #     # Search chat collections with collection selection
+    #     chat_docs = []
+    #     if include_chat:
+    #         logger.info("💬 Searching chat collections...")
+    #         # Auto-detect file reference from question
+    #         file_filter = self.extract_file_reference(question)
+    #         if file_filter:
+    #             logger.info(f"🎯 File filter detected: {file_filter}")
+            
+    #         chat_docs = self.search_across_chat_collections(
+    #             question,
+    #             collection_ids=chat_collection_ids,  # Use specific chat collections
+    #             file_filter=file_filter,
+    #             top_k=config.k_per_collection
+    #         )
+    #     else:
+    #         logger.info("⏭️ Chat search skipped (disabled)")
+
+    #     # Gabungkan hasil dari semua sumber dan beri peringkat berdasarkan skor relevansi
+    #     combined_results = self.rank_and_combine_results(
+    #         question, 
+    #         pdf_docs, 
+    #         db_results, 
+    #         chat_docs, 
+    #         search_terms
+    #     )
+
+    #     return {
+    #         "pdf_documents": pdf_docs,
+    #         "database_results": db_results,
+    #         "chat_documents": chat_docs,  # NEW
+    #         "search_analysis": analysis,
+    #         "search_terms": search_terms,
+    #         "target_tables": target_tables,  # Include for debugging/transparency
+    #         "combined_results": combined_results  # Hasil gabungan yang sudah di-ranking
+    #     }
+    
+    # processor.py - perbaiki hybrid_search
     def hybrid_search(
         self, 
         question: str, 
@@ -1037,233 +1321,828 @@ Answer:"""
         include_db: bool = True,
         chat_collection_ids: Optional[List[str]] = None
     ) -> Dict[str, Any]:
-        """Perform hybrid search across PDF, database, and chat data with collection selection"""
+        """Enhanced hybrid search dengan context-aware aggregation"""
         
-        logger.info(f"🔍 Hybrid search flags - PDF: {include_pdf}, DB: {include_db}, Chat: {include_chat}")
-
-        analysis = self.analyze_question_type(question)
-        search_terms = analysis["search_terms"]
-        target_tables = analysis.get("target_tables", [])  # Get smart-routed tables
-
-        pdf_docs = []
-        # FIXED: When user explicitly enables PDF search via include_pdf=True,
-        # always search PDFs regardless of question type analysis
-        if include_pdf:
-            logger.info("📄 Searching PDF collections (explicitly enabled)...")
+        # Initialize database if needed
+        if include_db and not self._db_initialized:
+            logger.info("🔧 Initializing database connection...")
+            self.initialize_database()
+        
+        # Step 1: Deep analysis
+        intent_analysis = self.analyze_intent(question)
+        search_terms_info = self.extract_search_terms(question)
+        search_terms = search_terms_info["keywords"]
+        
+        logger.info(f"🎯 Intent: {intent_analysis['primary_intent']}")
+        logger.info(f"🔍 Search terms: {search_terms}")
+        logger.info(f"🏷️ Entities: {search_terms_info.get('entities', {})}")
+        
+        # Step 2: Smart source prioritization berdasarkan intent
+        if intent_analysis["is_aggregation"]:
+            # Untuk aggregasi, prioritaskan database
+            db_weight = 1.0
+            pdf_weight = 0.3
+            chat_weight = 0.2
+        elif intent_analysis["is_explanation"]:
+            # Untuk penjelasan, prioritaskan PDF
+            pdf_weight = 1.0
+            db_weight = 0.4
+            chat_weight = 0.5
+        elif intent_analysis["is_data_retrieval"]:
+            # Untuk data retrieval, balance semua
+            db_weight = 0.7
+            pdf_weight = 0.6
+            chat_weight = 0.5
+        else:
+            # Default weights
+            db_weight = 0.6
+            pdf_weight = 0.6
+            chat_weight = 0.5
+        
+        results = {}
+        
+        # Step 3: Parallel search dengan weights
+        if include_pdf and pdf_weight > 0:
+            logger.info(f"📄 Searching PDF (weight: {pdf_weight})...")
             pdf_docs = self.search_across_collections(
-                question,
+                question, 
                 collection_ids=collection_ids,
-                top_k=config.k_per_collection
+                top_k=int(config.k_per_collection * pdf_weight)
             )
-        else:
-            logger.info("⏭️ PDF search skipped (disabled by user)")
-
-        db_results = {}
-        # FIXED: When user explicitly enables DB search, always search DB
-        if include_db:
-            logger.info("🗄️ Searching database...")
-            # Pass target_tables for smart routing
+            # Apply weight to scores
+            for doc in pdf_docs:
+                if 'similarity_score' in doc.metadata:
+                    doc.metadata['similarity_score'] *= pdf_weight
+            results['pdf_documents'] = pdf_docs
+        
+        if include_db and db_weight > 0:
+            logger.info(f"🗄️ Searching DB (weight: {db_weight})...")
+            target_tables = self.get_target_tables(question.lower())
             db_results = self.query_structured_data(search_terms, target_tables)
-        else:
-            logger.info("⏭️ Database search skipped (disabled or not relevant)")
-
-        # Search chat collections with collection selection
-        chat_docs = []
-        if include_chat:
-            logger.info("💬 Searching chat collections...")
-            # Auto-detect file reference from question
-            file_filter = self.extract_file_reference(question)
-            if file_filter:
-                logger.info(f"🎯 File filter detected: {file_filter}")
             
+            # Apply weight to DB results
+            for table_name, db_result in db_results.items():
+                if hasattr(db_result, 'data'):
+                    for record in db_result.data:
+                        if 'relevance_score' in record:
+                            record['relevance_score'] *= db_weight
+            results['database_results'] = db_results
+        
+        if include_chat and chat_weight > 0:
+            logger.info(f"💬 Searching chat (weight: {chat_weight})...")
+            file_filter = self.extract_file_reference(question)
             chat_docs = self.search_across_chat_collections(
                 question,
-                collection_ids=chat_collection_ids,  # Use specific chat collections
+                collection_ids=chat_collection_ids,
                 file_filter=file_filter,
-                top_k=config.k_per_collection
+                top_k=int(config.k_per_collection * chat_weight)
             )
-        else:
-            logger.info("⏭️ Chat search skipped (disabled)")
-
+            # Apply weight to scores
+            for doc in chat_docs:
+                if 'similarity_score' in doc.metadata:
+                    doc.metadata['similarity_score'] *= chat_weight
+            results['chat_documents'] = chat_docs
+        
+        # Step 4: Cross-source deduplication and ranking
+        all_results = self.merge_and_rank_results(results, intent_analysis)
+        
         return {
-            "pdf_documents": pdf_docs,
-            "database_results": db_results,
-            "chat_documents": chat_docs,  # NEW
-            "search_analysis": analysis,
-            "search_terms": search_terms,
-            "target_tables": target_tables  # Include for debugging/transparency
+            **results,
+            "search_analysis": {
+                "intent": intent_analysis,
+                "search_terms": search_terms_info,
+                "source_weights": {
+                    "pdf": pdf_weight if include_pdf else 0,
+                    "db": db_weight if include_db else 0,
+                    "chat": chat_weight if include_chat else 0
+                }
+            },
+            "merged_results": all_results,
+            "has_conflicts": self.detect_conflicts(results)
         }
 
+    def merge_and_rank_results(self, results: Dict[str, Any], intent_analysis: Dict) -> List[Dict]:
+        """Merge results from all sources dengan ranking yang cerdas"""
+        merged = []
+        
+        # Extract all results dengan unified format
+        if 'pdf_documents' in results:
+            for doc in results['pdf_documents']:
+                merged.append({
+                    'type': 'pdf',
+                    'content': doc.page_content,
+                    'score': doc.metadata.get('similarity_score', 0),
+                    'metadata': doc.metadata,
+                    'source': f"PDF: {doc.metadata.get('source', 'Unknown')}",
+                    'confidence': doc.metadata.get('similarity_score', 0) * 0.8  # PDF confidence factor
+                })
+        
+        if 'database_results' in results:
+            for table_name, db_result in results['database_results'].items():
+                if hasattr(db_result, 'data'):
+                    for record in db_result.data:
+                        # Create readable content from record
+                        content_parts = []
+                        for key, value in record.items():
+                            if key not in ['search_vector', 'relevance_score']:
+                                content_parts.append(f"{key}: {value}")
+                        
+                        merged.append({
+                            'type': 'database',
+                            'content': "\n".join(content_parts),
+                            'score': record.get('relevance_score', 0),
+                            'metadata': {'table': table_name, 'record': record},
+                            'source': f"DB: {table_name}",
+                            'confidence': record.get('relevance_score', 0) * 0.9  # DB confidence factor
+                        })
+        
+        if 'chat_documents' in results:
+            for doc in results['chat_documents']:
+                merged.append({
+                    'type': 'chat',
+                    'content': doc.page_content,
+                    'score': doc.metadata.get('similarity_score', 0),
+                    'metadata': doc.metadata,
+                    'source': f"Chat: {doc.metadata.get('source', 'Unknown')}",
+                    'confidence': doc.metadata.get('similarity_score', 0) * 0.7  # Chat confidence factor
+                })
+        
+        # Sort by confidence score
+        merged.sort(key=lambda x: x['confidence'], reverse=True)
+        
+        # Apply intent-based boosting
+        if intent_analysis['is_aggregation']:
+            # Boost database results for aggregation
+            for item in merged:
+                if item['type'] == 'database':
+                    item['confidence'] *= 1.5
+        elif intent_analysis['is_explanation']:
+            # Boost PDF results for explanation
+            for item in merged:
+                if item['type'] == 'pdf':
+                    item['confidence'] *= 1.5
+        
+        # Re-sort after boosting
+        merged.sort(key=lambda x: x['confidence'], reverse=True)
+        
+        return merged[:20]  # Return top 20 results
+
+    def detect_conflicts(self, results: Dict[str, Any]) -> List[Dict]:
+        """Detect conflicts between different sources"""
+        conflicts = []
+        
+        # Extract key information untuk conflict detection
+        extracted_info = {}
+        
+        # Simple conflict detection based on numerical values
+        numerical_values = []
+        
+        if 'database_results' in results:
+            for table_name, db_result in results['database_results'].items():
+                if hasattr(db_result, 'data'):
+                    for record in db_result.data:
+                        for key, value in record.items():
+                            if isinstance(value, (int, float)) and key != 'id':
+                                numerical_values.append({
+                                    'value': value,
+                                    'source': f'db_{table_name}',
+                                    'field': key
+                                })
+        
+        # Check for significant differences in similar fields
+        if len(numerical_values) > 1:
+            # Group by field
+            field_groups = {}
+            for item in numerical_values:
+                field = item['field']
+                if field not in field_groups:
+                    field_groups[field] = []
+                field_groups[field].append(item)
+            
+            # Check for conflicts in each field group
+            for field, items in field_groups.items():
+                if len(items) > 1:
+                    values = [item['value'] for item in items]
+                    if max(values) / min(values) > 2:  # If difference > 100%
+                        conflicts.append({
+                            'field': field,
+                            'values': items,
+                            'type': 'numerical_conflict',
+                            'message': f'Significant difference in {field} values'
+                        })
+        
+        return conflicts
+    
+    def rank_and_combine_results(
+            self, 
+            question: str, 
+            pdf_docs: List, 
+            db_results: Dict[str, DatabaseResult], 
+            chat_docs: List, 
+            search_terms: List[str]
+        ) -> List[Dict[str, Any]]:
+            """
+            Gabungkan hasil dari PDF, database, dan chat, lalu beri peringkat berdasarkan relevansi.
+            
+            Returns:
+                List[Dict]: List hasil gabungan yang sudah diurutkan berdasarkan skor relevansi.
+            """
+            combined = []
+            
+            # 1. Tambahkan hasil PDF
+            for doc in pdf_docs:
+                score = doc.metadata.get('similarity_score', 0)
+                combined.append({
+                    'type': 'pdf',
+                    'content': doc.page_content,
+                    'score': score,
+                    'metadata': doc.metadata,
+                    'source': doc.metadata.get('source', 'Unknown')
+                })
+            
+            # 2. Tambahkan hasil database
+            for table_name, db_result in db_results.items():
+                for record in db_result.data:
+                    # Hitung skor untuk record database berdasarkan kemiripan dengan search_terms
+                    record_text = ' '.join([str(v) for v in record.values()])
+                    score = self.calculate_text_match_score(record_text, search_terms)
+                    combined.append({
+                        'type': 'database',
+                        'content': record_text,
+                        'score': score,
+                        'metadata': {'table': table_name, 'record': record},
+                        'source': f'Database table: {table_name}'
+                    })
+            
+            # 3. Tambahkan hasil chat
+            for doc in chat_docs:
+                score = doc.metadata.get('similarity_score', 0)
+                combined.append({
+                    'type': 'chat',
+                    'content': doc.page_content,
+                    'score': score,
+                    'metadata': doc.metadata,
+                    'source': doc.metadata.get('source', 'Unknown')
+                })
+            
+            # Urutkan berdasarkan skor (descending)
+            combined.sort(key=lambda x: x['score'], reverse=True)
+            
+            return combined
+    #     def generate_hybrid_answer(
+    #         self, 
+    #         hybrid_results: Dict[str, Any], 
+    #         question: str,
+    #         llm_provider: Optional[str] = None,
+    #         llm_model: Optional[str] = None
+    #     ) -> Tuple[str, str]:
+    #         """
+    #         Generate answer combining both structured and unstructured data with relevance scoring.
+            
+    #         Returns: (answer_text, model_identifier)
+    #         """
+    #         # Get LLM based on request parameters or defaults
+    #         llm, model_id = self.get_llm(llm_provider, llm_model)
+            
+    #         pdf_docs = hybrid_results['pdf_documents']
+    #         db_results = hybrid_results['database_results']
+    #         target_tables = hybrid_results.get('target_tables', [])
+    #         chat_docs = hybrid_results.get('chat_documents', [])  # NEW
+
+    #         has_pdf_results = len(pdf_docs) > 0
+    #         has_db_results = len(db_results) > 0
+    #         has_chat_results = len(chat_docs) > 0  # NEW
+            
+    #         if not has_pdf_results and not has_db_results and not has_chat_results:
+    #             return "Maaf, tidak ditemukan informasi yang relevan dalam dokumen, database, maupun chat logs.", model_id
+
+    #         # Prepare context from all sources
+    #         context_parts = []
+
+    #         # Add PDF context with confidence scores
+    #         if has_pdf_results:
+    #             context_parts.append("INFORMASI DARI DOKUMEN:")
+    #             for i, doc in enumerate(pdf_docs[:3]): # limit to top 3 PDF results
+    #                 source = doc.metadata.get('source', 'Unknown')
+    #                 page = doc.metadata.get('page', 'Unknown')
+    #                 score = doc.metadata.get('similarity_score', 0)
+    #                 truncated_content = self.truncate_context(doc.page_content, max_tokens=150)
+    #                 context_parts.append(f"[Dokumen: {source}, Halaman: {page}, Relevansi: {score:.2f}]\n{truncated_content}\n")
+
+    #         # Add DB context with relevance scores
+    #         if has_db_results:
+    #             context_parts.append("INFORMASI DARI DATABASE:")
+                
+    #             for table_name, db_result in db_results.items():
+    #                 if db_result.record_count > 0:
+    #                     # Sort records by relevance_score if available
+    #                     sorted_records = sorted(
+    #                         db_result.data, 
+    #                         key=lambda x: x.get('relevance_score', 0), 
+    #                         reverse=True
+    #                     )
+                        
+    #                     context_parts.append(f"\nData dari tabel {table_name}:")
+    #                     for i, record in enumerate(sorted_records[:3]): # Limit to top 3 records
+    #                         # Filter out internal fields - cleaner format for LLM
+    #                         display_fields = {k: v for k, v in record.items() 
+    #                                          if not k.startswith('_') and k not in ['search_vector', 'relevance_score', 'created_at']}
+    #                         record_str = ", ".join(f"{k}: {v}" for k, v in list(display_fields.items())[:6])
+    #                         context_parts.append(f"• {record_str}")
+
+    #                     if db_result.record_count > 3:
+    #                         context_parts.append(f"(dan {db_result.record_count - 3} record lainnya)")
+
+    
+    #         if has_chat_results:
+    #             context_parts.append("\nINFORMASI DARI CHAT LOGS:")
+                
+    #             # Prioritize chunks that contain query keywords in content
+    #             question_lower = question.lower()
+    #             query_words = [w for w in question_lower.split() if len(w) > 2]
+                
+    #             # Re-sort chat docs by keyword relevance to answer the specific question
+    #             def keyword_priority(doc):
+    #                 content = doc.page_content.lower()
+    #                 matches = sum(1 for word in query_words if word in content)
+    #                 return (matches, doc.metadata.get('similarity_score', 0))
+                
+    #             sorted_chat_docs = sorted(chat_docs, key=keyword_priority, reverse=True)
+                
+    #             # Take top 5 chat results for more context
+    #             for i, doc in enumerate(sorted_chat_docs[:5]):
+    #                 source = doc.metadata.get('source', 'Unknown')
+    #                 platform = doc.metadata.get('platform', 'unknown')
+    #                 participants = doc.metadata.get('participants', '')
+    #                 score = doc.metadata.get('similarity_score', 0)
+    #                 time_start = doc.metadata.get('time_range_start', '')
+                    
+    #                 # Increase token limit for chat to capture more context
+    #                 truncated_content = self.truncate_context(doc.page_content, max_tokens=400)
+    #                 context_parts.append(f"[Sumber: {source}]")
+    #                 context_parts.append(f"{truncated_content}\n")
+
+    #         context = "\n".join(context_parts)
+    #         context = self.truncate_context(context, max_tokens=900)  # Increased for better chat context
+
+    #         # Extract main keyword from question for focused answering
+    #         question_lower = question.lower()
+    #         main_keyword = ""
+    #         for keyword in ['buyback cash', 'buyback debt switch', 'lelang', 'auction', 'settlement', 'lpdu', 'sbn', 'sun']:
+    #             if keyword in question_lower:
+    #                 main_keyword = keyword
+    #                 break
+            
+    #         # Improved prompt that focuses on the specific question
+    #         if main_keyword:
+    #             prompt_template = """Berikan definisi atau penjelasan tentang "{keyword}" berdasarkan konteks berikut.
+
+    # Konteks:
+    # {context}
+
+    # Pertanyaan: {question}
+
+    # Jawaban tentang {keyword}:"""
+    #             prompt = prompt_template.format(keyword=main_keyword, context=context, question=question)
+    #         else:
+    #             # Check if this is primarily a chat question
+    #             if has_chat_results and not has_pdf_results and not has_db_results:
+    #                 prompt_template = """Ekstrak informasi yang diminta dari percakapan chat berikut. Berikan jawaban yang spesifik dan langsung.
+
+    # Percakapan:
+    # {context}
+
+    # Pertanyaan: {question}
+
+    # Jawaban (langsung dan spesifik):"""
+    #             # Check if this is primarily a database question
+    #             elif has_db_results and not has_pdf_results:
+    #                 prompt_template = """Berdasarkan data berikut, jawab pertanyaan dengan format yang jelas dan informatif.
+
+    # Data:
+    # {context}
+
+    # Pertanyaan: {question}
+
+    # Jawaban:"""
+    #             else:
+    #                 prompt_template = """Jawab pertanyaan berikut berdasarkan konteks. Jawab dalam Bahasa Indonesia.
+
+    # Konteks:
+    # {context}
+
+    # Pertanyaan: {question}
+
+    # Jawaban:"""
+    #             prompt = prompt_template.format(context=context, question=question)
+            
+    #         logger.debug(f"Generated prompt length: {len(prompt)} chars, using model: {model_id}")
+
+    #         try:
+    #             result = llm.invoke(prompt)
+                
+    #             # Handle different response types (ChatOllama returns AIMessage, HuggingFace returns str)
+    #             if hasattr(result, 'content'):
+    #                 answer = result.content.strip()
+    #             else:
+    #                 answer = str(result).strip()
+                
+    #             # Validate answer - if it looks garbled, return fallback
+    #             if self._is_garbled_output(answer):
+    #                 logger.warning(f"Garbled output detected: {answer[:100]}")
+    #                 fallback = self._generate_fallback_answer(hybrid_results, question)
+    #                 return fallback, model_id
+                
+    #             return answer, model_id
+    #         except Exception as e:
+    #             logger.error(f"LLM generation failed: {str(e)}")
+    #             fallback = self._generate_fallback_answer(hybrid_results, question)
+    #             return fallback, model_id
+
+#     def generate_hybrid_answer(
+#         self, 
+#         hybrid_results: Dict[str, Any], 
+#         question: str,
+#         llm_provider: Optional[str] = None,
+#         llm_model: Optional[str] = None
+#     ) -> Tuple[str, str]:
+#         """
+#         Generate answer combining both structured and unstructured data with relevance scoring.
+        
+#         Returns: (answer_text, model_identifier)
+#         """
+#         # Get LLM based on request parameters or defaults
+#         llm, model_id = self.get_llm(llm_provider, llm_model)
+        
+#         pdf_docs = hybrid_results['pdf_documents']
+#         db_results = hybrid_results['database_results']
+#         target_tables = hybrid_results.get('target_tables', [])
+#         chat_docs = hybrid_results.get('chat_documents', [])  # NEW
+#         combined_results = hybrid_results.get('combined_results', [])  # Gabungan hasil
+        
+#         has_pdf_results = len(pdf_docs) > 0
+#         has_db_results = len(db_results) > 0
+#         has_chat_results = len(chat_docs) > 0  # NEW
+        
+#         if not has_pdf_results and not has_db_results and not has_chat_results:
+#             return "Maaf, tidak ditemukan informasi yang relevan dalam dokumen, database, maupun chat logs.", model_id
+
+#         # Siapkan konteks dari semua sumber yang sudah digabung dan diurutkan
+#         context_parts = []
+#         for i, result in enumerate(combined_results[:10]):  # Ambil 10 teratas
+#             source_type = result['type']
+#             source = result['source']
+#             content = result['content']
+#             score = result['score']
+            
+#             context_parts.append(f"[Sumber {i+1}: {source} ({source_type}), Skor Relevansi: {score:.3f}]\n{content}\n")
+        
+#         context = "\n".join(context_parts)
+#         context = self.truncate_context(context, max_tokens=900)  # Increased for better chat context
+
+#         # Prompt yang lebih baik untuk menggabungkan informasi
+#         prompt_template = """Anda adalah asisten yang membantu menjawab pertanyaan berdasarkan informasi dari berbagai sumber (PDF, database, chat). 
+# Informasi dari sumber-sumber tersebut diberikan di bawah ini, sudah diurutkan berdasarkan relevansi.
+
+# Konteks:
+# {context}
+
+# Pertanyaan: {question}
+
+# Instruksi:
+# 1. Jawablah pertanyaan dengan jelas dan singkat dalam Bahasa Indonesia.
+# 2. Jika informasi dari beberapa sumber bertentangan, utamakan sumber dengan skor relevansi tertinggi.
+# 3. Jika tidak ada informasi yang cukup, katakan bahwa Anda tidak tahu.
+# 4. Sebutkan sumber informasi yang Anda gunakan dalam jawaban (misalnya: menurut dokumen PDF, dari database, atau dari chat).
+
+# Jawaban:"""
+        
+#         prompt = prompt_template.format(context=context, question=question)
+        
+#         logger.debug(f"Generated prompt length: {len(prompt)} chars, using model: {model_id}")
+
+#         try:
+#             result = llm.invoke(prompt)
+            
+#             # Handle different response types (ChatOllama returns AIMessage, HuggingFace returns str)
+#             if hasattr(result, 'content'):
+#                 answer = result.content.strip()
+#             else:
+#                 answer = str(result).strip()
+            
+#             # Validasi jawaban
+#             if self._is_garbled_output(answer):
+#                 logger.warning(f"Garbled output detected: {answer[:100]}")
+#                 fallback = self._generate_fallback_answer(hybrid_results, question)
+#                 return fallback, model_id
+            
+#             return answer, model_id
+#         except Exception as e:
+#             logger.error(f"LLM generation failed: {str(e)}")
+#             fallback = self._generate_fallback_answer(hybrid_results, question)
+#             return fallback, model_id   
+    
+    # processor.py - perbaiki generate_hybrid_answer
     def generate_hybrid_answer(
         self, 
         hybrid_results: Dict[str, Any], 
         question: str,
         llm_provider: Optional[str] = None,
         llm_model: Optional[str] = None
-    ) -> Tuple[str, str]:
-        """
-        Generate answer combining both structured and unstructured data with relevance scoring.
+    ) -> Tuple[str, str, Dict[str, Any]]:
+        """Enhanced hybrid answer generation dengan conflict resolution"""
         
-        Returns: (answer_text, model_identifier)
-        """
-        # Get LLM based on request parameters or defaults
         llm, model_id = self.get_llm(llm_provider, llm_model)
         
-        pdf_docs = hybrid_results['pdf_documents']
-        db_results = hybrid_results['database_results']
-        target_tables = hybrid_results.get('target_tables', [])
-        chat_docs = hybrid_results.get('chat_documents', [])  # NEW
-
-        has_pdf_results = len(pdf_docs) > 0
-        has_db_results = len(db_results) > 0
-        has_chat_results = len(chat_docs) > 0  # NEW
+        intent_analysis = hybrid_results.get('search_analysis', {}).get('intent', {})
+        merged_results = hybrid_results.get('merged_results', [])
+        conflicts = hybrid_results.get('has_conflicts', [])
         
-        if not has_pdf_results and not has_db_results and not has_chat_results:
-            return "Maaf, tidak ditemukan informasi yang relevan dalam dokumen, database, maupun chat logs.", model_id
-
-        # Prepare context from all sources
-        context_parts = []
-
-        # Add PDF context with confidence scores
-        if has_pdf_results:
-            context_parts.append("INFORMASI DARI DOKUMEN:")
-            for i, doc in enumerate(pdf_docs[:3]): # limit to top 3 PDF results
-                source = doc.metadata.get('source', 'Unknown')
-                page = doc.metadata.get('page', 'Unknown')
-                score = doc.metadata.get('similarity_score', 0)
-                truncated_content = self.truncate_context(doc.page_content, max_tokens=150)
-                context_parts.append(f"[Dokumen: {source}, Halaman: {page}, Relevansi: {score:.2f}]\n{truncated_content}\n")
-
-        # Add DB context with relevance scores
-        if has_db_results:
-            context_parts.append("INFORMASI DARI DATABASE:")
-            
-            for table_name, db_result in db_results.items():
-                if db_result.record_count > 0:
-                    # Sort records by relevance_score if available
-                    sorted_records = sorted(
-                        db_result.data, 
-                        key=lambda x: x.get('relevance_score', 0), 
-                        reverse=True
-                    )
-                    
-                    context_parts.append(f"\nData dari tabel {table_name}:")
-                    for i, record in enumerate(sorted_records[:3]): # Limit to top 3 records
-                        # Filter out internal fields - cleaner format for LLM
-                        display_fields = {k: v for k, v in record.items() 
-                                         if not k.startswith('_') and k not in ['search_vector', 'relevance_score', 'created_at']}
-                        record_str = ", ".join(f"{k}: {v}" for k, v in list(display_fields.items())[:6])
-                        context_parts.append(f"• {record_str}")
-
-                    if db_result.record_count > 3:
-                        context_parts.append(f"(dan {db_result.record_count - 3} record lainnya)")
-
-   
-        if has_chat_results:
-            context_parts.append("\nINFORMASI DARI CHAT LOGS:")
-            
-            # Prioritize chunks that contain query keywords in content
-            question_lower = question.lower()
-            query_words = [w for w in question_lower.split() if len(w) > 2]
-            
-            # Re-sort chat docs by keyword relevance to answer the specific question
-            def keyword_priority(doc):
-                content = doc.page_content.lower()
-                matches = sum(1 for word in query_words if word in content)
-                return (matches, doc.metadata.get('similarity_score', 0))
-            
-            sorted_chat_docs = sorted(chat_docs, key=keyword_priority, reverse=True)
-            
-            # Take top 5 chat results for more context
-            for i, doc in enumerate(sorted_chat_docs[:5]):
-                source = doc.metadata.get('source', 'Unknown')
-                platform = doc.metadata.get('platform', 'unknown')
-                participants = doc.metadata.get('participants', '')
-                score = doc.metadata.get('similarity_score', 0)
-                time_start = doc.metadata.get('time_range_start', '')
-                
-                # Increase token limit for chat to capture more context
-                truncated_content = self.truncate_context(doc.page_content, max_tokens=400)
-                context_parts.append(f"[Sumber: {source}]")
-                context_parts.append(f"{truncated_content}\n")
-
-        context = "\n".join(context_parts)
-        context = self.truncate_context(context, max_tokens=900)  # Increased for better chat context
-
-        # Extract main keyword from question for focused answering
+        # Check if we have chat or DB results with good info - prioritize them over PDF
         question_lower = question.lower()
-        main_keyword = ""
-        for keyword in ['buyback cash', 'buyback debt switch', 'lelang', 'auction', 'settlement', 'lpdu', 'sbn', 'sun']:
-            if keyword in question_lower:
-                main_keyword = keyword
-                break
+        is_person_query = any(kw in question_lower for kw in ['siapa', 'who', 'handle', 'yang', 'contact'])
         
-        # Improved prompt that focuses on the specific question
-        if main_keyword:
-            prompt_template = """Berikan definisi atau penjelasan tentang "{keyword}" berdasarkan konteks berikut.
-
-Konteks:
-{context}
-
-Pertanyaan: {question}
-
-Jawaban tentang {keyword}:"""
-            prompt = prompt_template.format(keyword=main_keyword, context=context, question=question)
+        # For person queries, prioritize chat and DB results
+        if is_person_query and merged_results:
+            # Reorder results to prioritize chat and db
+            chat_results = [r for r in merged_results if r['type'] == 'chat']
+            db_results = [r for r in merged_results if r['type'] == 'database']
+            pdf_results = [r for r in merged_results if r['type'] == 'pdf']
+            merged_results = chat_results + db_results + pdf_results
+        
+        # Check if confidence is too low and no chat/db results - use direct extraction
+        if merged_results and merged_results[0]['confidence'] < 0.25:
+            if merged_results[0]['type'] == 'pdf' and not any(r['type'] in ['chat', 'database'] for r in merged_results[:3]):
+                logger.warning(f"Low confidence ({merged_results[0]['confidence']:.2%}), using direct extraction")
+                return self._extract_direct_answer(merged_results[0], question), model_id, {
+                    "intent": "direct_extraction",
+                    "sources_used": {"pdf": 1, "database": 0, "chat": 0},
+                    "top_confidence": merged_results[0]['confidence'],
+                    "conflicts_detected": False,
+                    "extraction_method": "direct"
+                }
+        
+        # Prepare context dengan prioritization - SHORTER for small models
+        context_parts = []
+        source_breakdown = {"pdf": 0, "database": 0, "chat": 0}
+        
+        # Limit to top 3 results and shorter snippets for small models
+        max_results = 3 if 'flan-t5' in model_id.lower() else 5
+        max_content_len = 150 if 'flan-t5' in model_id.lower() else 300
+        
+        for i, result in enumerate(merged_results[:max_results]):
+            source_type = result['type']
+            source_breakdown[source_type] += 1
+            
+            # Extract most relevant part around keywords
+            content_snippet = self._extract_relevant_snippet(result['content'], question)
+            
+            # Truncate if too long based on model
+            if len(content_snippet) > max_content_len:
+                content_snippet = content_snippet[:max_content_len] + "..."
+            
+            context_parts.append(
+                f"[{i+1}] {result['source']}: {content_snippet}"
+            )
+        
+        context = "\n\n".join(context_parts)
+        
+        # Build enhanced prompt berdasarkan intent
+        if intent_analysis.get('is_aggregation'):
+            prompt = self._build_aggregation_prompt(context, question, conflicts)
+        elif intent_analysis.get('is_comparison'):
+            prompt = self._build_comparison_prompt(context, question, conflicts)
+        elif intent_analysis.get('is_explanation'):
+            prompt = self._build_explanation_prompt(context, question, conflicts)
         else:
-            # Check if this is primarily a chat question
-            if has_chat_results and not has_pdf_results and not has_db_results:
-                prompt_template = """Ekstrak informasi yang diminta dari percakapan chat berikut. Berikan jawaban yang spesifik dan langsung.
-
-Percakapan:
-{context}
-
-Pertanyaan: {question}
-
-Jawaban (langsung dan spesifik):"""
-            # Check if this is primarily a database question
-            elif has_db_results and not has_pdf_results:
-                prompt_template = """Berdasarkan data berikut, jawab pertanyaan dengan format yang jelas dan informatif.
-
-Data:
-{context}
-
-Pertanyaan: {question}
-
-Jawaban:"""
-            else:
-                prompt_template = """Jawab pertanyaan berikut berdasarkan konteks. Jawab dalam Bahasa Indonesia.
-
-Konteks:
-{context}
-
-Pertanyaan: {question}
-
-Jawaban:"""
-            prompt = prompt_template.format(context=context, question=question)
+            prompt = self._build_general_prompt(context, question, conflicts, source_breakdown)
         
-        logger.debug(f"Generated prompt length: {len(prompt)} chars, using model: {model_id}")
-
         try:
             result = llm.invoke(prompt)
+            answer = result.content.strip() if hasattr(result, 'content') else str(result).strip()
             
-            # Handle different response types (ChatOllama returns AIMessage, HuggingFace returns str)
-            if hasattr(result, 'content'):
-                answer = result.content.strip()
-            else:
-                answer = str(result).strip()
+            # Validasi dan post-processing
+            answer = self._validate_and_clean_answer(answer, question, merged_results)
             
-            # Validate answer - if it looks garbled, return fallback
-            if self._is_garbled_output(answer):
-                logger.warning(f"Garbled output detected: {answer[:100]}")
-                fallback = self._generate_fallback_answer(hybrid_results, question)
-                return fallback, model_id
+            # Generate metadata untuk response
+            answer_metadata = {
+                "intent": intent_analysis.get('primary_intent', 'unknown'),
+                "sources_used": source_breakdown,
+                "top_confidence": merged_results[0]['confidence'] if merged_results else 0,
+                "conflicts_detected": len(conflicts) > 0,
+                "conflict_details": conflicts if conflicts else None
+            }
             
-            return answer, model_id
+            return answer, model_id, answer_metadata
+            
         except Exception as e:
-            logger.error(f"LLM generation failed: {str(e)}")
-            fallback = self._generate_fallback_answer(hybrid_results, question)
-            return fallback, model_id
+            logger.error(f"LLM generation failed: {e}")
+            return self._generate_fallback_answer(hybrid_results, question), model_id, {"error": str(e)}
+
+    def _build_aggregation_prompt(self, context: str, question: str, conflicts: List) -> str:
+        """Build prompt untuk aggregation queries"""
+        conflict_note = ""
+        if conflicts:
+            conflict_note = "\nPERHATIAN: Ditemukan perbedaan data antara sumber. Gunakan sumber database sebagai referensi utama."
+        
+        return f"""Anda adalah asisten analisis data. Hitung dan berikan jawaban numerik berdasarkan data berikut.
+
+    DATA YANG TERSEDIA (sudah diurutkan berdasarkan kepercayaan):
+    {context}
+
+    PERTANYAAN: {question}
+    {conflict_note}
+
+    PETUNJUK:
+    1. Hitung nilai yang diminta (total, rata-rata, jumlah, dll)
+    2. Gunakan format: "Berdasarkan data dari [sumber], [jawaban numerik]"
+    3. Jika ada perbedaan data, sebutkan perbedaan tersebut
+    4. Sertakan satuan jika relevan (Rp, unit, orang, dll)
+    5. Berikan jawaban dalam Bahasa Indonesia
+
+    JAWABAN:"""
+
+    def _build_general_prompt(self, context: str, question: str, conflicts: List, source_breakdown: Dict) -> str:
+        """Build prompt untuk general queries - optimized for small models"""
+        
+        return f"""Jawab pertanyaan berdasarkan informasi berikut:
+
+{context}
+
+Pertanyaan: {question}
+
+Jawab dengan ringkas dan jelas dalam Bahasa Indonesia. Sebutkan sumber jika relevan.
+
+Jawaban:"""
+
+    def _build_comparison_prompt(self, context: str, question: str, conflicts: List) -> str:
+        """Build prompt untuk comparison queries"""
+        return f"""Anda adalah asisten analisis yang membantu membandingkan data.
+
+DATA YANG TERSEDIA:
+{context}
+
+PERTANYAAN: {question}
+
+INSTRUKSI:
+1. Bandingkan data yang diminta
+2. Highlight perbedaan utama
+3. Gunakan format tabel atau bullet points jika sesuai
+4. Berikan kesimpulan singkat
+5. Jawab dalam Bahasa Indonesia
+
+JAWABAN:"""
+
+    def _build_explanation_prompt(self, context: str, question: str, conflicts: List) -> str:
+        """Build prompt untuk explanation queries"""
+        return f"""Anda adalah asisten yang menjelaskan informasi dengan detail.
+
+INFORMASI YANG TERSEDIA:
+{context}
+
+PERTANYAAN: {question}
+
+INSTRUKSI:
+1. Jelaskan konsep atau informasi dengan detail
+2. Gunakan bahasa yang mudah dipahami
+3. Berikan contoh jika relevan
+4. Struktur penjelasan dengan baik (gunakan poin-poin jika perlu)
+5. Jawab dalam Bahasa Indonesia
+
+JAWABAN:"""
+
+    def _validate_and_clean_answer(self, answer: str, question: str, results: List[Dict]) -> str:
+        """Validate dan clean LLM answer"""
+        
+        # Check for common LLM failure patterns
+        failure_patterns = [
+            "maaf,", "tidak tahu", "tidak menemukan", "no information",
+            "based on the context", "context:", "question:", "answer:"
+        ]
+        
+        if any(pattern in answer.lower() for pattern in failure_patterns):
+            # Generate answer from best result
+            if results:
+                best_result = results[0]
+                return self._format_result_as_answer(best_result, question)
+        
+        # Ensure answer is not too short
+        if len(answer.split()) < 5:
+            if results:
+                best_result = results[0]
+                return f"Informasi dari {best_result['source']}:\n{best_result['content'][:200]}"
+        
+        return answer
+
+    def _format_result_as_answer(self, result: Dict, question: str) -> str:
+        """Format single result as answer"""
+        source = result['source']
+        confidence = result['confidence']
+        
+        if result['type'] == 'database':
+            # Format database record
+            return f"Berdasarkan data dari {source} (akurasi: {confidence:.0%}):\n\n{result['content']}"
+        elif result['type'] == 'pdf':
+            return f"Informasi dari dokumen {source} (relevansi: {confidence:.0%}):\n\n{result['content'][:300]}..."
+        else:
+            return f"Dari {source}:\n\n{result['content'][:300]}..."
     
+    def _extract_relevant_snippet(self, content: str, question: str) -> str:
+        """Extract most relevant part of content based on question keywords"""
+        # Get question keywords
+        question_lower = question.lower()
+        keywords = [w for w in question_lower.split() if len(w) > 2]
+        
+        # Add special keywords for person queries
+        if any(kw in question_lower for kw in ['siapa', 'who', 'handle']):
+            # Extract names (capitalized words, likely person names)
+            import re
+            name_pattern = r'\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*\b'
+            names = re.findall(name_pattern, content)
+            if names:
+                # Return sentences containing names
+                for name in names[:3]:  # Top 3 names
+                    for sent in content.split('.'):
+                        if name in sent:
+                            return sent.strip()[:300]
+        
+        # Default max length for snippets
+        max_len = 250
+        
+        # For chat content, extract lines with keywords
+        if '[' in content and ']' in content:  # Chat format detection
+            lines = content.split('\n')
+            best_lines = []
+            for line in lines:
+                line_lower = line.lower()
+                score = sum(1 for kw in keywords if kw in line_lower)
+                if score > 0:
+                    best_lines.append((score, line))
+            
+            if best_lines:
+                best_lines.sort(reverse=True, key=lambda x: x[0])
+                return '\n'.join([line for _, line in best_lines[:3]])
+        
+        # Split content into sentences
+        sentences = content.split('.')
+        
+        # Score each sentence based on keyword matches
+        best_sentence = ""
+        best_score = 0
+        
+        for sentence in sentences:
+            sentence_lower = sentence.lower()
+            score = sum(1 for kw in keywords if kw in sentence_lower)
+            if score > best_score:
+                best_score = score
+                best_sentence = sentence.strip()
+        
+        # If found relevant sentence, return it with context
+        if best_sentence and best_score > 0:
+            # Find position in original text
+            start_idx = content.find(best_sentence)
+            if start_idx >= 0:
+                # Get some context before and after
+                context_start = max(0, start_idx - 100)
+                context_end = min(len(content), start_idx + len(best_sentence) + 100)
+                snippet = content[context_start:context_end].strip()
+                if len(snippet) > max_len:
+                    snippet = snippet[:max_len] + "..."
+                return snippet
+        
+        # Fallback to first N characters
+        return content[:max_len] + ("..." if len(content) > max_len else "")
+    
+    def _extract_direct_answer(self, result: Dict, question: str) -> str:
+        """Extract direct answer from result for factoid questions"""
+        content = result['content']
+        source = result['source']
+        
+        # Try to find phone numbers
+        phone_pattern = r'(\+?62[-\s]?\d{3}[-\s]?\d{4}[-\s]?\d{4}|\d{4}|ext\.\s*\d+)'
+        phones = re.findall(phone_pattern, content, re.IGNORECASE)
+        
+        # Try to find emails
+        email_pattern = r'[\w\.-]+@[\w\.-]+'
+        emails = re.findall(email_pattern, content)
+        
+        # Detect question type
+        question_lower = question.lower()
+        
+        if 'nomor' in question_lower or 'telepon' in question_lower or 'hp' in question_lower or 'kontak' in question_lower:
+            if phones:
+                phone_list = ", ".join(set(phones))
+                return f"Berdasarkan {source}:\n\n{phone_list}\n\nKontak lengkap: {content[:200]}..."
+        
+        if 'email' in question_lower:
+            if emails:
+                email_list = ", ".join(set(emails))
+                return f"Berdasarkan {source}:\n\nEmail: {email_list}"
+        
+        # Fallback: return relevant snippet
+        snippet = self._extract_relevant_snippet(content, question)
+        return f"Berdasarkan {source}:\n\n{snippet}"
+        
     def _is_garbled_output(self, text: str) -> bool:
         """Check if output looks garbled/reversed or unhelpful"""
         if not text or len(text) < 10:

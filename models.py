@@ -188,3 +188,18 @@ class ChatSearchResult(BaseModel):
     message: ChatMessage
     relevance_score: float
     context_messages: Optional[List[ChatMessage]] = None  # Surrounding messages for context
+
+# models.py - tambahkan enhanced response model
+class EnhancedHybridResponse(BaseModel):
+    answer: str
+    answer_metadata: Dict[str, Any]
+    pdf_sources: List[str]
+    pdf_sources_detailed: Optional[List[PdfSourceInfo]] = None
+    db_results: Dict[str, Any]
+    chat_results: Optional[List[Dict[str, Any]]] = None
+    processing_time: float
+    search_analysis: Dict[str, Any]
+    merged_results_preview: Optional[List[Dict[str, Any]]] = None
+    conflicts: Optional[List[Dict[str, Any]]] = None
+    model_used: str
+    confidence_score: float  # Overall confidence 0-1

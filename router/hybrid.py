@@ -7,7 +7,7 @@ from typing import List, Optional
 
 from processor import processor
 from config import config, AVAILABLE_MODELS, LLMProvider
-from models import HybridQueryRequest, HybridResponse, QueryRequest, SearchType, PdfSourceInfo
+from models import EnhancedHybridResponse, HybridQueryRequest, HybridResponse, QueryRequest, SearchType, PdfSourceInfo
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -296,3 +296,141 @@ async def get_table_sample(table_name: str, limit: int = 5):
             status_code=500,
             detail="Terjadi kesalahan saat mengambil data sampel dari tabel"
         )
+    
+# router/hybrid.py - update endpoint
+@router.post('/query/hybrid/enhanced', response_model=EnhancedHybridResponse)
+async def enhanced_hybrid_query(request: HybridQueryRequest, req: Request):
+    """Enhanced hybrid query dengan aggregasi yang lebih baik"""
+    start_time = datetime.now()
+    
+    try:
+        # Perform enhanced hybrid search
+        hybrid_results = await asyncio.to_thread(
+            processor.hybrid_search, 
+            request.question, 
+            request.pdf_collection_ids,
+            request.include_chat_results,
+            request.include_pdf_results,
+            request.include_db_results,
+            request.chat_collection_ids
+        )
+        
+        # Generate answer dengan metadata
+        answer_result = await asyncio.to_thread(
+            processor.generate_hybrid_answer,
+            hybrid_results,
+            request.question,
+            request.llm_provider,
+            request.llm_model
+        )
+        
+        # Unpack result safely
+        if isinstance(answer_result, tuple) and len(answer_result) == 3:
+            answer, model_used, answer_metadata = answer_result
+        else:
+            # Fallback if format unexpected
+            answer = str(answer_result)
+            model_used = request.llm_model or config.model_name
+            answer_metadata = {}
+        
+        # Extract PDF sources with detailed snippets
+        pdf_sources = []
+        pdf_sources_detailed = []
+        pdf_docs = hybrid_results.get('pdf_documents', [])
+        for doc in pdf_docs:
+            # doc is a Document object with .metadata attribute
+            if hasattr(doc, 'metadata'):
+                source = doc.metadata.get('source', 'Unknown')
+                collection_id = doc.metadata.get('collection_id', '')
+                similarity_score = doc.metadata.get('similarity_score', 0)
+                
+                # Extract relevant snippet (first 300 chars)
+                content_preview = doc.page_content[:300] if hasattr(doc, 'page_content') else ""
+                
+                # Parse page number (handle both int and string)
+                page_value = doc.metadata.get('page', None)
+                if page_value is not None:
+                    try:
+                        page_num = int(page_value) if not isinstance(page_value, int) else page_value
+                    except (ValueError, TypeError):
+                        page_num = None
+                else:
+                    page_num = None
+                
+                # Create PdfSourceInfo object
+                pdf_source_info = PdfSourceInfo(
+                    file_name=source,
+                    collection_id=collection_id,
+                    page=page_num,
+                    relevance_score=similarity_score,
+                    content_preview=content_preview
+                )
+                pdf_sources_detailed.append(pdf_source_info)
+            else:
+                source = 'Unknown'
+            
+            if source not in pdf_sources:
+                pdf_sources.append(source)
+        
+        # Calculate overall confidence
+        merged_results = hybrid_results.get('merged_results', [])
+        overall_confidence = 0
+        if merged_results:
+            overall_confidence = sum(r.get('confidence', 0) for r in merged_results[:3]) / min(3, len(merged_results))
+        
+        # Convert chat documents to dictionaries with UI-friendly format
+        chat_docs = hybrid_results.get('chat_documents', [])
+        chat_results = []
+        for doc in chat_docs:
+            if hasattr(doc, 'page_content') and hasattr(doc, 'metadata'):
+                metadata = doc.metadata
+                # Format for UI display
+                chat_result = {
+                    'source': metadata.get('source', 'Unknown'),
+                    'platform': metadata.get('platform', 'chat'),
+                    'relevance_score': metadata.get('similarity_score', 0),
+                    'content_preview': doc.page_content[:500],  # First 500 chars for preview
+                    'participants': metadata.get('participants', ''),
+                    'time_range_start': metadata.get('time_range_start', ''),
+                    'time_range_end': metadata.get('time_range_end', ''),
+                    'message_count': metadata.get('message_count', 0)
+                }
+                chat_results.append(chat_result)
+            elif isinstance(doc, dict):
+                # If already dict, ensure UI fields exist
+                if 'content' in doc and 'metadata' in doc:
+                    metadata = doc['metadata']
+                    chat_result = {
+                        'source': metadata.get('source', 'Unknown'),
+                        'platform': metadata.get('platform', 'chat'),
+                        'relevance_score': metadata.get('similarity_score', 0),
+                        'content_preview': doc['content'][:500],
+                        'participants': metadata.get('participants', ''),
+                        'time_range_start': metadata.get('time_range_start', ''),
+                        'time_range_end': metadata.get('time_range_end', ''),
+                        'message_count': metadata.get('message_count', 0)
+                    }
+                    chat_results.append(chat_result)
+                else:
+                    chat_results.append(doc)
+        
+        processing_time = (datetime.now() - start_time).total_seconds()
+        
+        return EnhancedHybridResponse(
+            answer=answer or "Tidak dapat menghasilkan jawaban.",
+            answer_metadata=answer_metadata or {},
+            pdf_sources=pdf_sources,
+            pdf_sources_detailed=pdf_sources_detailed,
+            db_results=hybrid_results.get('database_results', {}),
+            chat_results=chat_results,
+            processing_time=processing_time,
+            search_analysis=hybrid_results.get('search_analysis', {}),
+            merged_results_preview=merged_results[:5],
+            conflicts=hybrid_results.get('conflicts', []),
+            model_used=model_used or "unknown",
+            confidence_score=overall_confidence
+        )
+        
+    except Exception as e:
+        logger.error(f"Enhanced hybrid query failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Query failed: {str(e)}")
