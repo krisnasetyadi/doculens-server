@@ -203,9 +203,9 @@ $$KTE = \frac{\text{Answer Faithfulness} + \text{Answer Completeness}}{2}$$
 
 **Metrik Komposit 2 — Multi-Source Retrieval Score (MSRS)**
 
-$$MSRS = \frac{\text{Precision@K} + \text{Context Coverage} \times K}{2}$$
+$$MSRS = \frac{\text{Precision@K} + \text{Context Coverage}}{2}$$
 
-*Mengapa diperlukan:* Menjawab pertanyaan *"apakah klaim multi-sumber terbukti secara retrieval?"* Sistem yang hanya menarik dari satu file akan mendapat Context Coverage rendah meskipun Precision@K-nya tinggi. MSRS menggabungkan dua sinyal: **ketepatan** (Precision@K) dan **keberagaman sumber** (Context Coverage) — memastikan sistem benar-benar mengambil konteks dari banyak sumber, bukan hanya satu dokumen dominan. Ini mengaplikasikan prinsip diversity dalam Information Retrieval (Carbonell & Goldstein, 1998) ke konteks multi-source RAG.
+*Mengapa diperlukan:* Menjawab pertanyaan *"apakah klaim multi-sumber terbukti secara retrieval?"* Sistem yang hanya menarik dari satu file akan mendapat Context Coverage rendah meskipun Precision@K-nya tinggi. MSRS menggabungkan dua sinyal: **ketepatan** (Precision@K) dan **keberagaman sumber** (Context Coverage) — memastikan sistem benar-benar mengambil konteks dari banyak sumber, bukan hanya satu dokumen dominan. Kedua komponen berada dalam rentang [0,1] sehingga MSRS juga dalam [0,1]. Ini mengaplikasikan prinsip diversity dalam Information Retrieval (Carbonell & Goldstein, 1998) ke konteks multi-source RAG.
 
 **Metrik Komposit 3 — Answer Quality Index (AQI)**
 
@@ -264,7 +264,7 @@ Untuk membuktikan klaim judul "Multi-Sumber" dan mengukur efektivitas transfer p
 | Skenario | Adapter | Format | n | Faithfulness | Completeness | ROUGE-L | P@K | MRR | Overall | **KTE** | **MSRS** | **AQI** |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
 | A — Folder PDF/DOCX | FolderSourceAdapter | PDF, DOCX | 5 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | **[TBD]** | **[TBD]** | **[TBD]** |
-| B — PostgreSQL | PostgreSQLAdapter | SQL (5 tabel) | 6 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | **[TBD]** | **[TBD]** | **[TBD]** |
+| B — PostgreSQL | PostgreSQLAdapter | SQL (5 tabel) | 5 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | **[TBD]** | **[TBD]** | **[TBD]** |
 | C — Log Chat TXT | FolderSourceAdapter | TXT mixed | 5 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | **[TBD]** | **[TBD]** | **[TBD]** |
 
 *Catatan: [TBD] diisi dari output notebook Section 9 setelah dijalankan.*
