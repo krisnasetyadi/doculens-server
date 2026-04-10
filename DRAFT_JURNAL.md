@@ -30,7 +30,7 @@ Organisasi modern menghadapi tantangan dalam mengelola pengetahuan yang tersebar
 
 ## ABSTRACT
 
-Modern organizations face challenges in managing knowledge dispersed across heterogeneous sources—unstructured documents (PDF, DOCX, TXT) and relational databases—which hinders knowledge transfer and decision-making. This study develops a Question Answering (QA) system based on Retrieval-Augmented Generation (RAG) that is agnostic to the data source, meaning the system only requires a single `source` parameter to automatically detect and handle various source types. The system integrates two main adapters: `FolderSourceAdapter` for unstructured sources (PDF, DOCX, TXT, MD, LOG) and `PostgreSQLAdapter` for relational databases. FAISS vector indices are built in real-time upon query arrival, without pre-computation to disk. Evaluation is conducted using eight quantitative metrics: Retrieval Relevance, Answer Faithfulness, Answer Completeness, ROUGE-L, BLEU-1, Precision@K, MRR, and Context Coverage. Experimental results on procurement document-based queries show Precision@K = 1.00 and MRR = 1.00, demonstrating that the retrieval component performs excellently. This system offers a scalable, metrically transparent architecture ready for implementation to support organizational knowledge transfer needs.
+Modern organizations face challenges in managing knowledge dispersed across heterogeneous sources—unstructured documents (PDF, DOCX, TXT) and relational databases—which hinders knowledge transfer and decision-making. This study develops a Question Answering (QA) system based on Retrieval-Augmented Generation (RAG) that is agnostic to the data source, meaning the system only requires a single `source` parameter to automatically detect and handle various source types. The system integrates two main adapters: `FolderSourceAdapter` for unstructured sources (PDF, DOCX, TXT, MD, LOG) and `PostgreSQLAdapter` for relational databases. FAISS vector indices are built in real-time upon query arrival, without pre-computation to disk. Evaluation is conducted using eight quantitative metrics plus a composite metric, Knowledge Transfer Effectiveness (KTE = average of Faithfulness and Completeness), as a proxy for knowledge transfer efficacy. Experiments cover three multi-source scenarios: (A) procurement PDF/DOCX documents, (B) PostgreSQL with five interrelated tables including cross-table JOIN queries, and (C) a combination of formal financial reports and analyst discussion logs (multi-format unstructured). Results on Scenario A show Precision@K = 1.00 and MRR = 1.00, demonstrating excellent retrieval performance. Evaluation across all three scenarios proves the system's capability in handling three organizational knowledge transfer dimensions: Explicit→Actionable, Structured→Contextual, and Tacit→Explicit. This system offers a scalable, metrically transparent architecture ready for implementation to support organizational knowledge transfer needs.
 
 **Keywords:** Question Answering, Retrieval-Augmented Generation, Multi-Source, FAISS, Knowledge Transfer, Agnostic Source
 
@@ -93,6 +93,8 @@ Evaluasi menggunakan tiga dataset yang merepresentasikan tipe sumber berbeda, di
 | `analyst_notes` | 3 catatan analisis AADI | Reza, Dian, Andika (dari hasil diskusi) |
 
 Cross-link kunci: `analyst_notes.analyst_id → user_profiles.id` dan `analyst_notes.ticker → company_watchlist.ticker`. Pertanyaan mencakup: *single-table* (baseline) hingga *three-table JOIN* (jabatan analis + catatan + data keuangan).
+
+*Catatan: Data pada Dataset B bersifat sintetis, dirancang khusus untuk merepresentasikan skenario nyata tim equity research di perusahaan sekuritas. Seluruh nama, angka, dan transaksi merupakan data rekayasa untuk keperluan evaluasi dan tidak merepresentasikan entitas atau kejadian nyata.*
 
 **Dataset C — Laporan Keuangan Resmi + Log Chat Analis (Unstructured, Multi-format):** Dua file `.txt` yang digabung dalam satu folder (`data/uploads_adaro_mixed/`):
 
@@ -269,7 +271,7 @@ Untuk membuktikan klaim judul "Multi-Sumber" dan mengukur efektivitas transfer p
 
 *Catatan: [TBD] diisi dari output notebook Section 9 setelah dijalankan.*
 *KTE = (Faithfulness + Completeness) / 2 — efektivitas transfer pengetahuan.*
-*MSRS = (Precision@K + Context Coverage × K) / 2 — bukti klaim multi-sumber.*
+*MSRS = (Precision@K + Context Coverage) / 2 — bukti klaim multi-sumber, keduanya dalam rentang [0,1].*
 *AQI = (Faithfulness + Completeness + ROUGE-L) / 3 — kualitas linguistik jawaban.*
 
 **Tabel 9.** Sub-Analisis Skenario C — Efektivitas Retrieval Lintas Tipe Pertanyaan
@@ -380,11 +382,11 @@ Penelitian ini berhasil mengembangkan sistem RAG agnostic multi-sumber yang meme
 
 2. **Realtime indexing terbukti benar** — Setiap pemanggilan `pipeline.ask()` membangun indeks FAISS secara in-memory sehingga perubahan konten di sumber langsung tercermin dalam hasil retrieval tanpa restart sistem. Tidak ada file index yang tersimpan di disk.
 
-3. **Multi-sumber terbukti secara eksperimen** — Evaluasi batch 16 pertanyaan pada tiga skenario (Folder PDF/DOCX, PostgreSQL 5 tabel, TXT multi-format) membuktikan bahwa sistem mampu menangani tipe sumber heterogen dari satu parameter `source`. Skenario C membuktikan kemampuan retrieval lintas file dalam satu sesi, termasuk pertanyaan cross-source yang membutuhkan konteks dari dua file berbeda.
+3. **Multi-sumber terbukti secara eksperimen** — Evaluasi batch pada tiga skenario (Folder PDF/DOCX, PostgreSQL 5 tabel, TXT multi-format) membuktikan bahwa sistem mampu menangani tipe sumber heterogen dari satu parameter `source`. Skenario C membuktikan kemampuan retrieval lintas file dalam satu sesi, termasuk pertanyaan cross-source yang membutuhkan konteks dari dua file berbeda.
 
 4. **Efektivitas transfer pengetahuan terukur via KTE** — Metrik KTE (Knowledge Transfer Effectiveness) mengukur tiga dimensi transfer pengetahuan: (A) *Explicit → Actionable* dari dokumen formal, (B) *Structured → Contextual* dari basis data relasional, dan (C) *Tacit → Explicit* dari log percakapan informal — sesuai kerangka Nonaka & Takeuchi [3]. Sistem terbukti mampu mengeksplisitkan pengetahuan dari ketiga tipe sumber tersebut.
 
-3. **Evaluasi multi-dimensi terukur** — Framework 8 metrik mengungkap bahwa komponen retrieval bekerja sangat baik (P@K = 1.00, MRR = 1.00, similarity score 0.468–0.534). Perbandingan Gemini 2.5-flash (Overall = 0.36) vs flan-t5-base (Overall = 0.13) membuktikan bahwa arsitektur modular memungkinkan peningkatan kualitas output melalui penggantian satu komponen tanpa memengaruhi komponen lainnya.
+5. **Evaluasi multi-dimensi terukur** — Framework 8 metrik mengungkap bahwa komponen retrieval bekerja sangat baik (P@K = 1.00, MRR = 1.00, similarity score 0.468–0.534). Perbandingan Gemini 2.5-flash (Overall = 0.36) vs flan-t5-base (Overall = 0.13) membuktikan bahwa arsitektur modular memungkinkan peningkatan kualitas output melalui penggantian satu komponen tanpa memengaruhi komponen lainnya.
 
 Kontribusi utama penelitian adalah desain pola Adapter yang memisahkan concerns antara sumber data, pemrosesan teks, retrieval, dan generasi — menjadikan setiap komponen dapat diganti atau diperluas secara independen. Framework evaluasi 8 metrik yang diimplementasikan bebas-dependensi (tanpa library RAGAS) dapat direplikasi di lingkungan terbatas resource.
 
@@ -394,13 +396,13 @@ Untuk penelitian selanjutnya, disarankan: (1) evaluasi batch dengan minimal 20 p
 
 ## 5. DAFTAR PUSTAKA
 
-[1] IDC. (2023). *90% of Data is Unstructured and Its Full of Untapped Value*.
+[1] IDC. (2023). *90% of Data is Unstructured and Its Full of Untapped Value*. IDC Blog. Retrieved from https://blogs.idc.com/2023/05/09/90-of-data-is-unstructured-and-its-full-of-untapped-value/ (accessed April 10, 2026).
 
 [2] Davenport, T. H., & Prusak, L. (1998). *Working Knowledge: How Organizations Manage What They Know*. Harvard Business School Press.
 
 [3] Nonaka, I., & Takeuchi, H. (1995). *The Knowledge-Creating Company*. Oxford University Press.
 
-[4] Gartner. (2020). *Time Management through Enterprise Search*.
+[4] Gartner. (2020). *Employees Spend Too Much Time on Low-Value Tasks: Use AI and Automation to Fix It*. Gartner Research. Retrieved from https://www.gartner.com/en/newsroom/press-releases/2020-01-23-gartner-says-employees-spend-too-much-time-on-low-val (accessed April 10, 2026).
 
 [5] Dalkir, K. (2017). *Knowledge Management in Theory and Practice* (3rd ed.). MIT Press.
 
