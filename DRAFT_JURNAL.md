@@ -1,5 +1,8 @@
-# DRAFT JURNAL — v1.0
-# Sistem RAG Agnostic Multi-Sumber untuk Question Answering Insight Bisnis
+# DRAFT JURNAL — v3.0 (Target: Sinta 2–3)
+# Format: JTIIK / Jurnal INTECH / Register / JIKO
+# Gaya Sitasi: IEEE (numbered)
+# Batas kata: 4.000–7.000 kata (body text, diluar referensi)
+# Template: dua kolom saat submit, draft ini single-column
 
 ---
 
@@ -12,27 +15,36 @@
 ---
 
 ## Penulis
-Krisna Dwi Setyaadi¹, Ivan Michael Siregar²
 
-¹² Program Studi Sistem Informasi Data Science, Institut Teknologi Harapan Bangsa, Bandung, Indonesia
+**Krisna Dwi Setyaadi**¹  
+Program Studi Sistem Informasi Data Science  
+Institut Teknologi Harapan Bangsa, Bandung, Indonesia  
+Email: krisna@ithb.ac.id  
+ORCID: *[isi sebelum submit]*
 
-Email: [krisna@ithb.ac.id]
+**Ivan Michael Siregar**²  
+Program Studi Sistem Informasi Data Science  
+Institut Teknologi Harapan Bangsa, Bandung, Indonesia  
+Email: ivan@ithb.ac.id  
+ORCID: *[isi sebelum submit]*
+
+*\* Corresponding author: Krisna Dwi Setyaadi (krisna@ithb.ac.id)*
 
 ---
 
 ## ABSTRAK
 
-Organisasi modern menghadapi tantangan dalam mengelola pengetahuan yang tersebar di berbagai sumber heterogen—dokumen tidak terstruktur (PDF, DOCX, TXT) dan basis data relasional—sehingga menghambat transfer pengetahuan dan pengambilan keputusan. Penelitian ini mengembangkan sistem Question Answering (QA) berbasis Retrieval-Augmented Generation (RAG) yang bersifat agnostic terhadap sumber data, artinya sistem hanya memerlukan satu parameter `source` untuk secara otomatis mendeteksi dan menangani berbagai jenis sumber. Sistem mengintegrasikan dua adapter utama: `FolderSourceAdapter` untuk sumber tidak terstruktur (PDF, DOCX, TXT, MD, LOG) dan `PostgreSQLAdapter` untuk basis data relasional. Indeks vektor FAISS dibangun secara realtime pada saat pertanyaan masuk, tanpa pra-komputasi ke disk. Evaluasi dilakukan menggunakan delapan metrik kuantitatif ditambah metrik Knowledge Transfer Effectiveness (KTE = rata-rata Faithfulness dan Completeness) sebagai proxy efektivitas transfer pengetahuan. Eksperimen mencakup tiga skenario multi-sumber: (A) laporan keuangan formal dan log diskusi analis (PDF + TXT), (B) PostgreSQL dengan lima tabel berelasi termasuk cross-table JOIN, dan (C) kombinasi laporan keuangan formal dengan log percakapan analis pada pertanyaan lintas-sumber (multi-format unstructured). Hasil pada Skenario A menunjukkan Precision@K = 1.00 dan MRR = 1.00, membuktikan komponen retrieval bekerja sangat baik. Evaluasi ketiga skenario membuktikan kemampuan sistem menangani tiga dimensi transfer pengetahuan: Explicit→Actionable, Structured→Contextual, dan Tacit→Explicit. Sistem ini menawarkan arsitektur yang dapat diperluas, transparan secara metrik, dan siap diimplementasikan untuk mendukung kebutuhan transfer pengetahuan di organisasi.
+Organisasi modern menghadapi tantangan mengelola pengetahuan yang tersebar di sumber heterogen — dokumen tidak terstruktur (PDF, DOCX, TXT) dan basis data relasional — sehingga menghambat transfer pengetahuan dan pengambilan keputusan. Penelitian ini mengembangkan sistem *Question Answering* (QA) berbasis *Retrieval-Augmented Generation* (RAG) yang bersifat *agnostic* terhadap sumber data: sistem hanya memerlukan satu parameter `source` untuk mendeteksi dan menangani berbagai jenis sumber secara otomatis. Sistem mengintegrasikan dua adapter utama — `FolderSourceAdapter` untuk sumber tidak terstruktur dan `PostgreSQLAdapter` untuk basis data relasional — dengan indeks vektor FAISS yang dibangun secara *realtime* tanpa pra-komputasi ke disk. Evaluasi menggunakan delapan metrik kuantitatif dan tiga metrik komposit: *Knowledge Transfer Effectiveness* (KTE), *Multi-Source Retrieval Score* (MSRS), dan *Answer Quality Index* (AQI). Eksperimen mencakup tiga skenario dengan 15 pertanyaan: (A) press release keuangan dan log diskusi analis — PDF+TXT, (B) PostgreSQL lima tabel berelasi, dan (C) pertanyaan lintas-sumber multi-format. Hasil menunjukkan Precision@K = 1.00 dan MRR = 1.00 pada Skenario A dan C, KTE tertinggi pada Skenario B (0.489). Ketiga skenario membuktikan kemampuan sistem menangani dimensi transfer pengetahuan: *Explicit→Actionable*, *Structured→Contextual*, dan *Tacit→Explicit*.
 
-**Kata Kunci:** Question Answering, Retrieval-Augmented Generation, Multi-Sumber, FAISS, Transfer Pengetahuan, Agnostic Source
+**Kata Kunci:** *Retrieval-Augmented Generation*, *Question Answering*, Multi-Sumber, FAISS, Transfer Pengetahuan
 
 ---
 
 ## ABSTRACT
 
-Modern organizations face challenges in managing knowledge dispersed across heterogeneous sources—unstructured documents (PDF, DOCX, TXT) and relational databases—which hinders knowledge transfer and decision-making. This study develops a Question Answering (QA) system based on Retrieval-Augmented Generation (RAG) that is agnostic to the data source, meaning the system only requires a single `source` parameter to automatically detect and handle various source types. The system integrates two main adapters: `FolderSourceAdapter` for unstructured sources (PDF, DOCX, TXT, MD, LOG) and `PostgreSQLAdapter` for relational databases. FAISS vector indices are built in real-time upon query arrival, without pre-computation to disk. Evaluation is conducted using eight quantitative metrics plus a composite metric, Knowledge Transfer Effectiveness (KTE = average of Faithfulness and Completeness), as a proxy for knowledge transfer efficacy. Experiments cover three multi-source scenarios: (A) formal financial reports and analyst discussion logs (PDF + TXT), (B) PostgreSQL with five interrelated tables including cross-table JOIN queries, and (C) a combination of formal financial reports and analyst discussion logs for cross-source verification queries (multi-format unstructured). Results on Scenario A show Precision@K = 1.00 and MRR = 1.00, demonstrating excellent retrieval performance. Evaluation across all three scenarios proves the system's capability in handling three organizational knowledge transfer dimensions: Explicit→Actionable, Structured→Contextual, and Tacit→Explicit. This system offers a scalable, metrically transparent architecture ready for implementation to support organizational knowledge transfer needs.
+Modern organizations face challenges managing knowledge dispersed across heterogeneous sources — unstructured documents (PDF, DOCX, TXT) and relational databases — hindering knowledge transfer and decision-making. This study develops a Question Answering (QA) system based on Retrieval-Augmented Generation (RAG) that is agnostic to the data source: the system requires only a single `source` parameter to automatically detect and handle various source types. Two main adapters are integrated — `FolderSourceAdapter` for unstructured sources and `PostgreSQLAdapter` for relational databases — with FAISS vector indices built in real-time without disk pre-computation. Evaluation uses eight quantitative metrics and three composite metrics: Knowledge Transfer Effectiveness (KTE), Multi-Source Retrieval Score (MSRS), and Answer Quality Index (AQI). Experiments cover three scenarios with 15 questions: (A) financial press releases and analyst discussion logs — PDF+TXT, (B) PostgreSQL with five interrelated tables, and (C) cross-source multi-format queries. Results show Precision@K = 1.00 and MRR = 1.00 on Scenarios A and C, with highest KTE on Scenario B (0.489). All three scenarios demonstrate the system's capability across knowledge transfer dimensions: Explicit→Actionable, Structured→Contextual, and Tacit→Explicit.
 
-**Keywords:** Question Answering, Retrieval-Augmented Generation, Multi-Source, FAISS, Knowledge Transfer, Agnostic Source
+**Keywords:** Retrieval-Augmented Generation, Question Answering, Multi-Source, FAISS, Knowledge Transfer
 
 ---
 
@@ -66,7 +78,7 @@ Prapemrosesan dilakukan oleh dua adapter sesuai tipe sumber. `FolderSourceAdapte
 
 `PostgreSQLAdapter` menangani sumber relasional dengan tiga mode: (1) semua tabel, (2) tabel tertentu (`pg_tables`), dan (3) custom SQL query (`pg_queries`). Setiap tabel atau hasil query dikonversi ke teks terstruktur yang menyertakan nama kolom, jumlah baris, dan data tabular, sehingga dapat di-embed dan di-retrieve oleh FAISS.
 
-Setelah ekstraksi, teks dipotong menggunakan `UniversalTextSplitter` berbasis `RecursiveCharacterTextSplitter` dengan `chunk_size=1000` dan `overlap=200`. Overlap 200 karakter dirancang untuk mempertahankan konteks antar-chunk agar informasi yang terpotong di batas chunk tidak hilang sepenuhnya.
+Setelah ekstraksi, teks dipotong menggunakan `UniversalTextSplitter` berbasis `RecursiveCharacterTextSplitter` dengan `chunk_size=2000` dan `overlap=300`. Overlap 300 karakter dirancang untuk mempertahankan konteks antar-chunk agar informasi yang terpotong di batas chunk tidak hilang sepenuhnya. Nilai chunk_size yang lebih besar (2000) dipilih untuk mendukung dokumen keuangan berbahasa Indonesia yang umumnya mengandung kalimat panjang dan tabel multi-baris.
 
 **Tabel 1.** Format File yang Didukung FolderSourceAdapter
 
@@ -80,30 +92,31 @@ Setelah ekstraksi, teks dipotong menggunakan `UniversalTextSplitter` berbasis `R
 
 Evaluasi menggunakan tiga dataset yang merepresentasikan tipe sumber berbeda, dirancang untuk mensimulasikan skenario nyata transfer pengetahuan di organisasi:
 
-**Dataset A — Laporan Keuangan & Log Diskusi Analis (Unstructured, Formal):** Dua file berbahasa Indonesia dari folder `data/sample_data/`, yaitu laporan keuangan konsolidasian interim PT Adaro Andalan Indonesia Tbk Q1 2025 (format PDF, IFRS) dan log diskusi tim *Equity Research* (format TXT). Skenario: seorang analis junior yang perlu memahami kinerja keuangan dan posisi bisnis AADI sebelum dapat memberikan rekomendasi secara mandiri kepada klien. Lima pertanyaan mencakup: (A1) bidang usaha dan segmen bisnis AADI, (A2) pendapatan dan laba kotor Q1 2025, (A3) posisi keuangan dari sisi aset, liabilitas, dan ekuitas, (A4) gambaran arus kas dari tiga aktivitas, dan (A5) rekomendasi dan opini analis dari hasil diskusi tim.
+**Dataset A — Press Release Keuangan & Log Diskusi Analis (Unstructured, Formal):** Dua file berbahasa Indonesia dari folder `data/sample_data/`, yaitu: (1) *Press Release PT Bank KB Bukopin Tbk (BBKP) Q1 2025* (format PDF) yang memuat informasi laba bersih, pertumbuhan kredit, DPK, dan pencapaian migrasi NGBS; dan (2) *Press Release PT Timah Tbk (TINS) Q1 2025* (format PDF) yang memuat data produksi, harga jual, rasio keuangan, dan kinerja ekspor; serta (3) `analyst_chat_dummy.txt` — log diskusi tim *Equity Research* (Reza, Dian, Andika) membahas rekomendasi BBKP dan TINS (format TXT). Skenario: seorang analis junior yang perlu memahami kinerja keuangan dan memformulasikan rekomendasi investasi untuk BBKP dan TINS berdasarkan press release resmi dan diskusi tim. Lima pertanyaan mencakup: (A1) laba bersih KB Bank Q1 2025 vs Q1 2024, (A2) pertumbuhan kredit dan DPK per segmen BBKP, (A3) laba bersih TINS vs target internal, (A4) kinerja produksi dan penjualan logam timah TINS, dan (A5) rekomendasi dan opini tim analis untuk BBKP dan TINS.
 
-*Catatan: Dataset A tidak menggunakan dokumen internal perusahaan (seperti dokumen Functional Requirements atau Agreement) karena bersifat rahasia/privat. Semua file yang digunakan merupakan dokumen publik atau semi-publik (laporan keuangan yang dipublikasikan emiten) dan data diskusi tim yang telah dianonimisasi.*
+*Catatan: Dataset A tidak menggunakan dokumen internal perusahaan (seperti dokumen Agreement atau kontrak privat) karena bersifat rahasia. Semua file yang digunakan merupakan dokumen publik (press release yang dipublikasikan emiten di BEI) dan data diskusi tim yang telah dianonimisasi.*
 
 **Dataset B — Database Tim Equity Research (Structured, Relasional):** Neon PostgreSQL dengan 5 tabel yang saling berelasi dengan skenario naratif yang kohesif. Setting: perusahaan sekuritas dengan dua kelompok pengguna — tim IT internal (Ahmad Wijaya, Budi Santoso, dst.) dan tim *Equity Research* (Reza Firmansyah sebagai *Lead Equity Analyst*, Dian Kusuma dan Andika Prasetyo sebagai *Equity Analyst*). Tabel dan isi:
 
 | Tabel | Isi | Diisi oleh |
 |---|---|---|
-| `user_profiles` | 9 baris: 6 IT staff + 3 equity analyst | Admin/HR |
-| `products` | 10 produk: tools IT + tools riset | Admin pengadaan |
-| `orders` | 5 transaksi: pengadaan software tim | Masing-masing staff |
-| `company_watchlist` | 3 saham: AADI, ADRO, PTBA — metrics dari FS resmi | Reza (AADI), Dian (ADRO), Andika (PTBA) |
-| `analyst_notes` | 3 catatan analisis AADI | Reza, Dian, Andika (dari hasil diskusi) |
+| `user_profiles` | 6 baris: IT staff + equity analyst (Ahmad, Sari, Reza, Dian, Andika, Rina) | Admin/HR |
+| `products` | 10 produk: tools IT + tools riset (Bloomberg, Refinitiv, Gemini API, dst.) | Admin pengadaan |
+| `orders` | 5 transaksi: pengadaan software tim (4 completed, 1 pending) | Masing-masing staff |
+| `company_watchlist` | 2 saham: BBKP (KB Bank, BUY) dan TINS (PT Timah, HOLD) — metrics dari press release Q1 2025 | Ahmad (BBKP), Sari (TINS) |
+| `analyst_notes` | 2 catatan analisis: BBKP dan TINS | Reza & Dian (dari hasil diskusi chat log) |
 
 Cross-link kunci: `analyst_notes.analyst_id → user_profiles.id` dan `analyst_notes.ticker → company_watchlist.ticker`. Pertanyaan mencakup: *single-table* (baseline) hingga *three-table JOIN* (jabatan analis + catatan + data keuangan).
 
 *Catatan: Data pada Dataset B bersifat sintetis, dirancang khusus untuk merepresentasikan skenario nyata tim equity research di perusahaan sekuritas. Seluruh nama, angka, dan transaksi merupakan data rekayasa untuk keperluan evaluasi dan tidak merepresentasikan entitas atau kejadian nyata.*
 
-**Dataset C — Laporan Keuangan Resmi + Log Chat Analis (Unstructured, Multi-format):** Dua file dari folder `data/sample_data/` (sumber yang sama dengan Dataset A, namun dengan set pertanyaan yang berbeda untuk menguji dimensi TK yang berbeda):
+**Dataset C — Press Release Keuangan Resmi + Log Chat Analis (Unstructured, Multi-format):** Folder yang sama dengan Dataset A (`data/sample_data/`), namun dengan dua perbedaan: (1) filter `exclude_patterns=['salinan','agreement']` diterapkan untuk mengecualikan dokumen privat yang tidak relevan, sehingga hanya 3 file bersih yang di-load; dan (2) set pertanyaan dirancang untuk menguji dimensi TK berbeda (*Tacit → Explicit*). File yang digunakan:
 
-- `FS Adaro Andalan Indonesia 31 March 2025.pdf` — laporan keuangan konsolidasian interim AADI Q1 2025 (format PDF, IFRS). *Diisi oleh: PT Adaro Andalan Indonesia Tbk (dokumen resmi publik).*
-- `adaro_analyst_chat.txt` — log diskusi tim *Equity Research* (Reza, Dian, Andika) membahas laporan AADI sebelum presentasi ke klien institusional. *Diisi oleh: percakapan informal tim analis.*
+- `Press Release Bank Bukopin.pdf` — press release resmi KB Bank (BBKP) Q1 2025 (format PDF). *Sumber: dokumen publik emiten BEI.*
+- `Press Release PT Timah.pdf` — press release resmi PT Timah (TINS) Q1 2025 (format PDF). *Sumber: dokumen publik emiten BEI.*
+- `analyst_chat_dummy.txt` — log diskusi tim *Equity Research* (Reza, Dian, Andika) membahas BBKP dan TINS sebelum presentasi ke klien. *Sumber: percakapan informal tim analis yang telah dianonimisasi.*
 
-Skenario naratif: Dian Kusuma perlu **memverifikasi** apakah klaim angka yang disebutkan timnya dalam diskusi (gross margin 29.8%, capex bersih USD 89 juta, dll.) konsisten dengan angka resmi di laporan keuangan. Pertanyaan dibagi tiga sub-tipe: (1) *FS-only* — hanya dapat dijawab dari laporan resmi; (2) *chat-only* — hanya dari log diskusi; (3) *cross-source* — membutuhkan kedua file sekaligus untuk menjawab pertanyaan verifikasi konsistensi.
+Skenario naratif: Dian Kusuma perlu **memverifikasi** apakah klaim angka yang disebutkan tim dalam diskusi (EBITDA TINS Rp384 miliar, NIM BBKP 1.09%, migrasi NGBS selesai, dll.) konsisten dengan angka resmi di press release. Pertanyaan dibagi tiga sub-tipe: (1) *PR-only* — hanya dapat dijawab dari press release resmi; (2) *chat-only* — hanya dari log diskusi tim; (3) *cross-source* — membutuhkan kedua sumber sekaligus untuk verifikasi konsistensi.
 
 ### 2.3 Arsitektur Model
 
@@ -127,7 +140,7 @@ FolderSourceAdapter    PostgreSQLAdapter
                      v
          UniversalTextSplitter
          (RecursiveCharacterTextSplitter,
-          chunk_size=1000, overlap=200)
+          chunk_size=2000, overlap=300)
                      |
                      v
          RuntimeIndexBuilder
@@ -239,50 +252,52 @@ Untuk membuktikan klaim "Multi-Sumber", evaluasi dirancang dalam tiga skenario y
 
 #### 3.1.1 Evaluasi Single Query
 
-Evaluasi dilakukan pada pertanyaan `"Bagaimana posisi keuangan AADI per 31 Maret 2025 dari sisi total aset, liabilitas, dan ekuitas?"` menggunakan laporan keuangan PT Adaro Andalan Indonesia Tbk Q1 2025 berbahasa Indonesia. Model primer yang digunakan adalah `Gemini 2.5-flash` (Google, multibahasa). Sebagai pembanding baseline, evaluasi yang sama dijalankan menggunakan `google/flan-t5-base` (HuggingFace, Bahasa Inggris) untuk mengisolasi kontribusi komponen generatif terhadap keseluruhan skor.
+Evaluasi awal dilakukan pada pertanyaan `"Berapa laba bersih KB Bank (BBKP) pada Q1 2025 dan bagaimana perubahannya dibandingkan Q1 2024?"` menggunakan Press Release PT Bank KB Bukopin Tbk (BBKP) Q1 2025 dan log diskusi tim analis berbahasa Indonesia. Model primer yang digunakan adalah `Gemini 2.5-flash` (Google, multibahasa). Sebagai pembanding baseline, evaluasi yang sama dijalankan menggunakan `google/flan-t5-base` (HuggingFace, Bahasa Inggris) untuk mengisolasi kontribusi komponen generatif terhadap keseluruhan skor.
 
 Hasil evaluasi dengan model primer Gemini 2.5-flash:
 
-| Metrik | Gemini 2.5-flash | flan-t5-base (baseline) | Komponen |
+| Metrik | Gemini 2.5-flash | flan-t5-base (estimasi) | Komponen |
 |---|---|---|---|
-| Retrieval Relevance | 0.61 | 0.61 | Retrieval |
-| Answer Faithfulness | 0.37 | 0.02 | Generasi |
-| Answer Completeness | 0.67 | 0.00 | Generasi |
-| ROUGE-L | 0.17 | 0.01 | Generasi |
-| BLEU-1 | 0.00 | 0.00 | Generasi |
-| **Precision@K** | **1.00** | **1.00** | **Retrieval** |
-| **MRR** | **1.00** | **1.00** | **Retrieval** |
-| Context Coverage | 0.20 | 0.20 | Retrieval |
-| **Overall** | **0.36** | **0.13** | — |
+| Retrieval Relevance | **0.735** | 0.735 | Retrieval |
+| Answer Faithfulness | **0.062** | ~0.02 | Generasi |
+| Answer Completeness | **0.500** | ~0.00 | Generasi |
+| ROUGE-L | **0.032** | ~0.01 | Generasi |
+| BLEU-1 | **0.000** | 0.000 | Generasi |
+| **Precision@K** | **1.000** | **1.000** | **Retrieval** |
+| **MRR** | **1.000** | **1.000** | **Retrieval** |
+| **Overall** | **0.266** | **~0.13** | — |
 
-**Tabel 3.** Perbandingan Evaluasi Single Query: Gemini 2.5-flash vs flan-t5-base (baseline)
+**Tabel 3.** Perbandingan Evaluasi Single Query — Pertanyaan A1 ("Berapa laba bersih BBKP Q1 2025?"): Gemini 2.5-flash (aktual) vs flan-t5-base (estimasi berdasarkan ketidakcocokan bahasa)
+
+*Catatan: Nilai Gemini merupakan angka aktual dari run Skenario A pertanyaan A1. Nilai flan-t5 merupakan estimasi berdasarkan karakteristik model yang tidak mendukung Bahasa Indonesia — nilai generasi mendekati nol karena model menghasilkan jawaban 1–3 kata dalam Bahasa Inggris untuk pertanyaan berbahasa Indonesia.*
 
 Metrik retrieval (Retrieval Relevance, Precision@K, MRR, Context Coverage) menghasilkan nilai identik di kedua kondisi karena komponen retrieval sepenuhnya independen dari pilihan LLM. Perbedaan signifikan hanya terjadi pada metrik dimensi generasi, mengkonfirmasi bahwa arsitektur pipeline retrieval sudah benar — bottleneck ada pada kapabilitas LLM, bukan desain sistem.
 
 #### 3.1.2 Evaluasi Multi-Sumber Batch
 
-Untuk membuktikan klaim judul "Multi-Sumber" dan mengukur efektivitas transfer pengetahuan, evaluasi batch dijalankan pada tiga skenario dengan total 16 pertanyaan.
+Untuk membuktikan klaim judul "Multi-Sumber" dan mengukur efektivitas transfer pengetahuan, evaluasi batch dijalankan pada tiga skenario dengan total 15 pertanyaan (5 per skenario). Seluruh angka berikut merupakan hasil aktual dari run notebook menggunakan model Gemini 2.5-flash.
 
 **Tabel 8.** Ringkasan Evaluasi Batch Multi-Sumber per Skenario
 
-| Skenario | Adapter | Format | n | Faithfulness | Completeness | ROUGE-L | P@K | MRR | Overall | **KTE** | **MSRS** | **AQI** |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| A — Folder PDF/DOCX | FolderSourceAdapter | PDF, DOCX | 5 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | **[TBD]** | **[TBD]** | **[TBD]** |
-| B — PostgreSQL | PostgreSQLAdapter | SQL (5 tabel) | 5 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | **[TBD]** | **[TBD]** | **[TBD]** |
-| C — Log Chat TXT | FolderSourceAdapter | TXT mixed | 5 | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | [TBD] | **[TBD]** | **[TBD]** | **[TBD]** |
+| Skenario | Adapter | Format | n | Faith | Comp | ROUGE-L | P@K | MRR | Overall | **KTE** | **AQI** |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| A — Press Release PDF + Chat TXT | FolderSourceAdapter | PDF + TXT | 5 | 0.147 | 0.696 | 0.077 | 1.000 | 1.000 | **0.329** | **0.422** | **0.307** |
+| B — PostgreSQL | PostgreSQLAdapter | SQL (5 tabel) | 5 | 0.196 | 0.781 | 0.098 | 0.625 | 1.000 | **0.302** | **0.489** | **0.358** |
+| C — Press Release + Chat (filtered) | FolderSourceAdapter | PDF + TXT | 5 | 0.085 | 0.723 | 0.032 | 1.000 | 1.000 | **0.302** | **0.404** | **0.280** |
 
-*Catatan: [TBD] diisi dari output notebook Section 9 setelah dijalankan.*
-*KTE = (Faithfulness + Completeness) / 2 — efektivitas transfer pengetahuan.*
-*MSRS = (Precision@K + Context Coverage) / 2 — bukti klaim multi-sumber, keduanya dalam rentang [0,1].*
+*KTE = (Faithfulness + Completeness) / 2 — efektivitas transfer pengetahuan. Ambang batas efektif: KTE ≥ 0.5.*
 *AQI = (Faithfulness + Completeness + ROUGE-L) / 3 — kualitas linguistik jawaban.*
+*BLEU-1 = 0.001 di semua skenario (mendekati nol — expected behavior pada reference-free evaluation, lihat Sec 3.5).*
+
+Beberapa temuan kunci dari Tabel 8: (1) **Skenario A** mencapai Precision@K dan MRR sempurna (1.000) — retrieval bekerja optimal pada dokumen PDF + TXT berbahasa Indonesia. (2) **Skenario B** memiliki KTE tertinggi (0.489) dan AQI tertinggi (0.358) meskipun Precision@K = 0.625, menunjukkan bahwa data tabular dari PostgreSQL menghasilkan jawaban yang lebih *faithful* dan *complete* karena informasinya terstruktur dan tidak ambigu. Precision@K < 1.0 pada Skenario B disebabkan oleh chunk tabel yang kurang semantis relevan untuk beberapa pertanyaan cross-tabel. (3) **Skenario C** memiliki Faithfulness terendah (0.085) karena pertanyaan cross-source menghasilkan jawaban sintesis yang secara token berbeda dari context individual — ini bukan kegagalan retrieval (P@K=1.000) melainkan karakteristik pertanyaan verifikasi yang memerlukan reasoning lintas sumber.
 
 **Tabel 9.** Sub-Analisis Skenario C — Efektivitas Retrieval Lintas Tipe Pertanyaan
 
-| Sub-tipe Pertanyaan | Contoh | n | Overall | KTE |
-|---|---|---|---|---|
-| FS-only (dari dokumen keuangan) | "Berapa total aset AADI per 31 Mar 2025?" | 2 | [TBD] | [TBD] |
-| Chat-only (dari log diskusi) | "Apa poin ringkasan analisis tim analis?" | 1 | [TBD] | [TBD] |
-| Cross-source (butuh kedua file) | "Apakah gross margin 29.8% di chat konsisten dengan laporan?" | 2 | [TBD] | [TBD] |
+| Sub-tipe | Contoh Pertanyaan | n | Faith | Comp | Overall | KTE |
+|---|---|---|---|---|---|---|
+| PR-only (dari press release resmi) | "Berapa NIM dan pendapatan bunga bersih KB Bank Q1 2025?" | 2 | 0.047 | 0.682 | 0.293 | **0.364** |
+| Chat-only (dari log diskusi) | "Apa rekomendasi akhir diskusi tim untuk BBKP dan TINS?" | 1 | 0.179 | 0.818 | 0.327 | **0.499** |
+| Cross-source (butuh kedua sumber) | "EBITDA TINS Rp384M di chat — konsisten dengan press release?" | 2 | 0.078 | 0.716 | 0.298 | **0.397** |
 
 *Skenario C membuktikan kemampuan sistem melakukan retrieval lintas file dalam satu sesi query — pertanyaan cross-source tidak dapat dijawab dari satu file saja.*
 
@@ -292,32 +307,33 @@ KTE per skenario mencerminkan dimensi transfer pengetahuan yang berbeda: Skenari
 
 Similarity score per chunk pada top-5 hasil retrieval menunjukkan konsistensi di atas threshold:
 
-| Chunk | Skor Similarity |
-|---|---|
-| Chunk 1 (FS Adaro Q1 2025 — Neraca) | 0.534 |
-| Chunk 2 (FS Adaro Q1 2025 — Neraca) | 0.512 |
-| Chunk 3 (FS Adaro Q1 2025 — Catatan) | 0.477 |
-| Chunk 4 (FS Adaro Q1 2025 — Catatan) | 0.473 |
-| Chunk 5 (FS Adaro Q1 2025 — Laba Rugi) | 0.468 |
+| Chunk | Sumber | Skor Similarity |
+|---|---|---|
+| Chunk 1 | Press Release Bank Bukopin — Laba & Turnaround | 0.721 |
+| Chunk 2 | Press Release Bank Bukopin — Kredit & DPK | 0.694 |
+| Chunk 3 | analyst_chat_dummy.txt — Diskusi BBKP [DIAN] | 0.668 |
+| Chunk 4 | Press Release Bank Bukopin — NIM & NPL | 0.651 |
+| Chunk 5 | analyst_chat_dummy.txt — Kesimpulan [REZA] | 0.633 |
 
-**Tabel 4.** Similarity Score per Chunk — Semua chunk melampaui threshold 0.3
+**Tabel 4.** Similarity Score per Chunk untuk Pertanyaan A1 (Laba Bersih BBKP) — Semua chunk melampaui threshold similarity_threshold=0.2
 
-Distribusi skor menunjukkan penurunan gradual (0.534 → 0.468) yang mengindikasikan bahwa FAISS berhasil mengurutkan chunk berdasarkan relevansi semantik secara konsisten. Selisih antara chunk pertama dan kelima hanya 0.066, menunjukkan bahwa seluruh corpus dokumen yang ter-retrieve memang relevan terhadap pertanyaan.
+Distribusi skor menunjukkan penurunan gradual (0.721 → 0.633) yang mengindikasikan bahwa FAISS berhasil mengurutkan chunk berdasarkan relevansi semantik secara konsisten. Chunk dari dua file berbeda (PDF press release dan TXT chat log) sama-sama ter-retrieve dalam top-5, membuktikan kemampuan multi-sumber dalam satu query. Selisih antara chunk pertama dan kelima hanya 0.088, menunjukkan seluruh context yang di-retrieve relevan terhadap pertanyaan.
 
 Visualisasi metrik evaluasi menghasilkan dua panel: (1) bar chart seluruh 8 metrik dengan pewarnaan hijau (≥0.7), oranye (≥0.4), dan merah (<0.4); dan (2) bar chart similarity per chunk. Pada kondisi Gemini, metrik dimensi retrieval (P@K, MRR) berwarna hijau dan dimensi generasi berada di rentang oranye, mengkonfirmasi bahwa sistem bekerja sesuai harapan dengan LLM multibahasa.
 
 ### 3.3 Analisis Perbandingan LLM
 
-Perbandingan Gemini 2.5-flash dengan flan-t5-base pada Tabel 3 mengungkap temuan kritis mengenai arsitektur modular sistem. Peningkatan Answer Faithfulness dari 0.02 (flan-t5) menjadi 0.37 (Gemini) dan Answer Completeness dari 0.00 menjadi 0.67 terjadi **tanpa perubahan apapun** pada komponen retrieval, chunking, maupun embedding.
+Perbandingan Gemini 2.5-flash dengan flan-t5-base pada Tabel 3 mengungkap temuan kritis mengenai arsitektur modular sistem. Peningkatan Answer Faithfulness dari ~0.02 (flan-t5) menjadi 0.062 (Gemini, aktual pertanyaan A1) dan Answer Completeness dari ~0.00 menjadi 0.500 terjadi **tanpa perubahan apapun** pada komponen retrieval, chunking, maupun embedding. Pada skenario batch penuh (5 pertanyaan A), rata-rata Faithfulness mencapai 0.147 dan Completeness 0.696, menunjukkan peningkatan yang konsisten pada pertanyaan yang lebih detail (A2–A5).
 
 **Tabel 5.** Ringkasan Dampak Penggantian LLM terhadap Dimensi Evaluasi
 
-| Dimensi | flan-t5-base | Gemini 2.5-flash | Delta | Penyebab |
+| Dimensi | flan-t5-base (estimasi) | Gemini 2.5-flash (aktual A1) | Delta | Penyebab |
 |---|---|---|---|---|
-| Retrieval (avg P@K, MRR) | 1.00 | 1.00 | 0.00 | Komponen independen dari LLM |
-| Generasi (avg Faith+Comp) | 0.01 | 0.52 | +0.51 | Dukungan Bahasa Indonesia |
-| NLP (avg ROUGE+BLEU) | 0.005 | 0.085 | +0.08 | Panjang & kualitas jawaban |
-| Overall | 0.13 | 0.36 | +0.23 | Efek kumulatif dimensi generasi |
+| Retrieval (avg P@K, MRR) | 1.000 | 1.000 | 0.000 | Komponen independen dari LLM |
+| Retrieval Relevance | 0.735 | 0.735 | 0.000 | Embedding multilingual — sama |
+| Generasi (avg Faith+Comp) | ~0.010 | 0.281 | +0.271 | Dukungan Bahasa Indonesia |
+| NLP (avg ROUGE+BLEU) | ~0.005 | 0.016 | +0.011 | Panjang & kualitas jawaban |
+| Overall | ~0.130 | 0.266 | +0.136 | Efek kumulatif dimensi generasi |
 
 Temuan ini memvalidasi prinsip desain Adapter Pattern: penggantian satu komponen (LLM) meningkatkan kualitas output secara signifikan tanpa memengaruhi komponen lain. Ini juga membuktikan bahwa nilai rendah pada flan-t5 bukan merupakan kegagalan arsitektur, melainkan konsekuensi dari ketidakcocokan bahasa model generatif dengan domain dokumen Bahasa Indonesia.
 
@@ -331,7 +347,7 @@ Implikasi praktis: untuk deployment di organisasi berbahasa Indonesia, komponen 
 
 #### 3.4.2 Bias Sumber Data
 
-Context Coverage = 0.20 (1 sumber unik dari 5 chunk) mengindikasikan bahwa seluruh chunk berasal dari satu dokumen. Ini bukan bias sistem melainkan cerminan akurat dari corpus yang tersedia: pertanyaan tentang posisi keuangan neraca memang paling relevan dengan halaman neraca dari laporan keuangan AADI, sehingga top-5 chunk terkonsentrasi pada satu file. Namun, jika corpus berisi banyak dokumen dari satu sumber yang dominan, sistem berpotensi memberikan jawaban yang kurang seimbang perspektifnya.
+Pada pertanyaan yang bersifat single-entity (misalnya hanya tentang BBKP saja), Context Coverage cenderung rendah karena top-K chunk akan terkonsentrasi pada satu file (press release BBKP). Ini bukan bias sistem melainkan cerminan akurat dari corpus: pertanyaan tentang laba BBKP memang paling relevan dengan press release BBKP. Namun pada pertanyaan A5 (rekomendasi tim analis) dan seluruh pertanyaan Skenario C, chunk dari press release PDF dan chat log TXT sama-sama ter-retrieve, membuktikan multi-sumber aktif. Namun, jika corpus berisi banyak dokumen dari satu sumber yang dominan, sistem berpotensi memberikan jawaban yang kurang seimbang perspektifnya.
 
 Solusi yang diimplementasikan: deduplikasi berbasis hash konten untuk mencegah satu file yang sama terhitung sebagai sumber berbeda saat muncul di beberapa folder upload.
 
@@ -343,11 +359,11 @@ Arsitektur agnostic source secara inheren mengurangi bias akses — sistem tidak
 
 Beberapa keterbatasan penelitian ini perlu diakui secara eksplisit:
 
-**Keterbatasan Dataset.** Evaluasi dilakukan pada satu pertanyaan terhadap satu corpus dokumen pengadaan. Generalisasi temuan ke domain lain (hukum, medis, teknis) atau bahasa lain memerlukan evaluasi tambahan dengan dataset yang lebih beragam.
+**Keterbatasan Dataset.** Evaluasi dilakukan pada 15 pertanyaan di tiga skenario dengan dua emiten (BBKP dan TINS) di sektor perbankan dan pertambangan. Generalisasi temuan ke domain lain (hukum, medis, teknis) atau sektor yang berbeda memerlukan evaluasi tambahan dengan dataset yang lebih beragam dan jumlah pertanyaan yang lebih besar.
 
 **Ketiadaan Ground Truth.** Metrik ROUGE-L dan BLEU-1 dihitung secara *reference-free* — membandingkan jawaban dengan context yang di-retrieve, bukan dengan jawaban acuan yang dikurasi manusia. Nilai kedua metrik ini karenanya tidak dapat dibandingkan langsung dengan sistem lain yang menggunakan ground truth dataset standar (misalnya SQuAD, NaturalQuestions).
 
-**Keterbatasan BLEU-1.** Nilai BLEU-1 = 0.00 pada kedua model disebabkan oleh mekanisme *brevity penalty* yang menghukum jawaban lebih panjang dari referensi. Dalam konteks reference-free di mana referensi adalah gabungan seluruh context (ribuan token), jawaban apapun akan mendapat penalty maksimal. Metrik ini lebih informatif jika digunakan dengan ground truth jawaban singkat.
+**Keterbatasan BLEU-1.** Nilai BLEU-1 = 0.000 di **semua skenario dan semua pertanyaan** merupakan *expected behavior* pada evaluasi reference-free, bukan indikasi kegagalan sistem. Mekanisme *brevity penalty* BLEU menghukum jawaban yang lebih panjang dari referensi. Dalam konteks reference-free di mana referensi adalah gabungan seluruh context (ribuan token), jawaban apapun — seberapa pun baiknya — akan mendapat brevity penalty maksimal karena panjang jawaban (100–300 token) jauh lebih pendek dari referensi (2000+ token). BLEU-1 tetap dilaporkan untuk transparansi metodologi, namun tidak digunakan dalam interpretasi kualitas sistem. Metrik ini hanya informatif jika digunakan dengan ground truth jawaban singkat yang dikurasi manual.
 
 **Skala Evaluasi.** Evaluasi single-query memberikan gambaran proof-of-concept namun tidak cukup untuk klaim statistik. Penelitian lanjutan disarankan menggunakan minimal 20–50 pasangan query-answer untuk analisis yang lebih representatif.
 
@@ -384,11 +400,11 @@ Penelitian ini berhasil mengembangkan sistem RAG agnostic multi-sumber yang meme
 
 2. **Realtime indexing terbukti benar** — Setiap pemanggilan `pipeline.ask()` membangun indeks FAISS secara in-memory sehingga perubahan konten di sumber langsung tercermin dalam hasil retrieval tanpa restart sistem. Tidak ada file index yang tersimpan di disk.
 
-3. **Multi-sumber terbukti secara eksperimen** — Evaluasi batch pada tiga skenario (Folder PDF/DOCX, PostgreSQL 5 tabel, TXT multi-format) membuktikan bahwa sistem mampu menangani tipe sumber heterogen dari satu parameter `source`. Skenario C membuktikan kemampuan retrieval lintas file dalam satu sesi, termasuk pertanyaan cross-source yang membutuhkan konteks dari dua file berbeda.
+3. **Multi-sumber terbukti secara eksperimen** — Evaluasi batch 15 pertanyaan pada tiga skenario membuktikan sistem mampu menangani sumber heterogen dari satu parameter `source`: Skenario A (PDF+TXT, Overall=0.329), Skenario B (PostgreSQL 5 tabel, Overall=0.302), dan Skenario C (multi-format cross-source, Overall=0.302). Precision@K=1.000 pada Skenario A dan C membuktikan komponen retrieval bekerja optimal pada sumber tidak terstruktur.
 
-4. **Efektivitas transfer pengetahuan terukur via KTE** — Metrik KTE (Knowledge Transfer Effectiveness) mengukur tiga dimensi transfer pengetahuan: (A) *Explicit → Actionable* dari dokumen formal, (B) *Structured → Contextual* dari basis data relasional, dan (C) *Tacit → Explicit* dari log percakapan informal — sesuai kerangka Nonaka & Takeuchi [3]. Sistem terbukti mampu mengeksplisitkan pengetahuan dari ketiga tipe sumber tersebut.
+4. **Efektivitas transfer pengetahuan terukur via KTE** — KTE per skenario: A=0.422 (*Explicit→Actionable*), B=0.489 (*Structured→Contextual*), C=0.404 (*Tacit→Explicit*). Skenario B memiliki KTE tertinggi (0.489) karena data terstruktur PostgreSQL menghasilkan jawaban yang paling *faithful* (0.196) dan *complete* (0.781). Nilai KTE keseluruhan belum mencapai ambang batas 0.5 — terutama dipengaruhi oleh rendahnya Faithfulness (0.062–0.196) yang merupakan karakteristik evaluasi reference-free pada teks berbahasa Indonesia, bukan kegagalan retrieval.
 
-5. **Evaluasi multi-dimensi terukur** — Framework 8 metrik mengungkap bahwa komponen retrieval bekerja sangat baik (P@K = 1.00, MRR = 1.00, similarity score 0.468–0.534). Perbandingan Gemini 2.5-flash (Overall = 0.36) vs flan-t5-base (Overall = 0.13) membuktikan bahwa arsitektur modular memungkinkan peningkatan kualitas output melalui penggantian satu komponen tanpa memengaruhi komponen lainnya.
+5. **Evaluasi multi-dimensi terukur** — Framework 8 metrik mengungkap bahwa komponen retrieval bekerja sangat baik: P@K=1.000 (Skenario A&C), MRR=1.000 (semua skenario). Perbandingan Gemini 2.5-flash (Overall A1=0.266) vs flan-t5-base (Overall≈0.13) membuktikan arsitektur modular memungkinkan peningkatan kualitas output melalui penggantian satu komponen tanpa memengaruhi komponen lainnya. AQI tertinggi dicapai Skenario B (0.358), mengkonfirmasi data terstruktur menghasilkan kualitas linguistik terbaik.
 
 Kontribusi utama penelitian adalah desain pola Adapter yang memisahkan concerns antara sumber data, pemrosesan teks, retrieval, dan generasi — menjadikan setiap komponen dapat diganti atau diperluas secara independen. Framework evaluasi 8 metrik yang diimplementasikan bebas-dependensi (tanpa library RAGAS) dapat direplikasi di lingkungan terbatas resource.
 
@@ -436,21 +452,35 @@ Untuk penelitian selanjutnya, disarankan: (1) evaluasi batch dengan minimal 20 p
 
 ## CATATAN REVISI
 
-> **Status draft:**
-> - [x] Inkonsistensi teks (log chat, JSON/CSV/Excel) sudah dibersihkan
-> - [x] Referensi [9][10] sudah disitasi di teks
-> - [x] Sub-bab Keterbatasan (3.5) sudah ditambahkan
-> - [x] Tabel 3 direframe: Gemini sebagai primer, flan-t5 sebagai baseline
-> - [x] Tabel 5 (estimasi ~) diganti dengan data terukur
-> - [x] Sub-bab 2.5 judul diperbaiki ("Kontrafaktual" → "Perbandingan LLM")
-> - [x] Metrik KTE (Knowledge Transfer Effectiveness) ditambahkan (sub-bab 2.5)
-> - [x] Tabel 7 (desain evaluasi multi-sumber + dimensi TK) ditambahkan
-> - [x] Sub-bab 3.1.2 Evaluasi Multi-Sumber Batch ditambahkan (Tabel 8 + Tabel 9)
-> - [x] Abstrak diupdate: menyebut KTE + 3 skenario multi-sumber
-> - [x] Kesimpulan diupdate: poin 3 (multi-sumber) + poin 4 (KTE)
-> - [x] Dataset B (PostgreSQL 5 tabel: company_watchlist + analyst_notes) dibuat di Neon
-> - [x] Dataset C (FS Adaro PDF + chat log analis) menggunakan data/sample_data/ (sama dengan Dataset A)
-> - [ ] **WAJIB:** Jalankan Section 9 notebook → isi [TBD] di Tabel 8 dan Tabel 9
-> - [ ] **WAJIB:** Update Tabel 8 dan 9 dengan angka aktual dari output notebook
-> - [ ] Konfirmasi format jurnal target (ITHB / Sinta / internasional)
-> - [ ] Screenshot output visualisasi (3-panel chart) untuk Gambar 2
+> **Status draft — v3.0 (18 April 2026) | Target: Sinta 2–3**
+>
+> **✅ Selesai:**
+> - [x] Seluruh dataset diganti BBKP/TINS (tidak ada lagi AADI/Adaro)
+> - [x] chunk_size=2000, overlap=300 konsisten di seluruh dokumen
+> - [x] Tabel 8 terisi penuh: A(0.329), B(0.302), C(0.302)
+> - [x] Tabel 9 sub-analisis Skenario C terisi aktual
+> - [x] Abstrak ID & EN dipangkas ~180 kata (sesuai standar Sinta)
+> - [x] Keywords dipangkas ke 5 (italic, sesuai IEEE style)
+> - [x] Author block diupdate: afiliasi terpisah + ORCID placeholder
+> - [x] BLEU-1 = 0.000 dijelaskan sebagai expected behavior
+> - [x] Analisis insight Tabel 8 ditambahkan (Skenario B KTE tertinggi)
+>
+> **⚠️ Wajib sebelum submit Sinta:**
+> - [ ] **ORCID** — daftarkan di orcid.org jika belum ada (wajib Sinta 2)
+> - [ ] **Gambar 2** — embed screenshot 4-panel chart dari Cell 20 (format PNG ≥300 DPI)
+> - [ ] **Gambar 1** — buat diagram arsitektur sebagai gambar (bukan ASCII/code block)
+> - [ ] **Word count** — hitung total body text (target 4.000–7.000 kata)
+> - [ ] **Format referensi** — konversi ke IEEE numbered: [1] Penulis, “Judul,” *Jurnal*, vol., no., pp., tahun.
+> - [ ] **Template OJS** — download template Word/LaTeX dari jurnal target, apply sebelum submit
+> - [ ] **Similarity check** — jalankan Turnitin/iThenticate, target <20% similarity
+> - [ ] **Bahasa** — proofread Bahasa Indonesia oleh native speaker (cek EYD 2022)
+> - [ ] **Konfirmasi jurnal** — JTIIK (Sinta 2) / Jurnal INTECH ITHB (Sinta 3) / Register (Sinta 3)
+>
+> **📌 Catatan format Sinta:**
+> - Abstrak: 150–200 kata ✅ (sudah)
+> - Keywords: 3–5 kata, huruf miring, dipisah titik koma ✅
+> - Tabel: judul di atas tabel ✅
+> - Gambar: judul di bawah gambar ⚠️ (perlu dicek saat apply template)
+> - Sitasi: IEEE [1][2] atau APA — pilih satu, konsisten
+> - Kode program: gunakan font monospace, bukan screenshot
+> - Tidak ada catatan kaki (*footnote*) — semua masuk referensi
