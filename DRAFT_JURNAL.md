@@ -22,7 +22,7 @@ Email: [krisna@ithb.ac.id]
 
 ## ABSTRAK
 
-Organisasi modern menghadapi tantangan dalam mengelola pengetahuan yang tersebar di berbagai sumber heterogen—dokumen tidak terstruktur (PDF, DOCX, TXT) dan basis data relasional—sehingga menghambat transfer pengetahuan dan pengambilan keputusan. Penelitian ini mengembangkan sistem Question Answering (QA) berbasis Retrieval-Augmented Generation (RAG) yang bersifat agnostic terhadap sumber data, artinya sistem hanya memerlukan satu parameter `source` untuk secara otomatis mendeteksi dan menangani berbagai jenis sumber. Sistem mengintegrasikan dua adapter utama: `FolderSourceAdapter` untuk sumber tidak terstruktur (PDF, DOCX, TXT, MD, LOG) dan `PostgreSQLAdapter` untuk basis data relasional. Indeks vektor FAISS dibangun secara realtime pada saat pertanyaan masuk, tanpa pra-komputasi ke disk. Evaluasi dilakukan menggunakan delapan metrik kuantitatif ditambah metrik Knowledge Transfer Effectiveness (KTE = rata-rata Faithfulness dan Completeness) sebagai proxy efektivitas transfer pengetahuan. Eksperimen mencakup tiga skenario multi-sumber: (A) dokumen PDF/DOCX pengadaan, (B) PostgreSQL dengan lima tabel berelasi termasuk cross-table JOIN, dan (C) kombinasi laporan keuangan formal dengan log percakapan analis (multi-format unstructured). Hasil pada Skenario A menunjukkan Precision@K = 1.00 dan MRR = 1.00, membuktikan komponen retrieval bekerja sangat baik. Evaluasi ketiga skenario membuktikan kemampuan sistem menangani tiga dimensi transfer pengetahuan: Explicit→Actionable, Structured→Contextual, dan Tacit→Explicit. Sistem ini menawarkan arsitektur yang dapat diperluas, transparan secara metrik, dan siap diimplementasikan untuk mendukung kebutuhan transfer pengetahuan di organisasi.
+Organisasi modern menghadapi tantangan dalam mengelola pengetahuan yang tersebar di berbagai sumber heterogen—dokumen tidak terstruktur (PDF, DOCX, TXT) dan basis data relasional—sehingga menghambat transfer pengetahuan dan pengambilan keputusan. Penelitian ini mengembangkan sistem Question Answering (QA) berbasis Retrieval-Augmented Generation (RAG) yang bersifat agnostic terhadap sumber data, artinya sistem hanya memerlukan satu parameter `source` untuk secara otomatis mendeteksi dan menangani berbagai jenis sumber. Sistem mengintegrasikan dua adapter utama: `FolderSourceAdapter` untuk sumber tidak terstruktur (PDF, DOCX, TXT, MD, LOG) dan `PostgreSQLAdapter` untuk basis data relasional. Indeks vektor FAISS dibangun secara realtime pada saat pertanyaan masuk, tanpa pra-komputasi ke disk. Evaluasi dilakukan menggunakan delapan metrik kuantitatif ditambah metrik Knowledge Transfer Effectiveness (KTE = rata-rata Faithfulness dan Completeness) sebagai proxy efektivitas transfer pengetahuan. Eksperimen mencakup tiga skenario multi-sumber: (A) laporan keuangan formal dan log diskusi analis (PDF + TXT), (B) PostgreSQL dengan lima tabel berelasi termasuk cross-table JOIN, dan (C) kombinasi laporan keuangan formal dengan log percakapan analis pada pertanyaan lintas-sumber (multi-format unstructured). Hasil pada Skenario A menunjukkan Precision@K = 1.00 dan MRR = 1.00, membuktikan komponen retrieval bekerja sangat baik. Evaluasi ketiga skenario membuktikan kemampuan sistem menangani tiga dimensi transfer pengetahuan: Explicit→Actionable, Structured→Contextual, dan Tacit→Explicit. Sistem ini menawarkan arsitektur yang dapat diperluas, transparan secara metrik, dan siap diimplementasikan untuk mendukung kebutuhan transfer pengetahuan di organisasi.
 
 **Kata Kunci:** Question Answering, Retrieval-Augmented Generation, Multi-Sumber, FAISS, Transfer Pengetahuan, Agnostic Source
 
@@ -30,7 +30,7 @@ Organisasi modern menghadapi tantangan dalam mengelola pengetahuan yang tersebar
 
 ## ABSTRACT
 
-Modern organizations face challenges in managing knowledge dispersed across heterogeneous sources—unstructured documents (PDF, DOCX, TXT) and relational databases—which hinders knowledge transfer and decision-making. This study develops a Question Answering (QA) system based on Retrieval-Augmented Generation (RAG) that is agnostic to the data source, meaning the system only requires a single `source` parameter to automatically detect and handle various source types. The system integrates two main adapters: `FolderSourceAdapter` for unstructured sources (PDF, DOCX, TXT, MD, LOG) and `PostgreSQLAdapter` for relational databases. FAISS vector indices are built in real-time upon query arrival, without pre-computation to disk. Evaluation is conducted using eight quantitative metrics plus a composite metric, Knowledge Transfer Effectiveness (KTE = average of Faithfulness and Completeness), as a proxy for knowledge transfer efficacy. Experiments cover three multi-source scenarios: (A) procurement PDF/DOCX documents, (B) PostgreSQL with five interrelated tables including cross-table JOIN queries, and (C) a combination of formal financial reports and analyst discussion logs (multi-format unstructured). Results on Scenario A show Precision@K = 1.00 and MRR = 1.00, demonstrating excellent retrieval performance. Evaluation across all three scenarios proves the system's capability in handling three organizational knowledge transfer dimensions: Explicit→Actionable, Structured→Contextual, and Tacit→Explicit. This system offers a scalable, metrically transparent architecture ready for implementation to support organizational knowledge transfer needs.
+Modern organizations face challenges in managing knowledge dispersed across heterogeneous sources—unstructured documents (PDF, DOCX, TXT) and relational databases—which hinders knowledge transfer and decision-making. This study develops a Question Answering (QA) system based on Retrieval-Augmented Generation (RAG) that is agnostic to the data source, meaning the system only requires a single `source` parameter to automatically detect and handle various source types. The system integrates two main adapters: `FolderSourceAdapter` for unstructured sources (PDF, DOCX, TXT, MD, LOG) and `PostgreSQLAdapter` for relational databases. FAISS vector indices are built in real-time upon query arrival, without pre-computation to disk. Evaluation is conducted using eight quantitative metrics plus a composite metric, Knowledge Transfer Effectiveness (KTE = average of Faithfulness and Completeness), as a proxy for knowledge transfer efficacy. Experiments cover three multi-source scenarios: (A) formal financial reports and analyst discussion logs (PDF + TXT), (B) PostgreSQL with five interrelated tables including cross-table JOIN queries, and (C) a combination of formal financial reports and analyst discussion logs for cross-source verification queries (multi-format unstructured). Results on Scenario A show Precision@K = 1.00 and MRR = 1.00, demonstrating excellent retrieval performance. Evaluation across all three scenarios proves the system's capability in handling three organizational knowledge transfer dimensions: Explicit→Actionable, Structured→Contextual, and Tacit→Explicit. This system offers a scalable, metrically transparent architecture ready for implementation to support organizational knowledge transfer needs.
 
 **Keywords:** Question Answering, Retrieval-Augmented Generation, Multi-Source, FAISS, Knowledge Transfer, Agnostic Source
 
@@ -80,7 +80,9 @@ Setelah ekstraksi, teks dipotong menggunakan `UniversalTextSplitter` berbasis `R
 
 Evaluasi menggunakan tiga dataset yang merepresentasikan tipe sumber berbeda, dirancang untuk mensimulasikan skenario nyata transfer pengetahuan di organisasi:
 
-**Dataset A — Dokumen Pengadaan (Unstructured, Formal):** Dokumen PDF dan DOCX berbahasa Indonesia dari folder `data/uploads/`, berisi dokumen *procurement* dan *functional requirements*. Skenario: seorang staf baru yang perlu memahami kebijakan dan prosedur pengadaan organisasi sebelum bisa membuat keputusan.
+**Dataset A — Laporan Keuangan & Log Diskusi Analis (Unstructured, Formal):** Dua file berbahasa Indonesia dari folder `data/sample_data/`, yaitu laporan keuangan konsolidasian interim PT Adaro Andalan Indonesia Tbk Q1 2025 (format PDF, IFRS) dan log diskusi tim *Equity Research* (format TXT). Skenario: seorang analis junior yang perlu memahami kinerja keuangan dan posisi bisnis AADI sebelum dapat memberikan rekomendasi secara mandiri kepada klien. Lima pertanyaan mencakup: (A1) bidang usaha dan segmen bisnis AADI, (A2) pendapatan dan laba kotor Q1 2025, (A3) posisi keuangan dari sisi aset, liabilitas, dan ekuitas, (A4) gambaran arus kas dari tiga aktivitas, dan (A5) rekomendasi dan opini analis dari hasil diskusi tim.
+
+*Catatan: Dataset A tidak menggunakan dokumen internal perusahaan (seperti dokumen Functional Requirements atau Agreement) karena bersifat rahasia/privat. Semua file yang digunakan merupakan dokumen publik atau semi-publik (laporan keuangan yang dipublikasikan emiten) dan data diskusi tim yang telah dianonimisasi.*
 
 **Dataset B — Database Tim Equity Research (Structured, Relasional):** Neon PostgreSQL dengan 5 tabel yang saling berelasi dengan skenario naratif yang kohesif. Setting: perusahaan sekuritas dengan dua kelompok pengguna — tim IT internal (Ahmad Wijaya, Budi Santoso, dst.) dan tim *Equity Research* (Reza Firmansyah sebagai *Lead Equity Analyst*, Dian Kusuma dan Andika Prasetyo sebagai *Equity Analyst*). Tabel dan isi:
 
@@ -96,9 +98,9 @@ Cross-link kunci: `analyst_notes.analyst_id → user_profiles.id` dan `analyst_n
 
 *Catatan: Data pada Dataset B bersifat sintetis, dirancang khusus untuk merepresentasikan skenario nyata tim equity research di perusahaan sekuritas. Seluruh nama, angka, dan transaksi merupakan data rekayasa untuk keperluan evaluasi dan tidak merepresentasikan entitas atau kejadian nyata.*
 
-**Dataset C — Laporan Keuangan Resmi + Log Chat Analis (Unstructured, Multi-format):** Dua file `.txt` yang digabung dalam satu folder (`data/uploads_adaro_mixed/`):
+**Dataset C — Laporan Keuangan Resmi + Log Chat Analis (Unstructured, Multi-format):** Dua file dari folder `data/sample_data/` (sumber yang sama dengan Dataset A, namun dengan set pertanyaan yang berbeda untuk menguji dimensi TK yang berbeda):
 
-- `FS Adaro Andalan Indonesia 31 March 2025.txt` — laporan keuangan konsolidasian interim AADI Q1 2025 (14.654 baris, format IFRS). *Diisi oleh: PT Adaro Andalan Indonesia Tbk (dokumen resmi publik).*
+- `FS Adaro Andalan Indonesia 31 March 2025.pdf` — laporan keuangan konsolidasian interim AADI Q1 2025 (format PDF, IFRS). *Diisi oleh: PT Adaro Andalan Indonesia Tbk (dokumen resmi publik).*
 - `adaro_analyst_chat.txt` — log diskusi tim *Equity Research* (Reza, Dian, Andika) membahas laporan AADI sebelum presentasi ke klien institusional. *Diisi oleh: percakapan informal tim analis.*
 
 Skenario naratif: Dian Kusuma perlu **memverifikasi** apakah klaim angka yang disebutkan timnya dalam diskusi (gross margin 29.8%, capex bersih USD 89 juta, dll.) konsisten dengan angka resmi di laporan keuangan. Pertanyaan dibagi tiga sub-tipe: (1) *FS-only* — hanya dapat dijawab dari laporan resmi; (2) *chat-only* — hanya dari log diskusi; (3) *cross-source* — membutuhkan kedua file sekaligus untuk menjawab pertanyaan verifikasi konsistensi.
@@ -225,9 +227,9 @@ Untuk membuktikan klaim "Multi-Sumber", evaluasi dirancang dalam tiga skenario y
 
 | Skenario | Adapter | Sumber | Format | Dimensi TK | Tipe Pengetahuan |
 |---|---|---|---|---|---|
-| A | `FolderSourceAdapter` | `data/uploads/` | PDF, DOCX | Explicit → Actionable | Kebijakan formal → keputusan |
+| A | `FolderSourceAdapter` | `data/sample_data/` | PDF + TXT | Explicit → Actionable | Laporan keuangan formal → insight investasi |
 | B | `PostgreSQLAdapter` | Neon PostgreSQL (5 tabel) | SQL | Structured → Contextual | Data tabel → narasi |
-| C | `FolderSourceAdapter` | `data/uploads_adaro_mixed/` | TXT mixed | Tacit → Explicit | Diskusi informal → jawaban terstruktur |
+| C | `FolderSourceAdapter` | `data/sample_data/` | PDF + TXT | Tacit → Explicit | Diskusi informal → jawaban terstruktur |
 
 ---
 
@@ -237,7 +239,7 @@ Untuk membuktikan klaim "Multi-Sumber", evaluasi dirancang dalam tiga skenario y
 
 #### 3.1.1 Evaluasi Single Query
 
-Evaluasi dilakukan pada pertanyaan `"Apa itu simple auction?"` menggunakan dokumen pengadaan (procurement) berbahasa Indonesia. Model primer yang digunakan adalah `Gemini 2.5-flash` (Google, multibahasa). Sebagai pembanding baseline, evaluasi yang sama dijalankan menggunakan `google/flan-t5-base` (HuggingFace, Bahasa Inggris) untuk mengisolasi kontribusi komponen generatif terhadap keseluruhan skor.
+Evaluasi dilakukan pada pertanyaan `"Bagaimana posisi keuangan AADI per 31 Maret 2025 dari sisi total aset, liabilitas, dan ekuitas?"` menggunakan laporan keuangan PT Adaro Andalan Indonesia Tbk Q1 2025 berbahasa Indonesia. Model primer yang digunakan adalah `Gemini 2.5-flash` (Google, multibahasa). Sebagai pembanding baseline, evaluasi yang sama dijalankan menggunakan `google/flan-t5-base` (HuggingFace, Bahasa Inggris) untuk mengisolasi kontribusi komponen generatif terhadap keseluruhan skor.
 
 Hasil evaluasi dengan model primer Gemini 2.5-flash:
 
@@ -292,11 +294,11 @@ Similarity score per chunk pada top-5 hasil retrieval menunjukkan konsistensi di
 
 | Chunk | Skor Similarity |
 |---|---|
-| Chunk 1 (Functional Requirements) | 0.534 |
-| Chunk 2 (Functional Requirements) | 0.512 |
-| Chunk 3 (Functional Requirements) | 0.477 |
-| Chunk 4 (Functional Requirements) | 0.473 |
-| Chunk 5 (Functional Requirements) | 0.468 |
+| Chunk 1 (FS Adaro Q1 2025 — Neraca) | 0.534 |
+| Chunk 2 (FS Adaro Q1 2025 — Neraca) | 0.512 |
+| Chunk 3 (FS Adaro Q1 2025 — Catatan) | 0.477 |
+| Chunk 4 (FS Adaro Q1 2025 — Catatan) | 0.473 |
+| Chunk 5 (FS Adaro Q1 2025 — Laba Rugi) | 0.468 |
 
 **Tabel 4.** Similarity Score per Chunk — Semua chunk melampaui threshold 0.3
 
@@ -329,7 +331,7 @@ Implikasi praktis: untuk deployment di organisasi berbahasa Indonesia, komponen 
 
 #### 3.4.2 Bias Sumber Data
 
-Context Coverage = 0.20 (1 sumber unik dari 5 chunk) mengindikasikan bahwa seluruh chunk berasal dari satu dokumen. Ini bukan bias sistem melainkan cerminan akurat dari corpus yang tersedia: pertanyaan tentang "simple auction" memang paling relevan dengan dokumen "Functional Requirements". Namun, jika corpus berisi banyak dokumen dari satu sumber yang dominan, sistem berpotensi memberikan jawaban yang kurang seimbang perspektifnya.
+Context Coverage = 0.20 (1 sumber unik dari 5 chunk) mengindikasikan bahwa seluruh chunk berasal dari satu dokumen. Ini bukan bias sistem melainkan cerminan akurat dari corpus yang tersedia: pertanyaan tentang posisi keuangan neraca memang paling relevan dengan halaman neraca dari laporan keuangan AADI, sehingga top-5 chunk terkonsentrasi pada satu file. Namun, jika corpus berisi banyak dokumen dari satu sumber yang dominan, sistem berpotensi memberikan jawaban yang kurang seimbang perspektifnya.
 
 Solusi yang diimplementasikan: deduplikasi berbasis hash konten untuk mencegah satu file yang sama terhitung sebagai sumber berbeda saat muncul di beberapa folder upload.
 
@@ -447,7 +449,7 @@ Untuk penelitian selanjutnya, disarankan: (1) evaluasi batch dengan minimal 20 p
 > - [x] Abstrak diupdate: menyebut KTE + 3 skenario multi-sumber
 > - [x] Kesimpulan diupdate: poin 3 (multi-sumber) + poin 4 (KTE)
 > - [x] Dataset B (PostgreSQL 5 tabel: company_watchlist + analyst_notes) dibuat di Neon
-> - [x] Dataset C (FS Adaro TXT + chat log analis) dibuat di data/uploads_adaro_mixed/
+> - [x] Dataset C (FS Adaro PDF + chat log analis) menggunakan data/sample_data/ (sama dengan Dataset A)
 > - [ ] **WAJIB:** Jalankan Section 9 notebook → isi [TBD] di Tabel 8 dan Tabel 9
 > - [ ] **WAJIB:** Update Tabel 8 dan 9 dengan angka aktual dari output notebook
 > - [ ] Konfirmasi format jurnal target (ITHB / Sinta / internasional)
