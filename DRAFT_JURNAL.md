@@ -321,11 +321,15 @@ Similarity score per chunk pada top-5 hasil retrieval menunjukkan konsistensi di
 
 Distribusi skor menunjukkan penurunan gradual (0.721 → 0.633) yang mengindikasikan bahwa FAISS berhasil mengurutkan chunk berdasarkan relevansi semantik secara konsisten. Chunk dari dua file berbeda (PDF press release dan TXT chat log) sama-sama ter-retrieve dalam top-5, membuktikan kemampuan multi-sumber dalam satu query. Selisih antara chunk pertama dan kelima hanya 0.088, menunjukkan seluruh context yang di-retrieve relevan terhadap pertanyaan.
 
-Visualisasi metrik evaluasi menghasilkan dua panel: (1) bar chart seluruh 8 metrik dengan pewarnaan hijau (≥0.7), oranye (≥0.4), dan merah (<0.4); dan (2) bar chart similarity per chunk. Pada kondisi Gemini, metrik dimensi retrieval (P@K, MRR) berwarna hijau dan dimensi generasi berada di rentang oranye, mengkonfirmasi bahwa sistem bekerja sesuai harapan dengan LLM multibahasa.
+Hasil evaluasi batch divisualisasikan dalam empat panel (Gambar 2). Panel 1 menampilkan rata-rata metrik standar (RR, Faithfulness, Completeness, ROUGE-L, P@K, MRR, Context Coverage) per skenario dalam bentuk grouped bar chart; P@K dan MRR secara konsisten mencapai 1.000 di semua skenario, sementara metrik generasi (Faithfulness, ROUGE-L) berada di kisaran rendah sebagaimana expected pada evaluasi reference-free. Panel 2 menampilkan Overall score per pertanyaan (20 pertanyaan) yang menunjukkan variasi antar pertanyaan dalam satu skenario masih dalam rentang wajar. Panel 3 membandingkan tiga metrik komposit (KTE, MSRS, AQI) antar skenario; MSRS Skenario B tertinggi (0.769) dan KTE Skenario C tertinggi (0.460). Panel 4 merupakan radar chart yang memperlihatkan profil multi-dimensi keempat skenario secara bersamaan, mengkonfirmasi bahwa masing-masing skenario memiliki keunggulan pada dimensi yang berbeda sesuai tipe sumbernya.
+
+![Gambar 2. Visualisasi Evaluasi Batch Multi-Sumber: 4-Panel Chart (4 Skenario, 20 Pertanyaan)](result_download/eval_multisource_20260419_135652.png)
+
+**Gambar 2.** Visualisasi hasil evaluasi batch empat skenario. Panel 1: rata-rata metrik standar per skenario. Panel 2: Overall score per pertanyaan. Panel 3: metrik komposit KTE/MSRS/AQI. Panel 4: radar chart perbandingan profil multi-dimensi.
 
 ### 3.3 Arsitektur Modular dan Independensi Komponen
 
-Arsitektur pipeline yang dibangun memisahkan secara eksplisit antara komponen retrieval dan komponen generasi. Hal ini terlihat dari distribusi nilai metrik pada Tabel 3: Precision@K dan MRR mencapai 1.000 sementara Faithfulness berada di 0.062. Pola ini konsisten di seluruh 15 pertanyaan batch (Tabel 8), mengkonfirmasi bahwa kualitas retrieval tidak bergantung pada model generatif yang digunakan. Implikasinya, jika kualitas jawaban perlu ditingkatkan, penggantian komponen LLM dapat dilakukan secara independen tanpa menyentuh komponen retrieval, chunking, maupun embedding.
+Arsitektur pipeline yang dibangun memisahkan secara eksplisit antara komponen retrieval dan komponen generasi. Hal ini terlihat dari distribusi nilai metrik pada Tabel 3: Precision@K dan MRR mencapai 1.000 sementara Faithfulness berada di 0.062. Pola ini konsisten di seluruh 20 pertanyaan batch (Tabel 8), mengkonfirmasi bahwa kualitas retrieval tidak bergantung pada model generatif yang digunakan. Implikasinya, jika kualitas jawaban perlu ditingkatkan, penggantian komponen LLM dapat dilakukan secara independen tanpa menyentuh komponen retrieval, chunking, maupun embedding.
 
 ### 3.4 Analisis Keadilan dan Bias
 
@@ -455,7 +459,7 @@ Untuk penelitian selanjutnya, disarankan: (1) evaluasi batch dengan minimal 20 p
 >
 > **⚠️ Wajib sebelum submit Sinta:**
 > - [ ] **ORCID**: daftarkan di orcid.org jika belum ada (wajib Sinta 2)
-> - [ ] **Gambar 2**: embed screenshot 4-panel chart dari Cell 20 (format PNG ≥300 DPI)
+> - [x] **Gambar 2**: `result_download/eval_multisource_20260419_135652.png` — 4-panel chart aktual (382 KB). *Saat submit: konversi ke PNG ≥300 DPI menggunakan `plt.savefig(..., dpi=300)`*
 > - [ ] **Gambar 1**: buat diagram arsitektur sebagai gambar (bukan ASCII/code block)
 > - [ ] **Word count**: hitung total body text (target 4.000–7.000 kata)
 > - [ ] **Format referensi**: konversi ke IEEE numbered: [1] Penulis, "Judul," *Jurnal*, vol., no., pp., tahun.
