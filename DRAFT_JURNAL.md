@@ -307,20 +307,6 @@ KTE per skenario mencerminkan dimensi transfer pengetahuan yang berbeda: Skenari
 
 ### 3.2 Visualisasi Hasil
 
-Similarity score per chunk pada top-5 hasil retrieval menunjukkan konsistensi di atas threshold:
-
-| Chunk | Sumber | Skor Similarity |
-|---|---|---|
-| Chunk 1 | Press Release Bank Bukopin: Laba dan Turnaround | 0.721 |
-| Chunk 2 | Press Release Bank Bukopin: Kredit dan DPK | 0.694 |
-| Chunk 3 | analyst_chat_dummy.txt: Diskusi BBKP [DIAN] | 0.668 |
-| Chunk 4 | Press Release Bank Bukopin: NIM dan NPL | 0.651 |
-| Chunk 5 | analyst_chat_dummy.txt: Kesimpulan [REZA] | 0.633 |
-
-**Tabel 4.** Similarity Score per Chunk untuk Pertanyaan A1 (Laba Bersih BBKP). Semua chunk melampaui threshold similarity_threshold=0.2
-
-Distribusi skor menunjukkan penurunan gradual (0.721 → 0.633) yang mengindikasikan bahwa FAISS berhasil mengurutkan chunk berdasarkan relevansi semantik secara konsisten. Chunk dari dua file berbeda (PDF press release dan TXT chat log) sama-sama ter-retrieve dalam top-5, membuktikan kemampuan multi-sumber dalam satu query. Selisih antara chunk pertama dan kelima hanya 0.088, menunjukkan seluruh context yang di-retrieve relevan terhadap pertanyaan.
-
 Hasil evaluasi batch divisualisasikan dalam empat panel (Gambar 2). Panel 1 menampilkan rata-rata metrik standar (RR, Faithfulness, Completeness, ROUGE-L, P@K, MRR, Context Coverage) per skenario dalam bentuk grouped bar chart; P@K dan MRR secara konsisten mencapai 1.000 di semua skenario, sementara metrik generasi (Faithfulness, ROUGE-L) berada di kisaran rendah sebagaimana expected pada evaluasi reference-free. Panel 2 menampilkan Overall score per pertanyaan (20 pertanyaan) yang menunjukkan variasi antar pertanyaan dalam satu skenario masih dalam rentang wajar. Panel 3 membandingkan tiga metrik komposit (KTE, MSRS, AQI) antar skenario; MSRS Skenario B tertinggi (0.769) dan KTE Skenario C tertinggi (0.460). Panel 4 merupakan radar chart yang memperlihatkan profil multi-dimensi keempat skenario secara bersamaan, mengkonfirmasi bahwa masing-masing skenario memiliki keunggulan pada dimensi yang berbeda sesuai tipe sumbernya.
 
 ![Gambar 2. Visualisasi Evaluasi Batch Multi-Sumber: 4-Panel Chart (4 Skenario, 20 Pertanyaan)](result_download/eval_multisource_20260419_135652.png)
