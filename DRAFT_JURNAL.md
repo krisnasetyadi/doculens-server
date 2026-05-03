@@ -211,22 +211,35 @@ Metrik retrieval (Retrieval Relevance, Precision@K, MRR, Context Coverage) menca
 
 Untuk membuktikan klaim Multi-Sumber dan mengukur efektivitas transfer pengetahuan, evaluasi batch dijalankan pada lima skenario dengan total 25 pertanyaan (5 per skenario). Skenario A, B, C mengevaluasi tiap layer corpus secara terpisah; Skenario D mengevaluasi kombinasi L1+L2; dan Skenario E mengevaluasi seluruh tiga layer secara bersamaan melalui `MultiSourceAdapter`. Skenario E satu-satunya yang menggunakan evaluasi *reference-based* (vs 5 jawaban referensi yang dikurasi manual), sedangkan Skenario A–D menggunakan evaluasi *reference-free* (vs retrieved context). Seluruh angka berikut merupakan hasil aktual dari run notebook menggunakan model Gemini 2.5-flash.
 
-**Tabel 5.** Ringkasan Evaluasi Batch Multi-Sumber per Skenario
+**Tabel 5a.** Kinerja Retrieval per Skenario
 
-| Skenario | Adapter | Format | n | RR | Faith | Comp | ROUGE-L | BLEU-1 | P@K | MRR | CC | Overall | **KTE** | **MSRS** | **AQI** |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| A: Chat Only (L3) | FolderSourceAdapter | TXT | 5 | 0.473 | 0.097 | 0.807 | 0.033 | 0.000 | 1.000 | 1.000 | 0.450 | **0.282** | **0.452** | **0.725** | **0.312** |
-| B: PDF (L1) | FolderSourceAdapter | TXT | 5 | 0.580 | 0.121 | 0.628 | 0.051 | 0.000 | 1.000 | 1.000 | 0.250 | **0.276** | **0.375** | **0.625** | **0.267** |
-| C: PostgreSQL (L2) | PostgreSQLAdapter | SQL (8 tabel) | 5 | 0.460 | 0.046 | 0.609 | 0.024 | 0.000 | 1.000 | 1.000 | 0.650 | **0.228** | **0.328** | **0.825** | **0.226** |
-| D: PDF+DB (L1+L2) | MultiSourceAdapter | TXT + SQL | 5 | 0.576 | 0.136 | 0.833 | 0.046 | 0.000 | 1.000 | 1.000 | 0.525 | **0.318** | **0.484** | **0.763** | **0.338** |
-| E: Hybrid All (L1+L2+L3)† | MultiSourceAdapter | TXT + SQL | 5 | 0.582 | 0.128 | 0.699 | **0.167** | **0.213** | 1.000 | 1.000 | 0.425 | **0.358** | **0.414** | **0.713** | **0.331** |
+| Skenario | Adapter | Format | n | RR | P@K | MRR | CC |
+|---|---|---|---|---|---|---|---|
+| A: Chat Only (L3) | FolderSourceAdapter | TXT | 5 | 0.473 | 1.000 | 1.000 | 0.450 |
+| B: PDF (L1) | FolderSourceAdapter | TXT | 5 | 0.580 | 1.000 | 1.000 | 0.250 |
+| C: PostgreSQL (L2) | PostgreSQLAdapter | SQL (8 tabel) | 5 | 0.460 | 1.000 | 1.000 | 0.650 |
+| D: PDF+DB (L1+L2) | MultiSourceAdapter | TXT + SQL | 5 | 0.576 | 1.000 | 1.000 | 0.525 |
+| E: Hybrid All (L1+L2+L3)† | MultiSourceAdapter | TXT + SQL | 5 | 0.582 | 1.000 | 1.000 | 0.425 |
 
-*RR = Retrieval Relevance; Faith = Answer Faithfulness; Comp = Answer Completeness; CC = Context Coverage.*
-*KTE = (Faithfulness + Completeness) / 2. MSRS = (Precision@K + Context Coverage) / 2. AQI = (Faithfulness + Completeness + ROUGE-L) / 3.*
-*†Skenario E: ROUGE-L dan BLEU-1 reference-based (vs GROUND_TRUTH_HYBRID). Skenario A–D: reference-free (vs retrieved context).*
+*RR = Retrieval Relevance; CC = Context Coverage. P@K dan MRR = 1.000 di semua skenario.*
+*†Skenario E: ROUGE-L dan BLEU-1 reference-based. Skenario A–D: reference-free.*
+
+**Tabel 5b.** Kualitas Jawaban dan Metrik Komposit per Skenario
+
+| Skenario | Faith | Comp | ROUGE-L | BLEU-1 | **Overall** | **KTE** | **MSRS** | **AQI** |
+|---|---|---|---|---|---|---|---|---|
+| A: Chat Only (L3) | 0.097 | 0.807 | 0.033 | 0.000 | **0.282** | **0.452** | **0.725** | **0.312** |
+| B: PDF (L1) | 0.121 | 0.628 | 0.051 | 0.000 | **0.276** | **0.375** | **0.625** | **0.267** |
+| C: PostgreSQL (L2) | 0.046 | 0.609 | 0.024 | 0.000 | **0.228** | **0.328** | **0.825** | **0.226** |
+| D: PDF+DB (L1+L2) | 0.136 | 0.833 | 0.046 | 0.000 | **0.318** | **0.484** | **0.763** | **0.338** |
+| E: Hybrid All (L1+L2+L3)† | 0.128 | 0.699 | **0.167** | **0.213** | **0.358** | **0.414** | **0.713** | **0.331** |
+
+*Faith = Answer Faithfulness; Comp = Answer Completeness.*
+*KTE = (Faithfulness + Completeness) / 2. MSRS = (P@K + Context Coverage) / 2. AQI = (Faithfulness + Completeness + ROUGE-L) / 3.*
+*Overall = (RR + Faithfulness + Completeness + ROUGE-L + BLEU-1) / 5.*
 *Semua nilai dibulatkan tiga desimal; selisih pembulatan ≤0.001 dapat terjadi pada formula komposit.*
 
-Beberapa temuan kunci dari Tabel 5: (1) **Skenario D (PDF+DB)** mencapai *Overall* tertinggi di antara skenario *reference-free* (0.318) dan *Answer Completeness* tertinggi (0.833), karena penggabungan dokumen PDF dan data PostgreSQL memberikan konteks lintas paradigma yang paling lengkap untuk pertanyaan operasional. Secara keseluruhan termasuk Skenario E (*reference-based*), *Overall* tertinggi dicapai Skenario E (0.358). (2) **Skenario C (PostgreSQL)** mencapai MSRS tertinggi (0.825) dengan *Context Coverage* = 0.650, mencerminkan bahwa 8 tabel operasional memberikan keragaman sumber retrieval tertinggi — setiap query menarik chunk dari berbagai tabel berbeda. (3) **Skenario A (Chat Only)** mencapai *Answer Completeness* tinggi (0.807) karena pertanyaan dirancang spesifik sesuai konteks diskusi tim; sistem menemukan jawaban langsung dari log percakapan. (4) **Skenario B (PDF)** mencapai *Answer Faithfulness* tertinggi (0.121) dan *Retrieval Relevance* kedua (0.580), karena dokumen PDF spesifikasi sistem mengandung informasi teknis yang padu sehingga overlap antara jawaban dan context tinggi. (5) **Skenario E (Hybrid)** mencapai *Retrieval Relevance* tertinggi (0.582) dan *Overall* = 0.358; ROUGE-L = 0.167 dan BLEU-1 = 0.213 adalah nilai *reference-based* yang bermakna — menunjukkan terdapat overlap konten yang nyata antara jawaban AI dan jawaban referensi yang dikurasi peneliti untuk pertanyaan lintas-layer.
+Beberapa temuan kunci dari Tabel 5a dan 5b: (1) **Skenario D (PDF+DB)** mencapai *Overall* tertinggi di antara skenario *reference-free* (0.318) dan *Answer Completeness* tertinggi (0.833), karena penggabungan dokumen PDF dan data PostgreSQL memberikan konteks lintas paradigma yang paling lengkap untuk pertanyaan operasional. Secara keseluruhan termasuk Skenario E (*reference-based*), *Overall* tertinggi dicapai Skenario E (0.358). (2) **Skenario C (PostgreSQL)** mencapai MSRS tertinggi (0.825) dengan *Context Coverage* = 0.650, mencerminkan bahwa 8 tabel operasional memberikan keragaman sumber retrieval tertinggi — setiap query menarik chunk dari berbagai tabel berbeda. (3) **Skenario A (Chat Only)** mencapai *Answer Completeness* tinggi (0.807) karena pertanyaan dirancang spesifik sesuai konteks diskusi tim; sistem menemukan jawaban langsung dari log percakapan. (4) **Skenario B (PDF)** mencapai *Answer Faithfulness* tertinggi (0.121) dan *Retrieval Relevance* kedua (0.580), karena dokumen PDF spesifikasi sistem mengandung informasi teknis yang padu sehingga overlap antara jawaban dan context tinggi. (5) **Skenario E (Hybrid)** mencapai *Retrieval Relevance* tertinggi (0.582) dan *Overall* = 0.358; ROUGE-L = 0.167 dan BLEU-1 = 0.213 adalah nilai *reference-based* yang bermakna — menunjukkan terdapat overlap konten yang nyata antara jawaban AI dan jawaban referensi yang dikurasi peneliti untuk pertanyaan lintas-layer.
 
 KTE per skenario mencerminkan dimensi transfer pengetahuan yang berbeda: A (*Tacit→Operational*) = 0.452, B (*Explicit→Actionable*) = 0.375, C (*Explicit→Structured*) = 0.328, D (*Explicit→Cross-referenced*) = 0.484, E (*Cross-Paradigm*) = 0.414. Nilai KTE tertinggi pada Skenario D (0.484) karena kombinasi PDF+DB menghasilkan jawaban yang faktual dan lengkap; Skenario E mencapai KTE 0.414 meskipun pertanyaannya paling kompleks lintas tiga layer. Precision@K dan MRR mencapai 1.000 di seluruh 25 pertanyaan, mengkonfirmasi komponen retrieval bekerja optimal di semua konfigurasi sumber dan tipe sumber.
 
@@ -244,7 +257,7 @@ Untuk membuktikan bahwa setiap layer corpus memberikan kontribusi yang terukur, 
 | **Ablasi-Full: PDF+DB+Chat** | **L1+L2+L3** | **5** | **0.358** | **0.128** | **0.699** | **0.167** | **0.213** |
 
 *‡reference-free (vs retrieved context). Full (L1+L2+L3) reference-based (vs GROUND_TRUTH_HYBRID).*
-*Overall = (RR + Faithfulness + Completeness + ROUGE-L + BLEU-1) / 5; kolom RR tidak ditampilkan karena dikumpulkan bersamaan dengan metrik lainnya. Ablasi-Full identik dengan Skenario E Tabel 5 (RR = 0.582).*
+*Overall = (RR + Faithfulness + Completeness + ROUGE-L + BLEU-1) / 5; kolom RR tidak ditampilkan karena dikumpulkan bersamaan dengan metrik lainnya. Ablasi-Full identik dengan Skenario E Tabel 5a/5b (RR = 0.582).*
 
 Pola ablasi membuktikan kontribusi yang dramatis: *Overall* dari 0.230 (Chat only) → 0.230 (PDF only) → 0.231 (PDF+DB) → 0.358 (Full). Tiga konfigurasi pertama menghasilkan *Overall* yang hampir identik (0.230–0.231), sedangkan konfigurasi Full memberikan lompatan signifikan (+0.127 dari PDF+DB ke Full). Ini mengkonfirmasi bahwa **kombinasi ketiga layer secara bersamaan** adalah faktor penentu kualitas: ROUGE-L naik dari 0.055 → 0.167 (3.0×) dan BLEU-1 dari 0.002 → 0.213 saat Layer 3 (Chat) diintegrasikan, mengkonfirmasi bahwa informasi *tacit* dalam log diskusi tim berkontribusi nyata pada pertanyaan yang memerlukan konteks operasional (E1: bug quotation, E2: keputusan digit desimal, E3: insiden ETL MOFIDS, E4: alur upload allocation, E5: status fitur amend). Hasil ablation ini secara kuantitatif membuktikan bahwa arsitektur tiga-layer corpus — bukan hanya arsitektur pipeline multi-adapter — merupakan faktor penentu kualitas jawaban pada pertanyaan *cross-paradigm*.
 

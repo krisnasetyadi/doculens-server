@@ -201,22 +201,35 @@ Retrieval metrics (Retrieval Relevance, Precision@K, MRR, Context Coverage) achi
 
 To prove the Multi-Source claim and measure knowledge transfer effectiveness, batch evaluation was run across five scenarios with a total of 25 questions (5 per scenario). Scenarios A, B, and C evaluate each corpus layer separately; Scenario D evaluates the L1+L2 combination; and Scenario E evaluates all three layers simultaneously through `MultiSourceAdapter`. Scenario E is the only one using reference-based evaluation (vs 5 manually curated reference answers), while Scenarios A–D use reference-free evaluation (vs retrieved context). All figures below are actual results from notebook runs using Gemini 2.5-flash.
 
-**Table 5.** Batch Multi-Source Evaluation Summary per Scenario
+**Table 5a.** Retrieval Performance per Scenario
 
-| Scenario | Adapter | Format | n | RR | Faith | Comp | ROUGE-L | BLEU-1 | P@K | MRR | CC | Overall | **KTE** | **MSRS** | **AQI** |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| A: Chat Only (L3) | FolderSourceAdapter | TXT | 5 | 0.473 | 0.097 | 0.807 | 0.033 | 0.000 | 1.000 | 1.000 | 0.450 | **0.282** | **0.452** | **0.725** | **0.312** |
-| B: PDF (L1) | FolderSourceAdapter | TXT | 5 | 0.580 | 0.121 | 0.628 | 0.051 | 0.000 | 1.000 | 1.000 | 0.250 | **0.276** | **0.375** | **0.625** | **0.267** |
-| C: PostgreSQL (L2) | PostgreSQLAdapter | SQL (8 tables) | 5 | 0.460 | 0.046 | 0.609 | 0.024 | 0.000 | 1.000 | 1.000 | 0.650 | **0.228** | **0.328** | **0.825** | **0.226** |
-| D: PDF+DB (L1+L2) | MultiSourceAdapter | TXT + SQL | 5 | 0.576 | 0.136 | 0.833 | 0.046 | 0.000 | 1.000 | 1.000 | 0.525 | **0.318** | **0.484** | **0.763** | **0.338** |
-| E: Hybrid All (L1+L2+L3)† | MultiSourceAdapter | TXT + SQL | 5 | 0.582 | 0.128 | 0.699 | **0.167** | **0.213** | 1.000 | 1.000 | 0.425 | **0.358** | **0.414** | **0.713** | **0.331** |
+| Scenario | Adapter | Format | n | RR | P@K | MRR | CC |
+|---|---|---|---|---|---|---|---|
+| A: Chat Only (L3) | FolderSourceAdapter | TXT | 5 | 0.473 | 1.000 | 1.000 | 0.450 |
+| B: PDF (L1) | FolderSourceAdapter | TXT | 5 | 0.580 | 1.000 | 1.000 | 0.250 |
+| C: PostgreSQL (L2) | PostgreSQLAdapter | SQL (8 tables) | 5 | 0.460 | 1.000 | 1.000 | 0.650 |
+| D: PDF+DB (L1+L2) | MultiSourceAdapter | TXT + SQL | 5 | 0.576 | 1.000 | 1.000 | 0.525 |
+| E: Hybrid All (L1+L2+L3)† | MultiSourceAdapter | TXT + SQL | 5 | 0.582 | 1.000 | 1.000 | 0.425 |
 
-*RR = Retrieval Relevance; Faith = Answer Faithfulness; Comp = Answer Completeness; CC = Context Coverage.*
-*KTE = (Faithfulness + Completeness) / 2. MSRS = (Precision@K + Context Coverage) / 2. AQI = (Faithfulness + Completeness + ROUGE-L) / 3.*
-*†Scenario E: ROUGE-L and BLEU-1 reference-based (vs GROUND_TRUTH_HYBRID). Scenarios A–D: reference-free (vs retrieved context).*
+*RR = Retrieval Relevance; CC = Context Coverage. P@K and MRR = 1.000 across all scenarios.*
+*†Scenario E: ROUGE-L and BLEU-1 reference-based. Scenarios A–D: reference-free.*
+
+**Table 5b.** Answer Quality and Composite Metrics per Scenario
+
+| Scenario | Faith | Comp | ROUGE-L | BLEU-1 | **Overall** | **KTE** | **MSRS** | **AQI** |
+|---|---|---|---|---|---|---|---|---|
+| A: Chat Only (L3) | 0.097 | 0.807 | 0.033 | 0.000 | **0.282** | **0.452** | **0.725** | **0.312** |
+| B: PDF (L1) | 0.121 | 0.628 | 0.051 | 0.000 | **0.276** | **0.375** | **0.625** | **0.267** |
+| C: PostgreSQL (L2) | 0.046 | 0.609 | 0.024 | 0.000 | **0.228** | **0.328** | **0.825** | **0.226** |
+| D: PDF+DB (L1+L2) | 0.136 | 0.833 | 0.046 | 0.000 | **0.318** | **0.484** | **0.763** | **0.338** |
+| E: Hybrid All (L1+L2+L3)† | 0.128 | 0.699 | **0.167** | **0.213** | **0.358** | **0.414** | **0.713** | **0.331** |
+
+*Faith = Answer Faithfulness; Comp = Answer Completeness.*
+*KTE = (Faithfulness + Completeness) / 2. MSRS = (P@K + Context Coverage) / 2. AQI = (Faithfulness + Completeness + ROUGE-L) / 3.*
+*Overall = (RR + Faithfulness + Completeness + ROUGE-L + BLEU-1) / 5.*
 *All values rounded to three decimals; rounding differences ≤0.001 may occur in composite formulas.*
 
-Key findings from Table 5: (1) **Scenario D (PDF+DB)** achieves the highest *Overall* among reference-free scenarios (0.318) and the highest *Answer Completeness* (0.833), because combining PDF specification documents with PostgreSQL data provides the most complete cross-paradigm context for operational questions. Including Scenario E (reference-based), the overall highest *Overall* is achieved by Scenario E (0.358). (2) **Scenario C (PostgreSQL)** achieves the highest MSRS (0.825) with *Context Coverage* = 0.650, reflecting that 8 operational tables provide the highest retrieval source diversity — each query draws chunks from different tables. (3) **Scenario A (Chat Only)** achieves high *Answer Completeness* (0.807) because questions are designed specifically to match team discussion context; the system finds answers directly from conversation logs. (4) **Scenario B (PDF)** achieves the highest *Answer Faithfulness* (0.121) and second-highest *Retrieval Relevance* (0.580), because PDF specification documents contain cohesive technical information resulting in high overlap between answers and context. (5) **Scenario E (Hybrid)** achieves the highest *Retrieval Relevance* (0.582) and *Overall* = 0.358; ROUGE-L = 0.167 and BLEU-1 = 0.213 are meaningful reference-based values — indicating real content overlap between AI answers and researcher-curated reference answers for cross-layer questions.
+Key findings from Tables 5a and 5b: (1) **Scenario D (PDF+DB)** achieves the highest *Overall* among reference-free scenarios (0.318) and the highest *Answer Completeness* (0.833), because combining PDF specification documents with PostgreSQL data provides the most complete cross-paradigm context for operational questions. Including Scenario E (reference-based), the overall highest *Overall* is achieved by Scenario E (0.358). (2) **Scenario C (PostgreSQL)** achieves the highest MSRS (0.825) with *Context Coverage* = 0.650, reflecting that 8 operational tables provide the highest retrieval source diversity — each query draws chunks from different tables. (3) **Scenario A (Chat Only)** achieves high *Answer Completeness* (0.807) because questions are designed specifically to match team discussion context; the system finds answers directly from conversation logs. (4) **Scenario B (PDF)** achieves the highest *Answer Faithfulness* (0.121) and second-highest *Retrieval Relevance* (0.580), because PDF specification documents contain cohesive technical information resulting in high overlap between answers and context. (5) **Scenario E (Hybrid)** achieves the highest *Retrieval Relevance* (0.582) and *Overall* = 0.358; ROUGE-L = 0.167 and BLEU-1 = 0.213 are meaningful reference-based values — indicating real content overlap between AI answers and researcher-curated reference answers for cross-layer questions.
 
 KTE per scenario reflects different knowledge transfer dimensions: A (*Tacit→Operational*) = 0.452, B (*Explicit→Actionable*) = 0.375, C (*Explicit→Structured*) = 0.328, D (*Explicit→Cross-referenced*) = 0.484, E (*Cross-Paradigm*) = 0.414. The highest KTE value for Scenario D (0.484) results from the PDF+DB combination producing factually accurate and complete answers; Scenario E achieves KTE 0.414 despite its questions being the most complex across three layers. Precision@K and MRR reach 1.000 across all 25 questions, confirming that the retrieval component operates optimally across all source configurations and source types.
 
@@ -234,7 +247,7 @@ To prove that each corpus layer provides a measurable contribution, an ablation 
 | **Ablation-Full: PDF+DB+Chat** | **L1+L2+L3** | **5** | **0.358** | **0.128** | **0.699** | **0.167** | **0.213** |
 
 *‡reference-free (vs retrieved context). Full (L1+L2+L3) reference-based (vs GROUND_TRUTH_HYBRID).*
-*Overall = (RR + Faithfulness + Completeness + ROUGE-L + BLEU-1) / 5; the RR column is not displayed as it is collected alongside other metrics. Ablation-Full is identical to Scenario E in Table 5 (RR = 0.582).*
+*Overall = (RR + Faithfulness + Completeness + ROUGE-L + BLEU-1) / 5; the RR column is not displayed as it is collected alongside other metrics. Ablation-Full is identical to Scenario E in Tables 5a/5b (RR = 0.582).*
 
 The ablation pattern proves dramatic contributions: *Overall* from 0.230 (Chat only) → 0.230 (PDF only) → 0.231 (PDF+DB) → 0.358 (Full). The first three configurations produce nearly identical *Overall* values (0.230–0.231), while the Full configuration delivers a significant leap (+0.127 from PDF+DB to Full). This confirms that **the simultaneous combination of all three layers** is the quality-determining factor: ROUGE-L rises from 0.055 → 0.167 (3.0×) and BLEU-1 from 0.002 → 0.213 when Layer 3 (Chat) is integrated, confirming that tacit information in team discussion logs contributes meaningfully to questions requiring operational context (E1: quotation bug, E2: decimal digit decision, E3: ETL MOFIDS incident, E4: upload allocation flow, E5: amend feature status). These ablation results quantitatively prove that the three-layer corpus architecture — not just the multi-adapter pipeline architecture — is the determining factor for answer quality on cross-paradigm questions.
 
