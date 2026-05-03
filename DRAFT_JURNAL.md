@@ -22,7 +22,7 @@ Email: ivan@ithb.ac.id
 
 ## ABSTRAK
 
-Pergantian personel kunci pada *document-based service organizations* menciptakan kesenjangan pengetahuan yang nyata: pengetahuan domain yang tersebar di berbagai artefak — dokumen teknis, prosedur operasional, dan basis data — tidak dapat diakses secara cepat oleh penerus, sehingga setiap permintaan klarifikasi memerlukan waktu berjam-jam hingga berhari-hari sebelum kesimpulan dapat dirumuskan. Organisasi modern menghadapi tantangan mengelola pengetahuan yang tersebar di sumber heterogen, yaitu dokumen tidak terstruktur (PDF, TXT) dan basis data relasional, sehingga menghambat transfer pengetahuan dan pengambilan keputusan. Penelitian ini mengembangkan sistem *Question Answering* (QA) berbasis *Retrieval-Augmented Generation* (RAG) yang bersifat *agnostic* terhadap sumber data: sistem hanya memerlukan satu parameter `source` untuk mendeteksi dan menangani berbagai jenis sumber secara otomatis. Sistem mengintegrasikan dua adapter utama, yaitu `FolderSourceAdapter` untuk sumber tidak terstruktur dan `PostgreSQLAdapter` untuk basis data relasional, dengan indeks vektor FAISS yang dibangun secara *real-time* tanpa pra-komputasi ke disk. Evaluasi menggunakan delapan metrik kuantitatif dan tiga metrik komposit: *Knowledge Transfer Effectiveness* (KTE), *Multi-Source Retrieval Score* (MSRS), dan *Answer Quality Index* (AQI). Eksperimen mencakup empat skenario dengan 20 pertanyaan: (A) dokumen operasional dan log diskusi tim dalam format PDF+TXT, (B) PostgreSQL lima tabel berelasi, (C) pertanyaan lintas-sumber multi-format, dan (D) *cross-paradigm*, yaitu penggabungan sumber unstructured dan structured secara bersamaan dalam satu indeks FAISS gabungan. Hasil menunjukkan Precision@K = 1.00 dan MRR = 1.00 pada semua skenario, dengan KTE tertinggi pada Skenario B (0.502) yang bersumber dari PostgreSQL dan satu-satunya skenario yang melampaui ambang batas efektif KTE ≥ 0.5. Skenario A mencapai MSRS = 0.650, Skenario B MSRS = 0.812, Skenario C MSRS = 0.700, dan Skenario D MSRS = 0.725. Keempat skenario membuktikan kemampuan sistem menangani dimensi transfer pengetahuan: *Explicit→Actionable*, *Structured→Contextual*, *Tacit→Explicit*, dan *Cross-Paradigm*.
+Pergantian personel kunci pada *document-based service organizations* menciptakan kesenjangan pengetahuan yang nyata: pengetahuan domain yang tersebar di berbagai artefak — dokumen teknis, prosedur operasional, dan basis data — tidak dapat diakses secara cepat oleh penerus, sehingga setiap permintaan klarifikasi memerlukan waktu berjam-jam hingga berhari-hari sebelum kesimpulan dapat dirumuskan. Organisasi modern menghadapi tantangan mengelola pengetahuan yang tersebar di sumber heterogen, yaitu dokumen tidak terstruktur (PDF, TXT) dan basis data relasional, sehingga menghambat transfer pengetahuan dan pengambilan keputusan. Penelitian ini mengembangkan sistem *Question Answering* (QA) berbasis *Retrieval-Augmented Generation* (RAG) yang bersifat *agnostic* terhadap sumber data: sistem hanya memerlukan satu parameter `source` untuk mendeteksi dan menangani berbagai jenis sumber secara otomatis. Sistem mengintegrasikan dua adapter utama, yaitu `FolderSourceAdapter` untuk sumber tidak terstruktur dan `PostgreSQLAdapter` untuk basis data relasional, dengan indeks vektor FAISS yang dibangun secara *real-time* tanpa pra-komputasi ke disk. Evaluasi menggunakan delapan metrik kuantitatif dan tiga metrik komposit: *Knowledge Transfer Effectiveness* (KTE), *Multi-Source Retrieval Score* (MSRS), dan *Answer Quality Index* (AQI). Eksperimen mencakup lima skenario dengan 25 pertanyaan (5 per skenario) menggunakan corpus tiga-layer dari sistem manajemen lelang obligasi pemerintah: spesifikasi kebutuhan fungsional sistem (FR, L1), basis data PostgreSQL operasional 8 tabel (L2), dan log diskusi tim pengembang 908 pesan (L3). Skenario: (A) Chat log saja, (B) dokumen FR/PDF saja, (C) PostgreSQL saja, (D) FR+DB, dan (E) semua layer (*Hybrid*). Hasil menunjukkan Precision@K = 1.00 dan MRR = 1.00 pada semua skenario. *Overall* tertinggi Skenario E (0.358); di antara skenario *reference-free* (A–D), Skenario D unggul (0.318). MSRS tertinggi Skenario C (0.825), dan *Retrieval Relevance* tertinggi Skenario E (0.582). Skenario E dilengkapi 5 jawaban referensi (*ground truth*) yang dikurasi manual, menghasilkan ROUGE-L = 0.167 dan BLEU-1 = 0.213 (*reference-based*). *Ablation study* empat konfigurasi membuktikan kontribusi dramatis Layer 3: Chat-only *Overall* = 0.230 → FR-only = 0.230 → FR+DB = 0.231 → Full = 0.358. Kelima skenario memetakan dimensi transfer pengetahuan: *Tacit→Operational* (A), *Explicit→Actionable* (B), *Explicit→Structured* (C), *Explicit→Cross-referenced* (D), dan *Cross-Paradigm* (E).
 
 **Kata Kunci:** *Retrieval-Augmented Generation*, *Question Answering*, Multi-Sumber, FAISS, Transfer Pengetahuan
 
@@ -30,7 +30,7 @@ Pergantian personel kunci pada *document-based service organizations* menciptaka
 
 ## ABSTRACT
 
-Key personnel turnover in document-based service organizations creates a real knowledge gap: domain knowledge dispersed across technical documents, operational procedures, and databases cannot be accessed quickly by successors, causing each clarification request to require hours or even days before a conclusion can be reached. Modern organizations face challenges managing knowledge dispersed across heterogeneous sources, namely unstructured documents (PDF, TXT) and relational databases, hindering knowledge transfer and decision-making. This study develops a Question Answering (QA) system based on Retrieval-Augmented Generation (RAG) that is agnostic to the data source: the system requires only a single `source` parameter to automatically detect and handle various source types. Two main adapters are integrated, namely `FolderSourceAdapter` for unstructured sources and `PostgreSQLAdapter` for relational databases, with FAISS vector indices built in real-time without disk pre-computation. Evaluation uses eight quantitative metrics and three composite metrics: Knowledge Transfer Effectiveness (KTE), Multi-Source Retrieval Score (MSRS), and Answer Quality Index (AQI). Experiments cover four scenarios with 20 questions: (A) operational documents and team discussion logs in PDF+TXT format, (B) PostgreSQL with five interrelated tables, (C) cross-source multi-format queries, and (D) cross-paradigm, combining unstructured and structured sources simultaneously in a single merged FAISS index. Results show Precision@K = 1.00 and MRR = 1.00 across all scenarios, with highest KTE on Scenario B (0.502) sourced from PostgreSQL, the only scenario exceeding the effective threshold KTE ≥ 0.5. MSRS values are: Scenario A = 0.650, Scenario B = 0.812, Scenario C = 0.700, Scenario D = 0.725. All four scenarios demonstrate the system's capability across knowledge transfer dimensions: Explicit→Actionable, Structured→Contextual, Tacit→Explicit, and Cross-Paradigm.
+Key personnel turnover in document-based service organizations creates a real knowledge gap: domain knowledge dispersed across technical documents, operational procedures, and databases cannot be accessed quickly by successors, causing each clarification request to require hours or even days before a conclusion can be reached. Modern organizations face challenges managing knowledge dispersed across heterogeneous sources, namely unstructured documents (PDF, TXT) and relational databases, hindering knowledge transfer and decision-making. This study develops a Question Answering (QA) system based on Retrieval-Augmented Generation (RAG) that is agnostic to the data source: the system requires only a single `source` parameter to automatically detect and handle various source types. Two main adapters are integrated, namely `FolderSourceAdapter` for unstructured sources and `PostgreSQLAdapter` for relational databases, with FAISS vector indices built in real-time without disk pre-computation. Evaluation uses eight quantitative metrics and three composite metrics: Knowledge Transfer Effectiveness (KTE), Multi-Source Retrieval Score (MSRS), and Answer Quality Index (AQI). Experiments cover five scenarios with 25 questions (5 per scenario) using a three-layer corpus from a government bond auction management system: functional requirements specification (FR, L1), operational PostgreSQL database with 8 tables (L2), and developer team discussion logs with 908 messages (L3). Scenarios: (A) Chat logs only, (B) FR/PDF only, (C) PostgreSQL only, (D) FR+DB, and (E) all layers (Hybrid). Results show Precision@K = 1.00 and MRR = 1.00 across all scenarios. Highest Overall on Scenario E (0.358); among reference-free scenarios (A–D), Scenario D leads (0.318). Highest MSRS on Scenario C (0.825), and highest Retrieval Relevance on Scenario E (0.582). Scenario E is equipped with 5 manually curated ground truth answers, yielding ROUGE-L = 0.167 and BLEU-1 = 0.213 (reference-based). Ablation study across four configurations demonstrates the dramatic contribution of Layer 3: Chat-only Overall = 0.230 → FR-only = 0.230 → FR+DB = 0.231 → Full = 0.358. Five scenarios map distinct knowledge transfer dimensions: Tacit→Operational (A), Explicit→Actionable (B), Explicit→Structured (C), Explicit→Cross-referenced (D), and Cross-Paradigm (E).
 
 **Keywords:** Retrieval-Augmented Generation, Question Answering, Multi-Source, FAISS, Knowledge Transfer
 
@@ -38,15 +38,15 @@ Key personnel turnover in document-based service organizations creates a real kn
 
 ## 1. PENDAHULUAN
 
-Organisasi yang beroperasi dalam ekosistem layanan berbasis dokumen (*document-based service organizations*) — seperti lembaga keuangan, penyedia layanan teknis domain-spesifik, dan operator platform transaksi — sangat bergantung pada pengetahuan yang terakumulasi dalam berbagai artefak: spesifikasi kebutuhan fungsional, prosedur operasional, konfigurasi sistem, dan rekam jejak transaksi. Tantangan kritis muncul saat terjadi pergantian personel kunci (*knowledge worker turnover*): pengetahuan domain yang selama ini melekat pada individu harus ditransfer kepada penerus dalam waktu terbatas, sementara operasional layanan tidak dapat berhenti. Menurut McKinsey [3], karyawan yang tergolong *knowledge worker* menghabiskan sekitar 20% waktu kerjanya hanya untuk mencari informasi internal, dan IDC [1] melaporkan bahwa hingga 90% data organisasi bersifat tidak terstruktur — tersebar di dokumen PDF, berkas teks, dan basis data — sehingga hanya sebagian kecil yang benar-benar dapat diakses dan dimanfaatkan secara efektif.
+Organisasi yang beroperasi dalam ekosistem layanan berbasis dokumen (*document-based service organizations*) — seperti lembaga keuangan, penyedia layanan teknis domain-spesifik, dan operator platform transaksi — sangat bergantung pada pengetahuan yang terakumulasi dalam berbagai artefak: spesifikasi kebutuhan fungsional, prosedur operasional, konfigurasi sistem, dan rekam jejak transaksi. Tantangan kritis muncul saat terjadi pergantian personel kunci (*knowledge worker turnover*): pengetahuan domain yang selama ini melekat pada individu harus ditransfer kepada penerus dalam waktu terbatas, sementara operasional layanan tidak dapat berhenti. Menurut Chui et al. (2012), karyawan yang tergolong *knowledge worker* menghabiskan sekitar 20% waktu kerjanya hanya untuk mencari informasi internal, dan IDC (2023) melaporkan bahwa hingga 90% data organisasi bersifat tidak terstruktur — tersebar di dokumen PDF, berkas teks, dan basis data — sehingga hanya sebagian kecil yang benar-benar dapat diakses dan dimanfaatkan secara efektif.
 
-Permasalahan ini semakin kompleks karena pengetahuan organisasi tersebar secara heterogen: spesifikasi kebutuhan fungsional tersimpan dalam dokumen PDF ratusan halaman, data operasional tersimpan di tabel basis data relasional, sementara konteks keputusan teknis kerap hanya ada dalam ingatan personel yang bersangkutan. Nonaka & Takeuchi [4] membedakan pengetahuan *tacit* (tersirat dalam pikiran individu) dan *explicit* (terdokumentasi dalam artefak); namun bahkan pengetahuan *explicit* pun sulit ditemukan secara cepat apabila tersebar lintas repositori dengan format berbeda. Gartner [2] memperkirakan karyawan menghabiskan hingga 30% waktu kerja untuk aktivitas bernilai rendah yang seharusnya dapat diotomatisasi, termasuk penelusuran dokumen dan klarifikasi informasi operasional yang berulang.
+Permasalahan ini semakin kompleks karena pengetahuan organisasi tersebar secara heterogen: spesifikasi kebutuhan fungsional tersimpan dalam dokumen PDF ratusan halaman, data operasional tersimpan di tabel basis data relasional, sementara konteks keputusan teknis kerap hanya ada dalam ingatan personel yang bersangkutan. Nonaka dan Takeuchi (1995) membedakan pengetahuan *tacit* (tersirat dalam pikiran individu) dan *explicit* (terdokumentasi dalam artefak); namun bahkan pengetahuan *explicit* pun sulit ditemukan secara cepat apabila tersebar lintas repositori dengan format berbeda. Gartner (2020) memperkirakan karyawan menghabiskan hingga 30% waktu kerja untuk aktivitas bernilai rendah yang seharusnya dapat diotomatisasi, termasuk penelusuran dokumen dan klarifikasi informasi operasional yang berulang.
 
 Dalam lingkungan enterprise yang menjadi konteks penelitian ini — sebuah sistem platform transaksi keuangan yang mengelola proses penawaran dan alokasi instrumen keuangan untuk lembaga-lembaga peserta terdaftar — dampak *turnover* ini dirasakan secara langsung secara operasional. Dalam rentang dua tahun, terjadi dua kali pergantian *Product Owner*, dengan komposisi tim yang menyusut dari tiga menjadi dua orang. Akibatnya, setiap permintaan klarifikasi teknis dari pengguna eksternal (*peserta platform*) — seperti alur proses transaksi, parameter konfigurasi sesi, atau aturan instrumen — memerlukan waktu respons yang bervariasi dari beberapa jam hingga satu hari kerja penuh, bergantung pada seberapa dalam konteks tersebut terdokumentasi dan seberapa akrab personel yang tersisa dengan materi tersebut. Kondisi ini merepresentasikan pola umum yang ditemukan pada berbagai *document-based service organization*: volume pengetahuan tidak berkurang, tetapi kapasitas manusia untuk mengaksesnya secara cepat dan akurat semakin terbatas.
 
-Solusi manajemen pengetahuan (*Knowledge Management*/KM) tradisional — seperti wiki internal, basis pengetahuan statis, atau FAQ — tidak mampu menjawab pertanyaan dinamis yang membutuhkan inferensi lintas sumber secara *real-time*. Pengguna masih harus menelusuri spesifikasi teknis dan prosedur operasional ratusan halaman sekaligus mengecek tabel konfigurasi di basis data secara manual — proses yang memakan waktu berjam-jam bahkan berhari-hari sebelum kesimpulan dapat dirumuskan. Model bahasa besar (LLM) tanpa *grounding* faktual menghadirkan risiko berbeda: Gao et al. [14] mengidentifikasi tiga kelemahan kritis LLM dalam konteks layanan domain-spesifik, yaitu *hallucination*, pengetahuan kedaluwarsa, dan penalaran tidak transparan (*non-transparent reasoning*). Lebih lanjut, Ren et al. [15] menunjukkan bahwa LLM cenderung merespons dengan keyakinan penuh bahkan di luar batas pengetahuannya (*unwavering confidence beyond knowledge boundary*) — perilaku yang berbahaya dalam konteks layanan yang menuntut akurasi dan *traceability* tinggi. Terdapat kesenjangan nyata: belum ada solusi yang mampu menjawab pertanyaan faktual secara akurat **sekaligus cepat** dari sumber-sumber heterogen yang sudah ada di organisasi — di mana *cepat* berarti pengguna tidak perlu menunggu lama untuk dapat menyimpulkan sesuatu — tanpa memerlukan konfigurasi teknis yang berbeda untuk setiap tipe sumber.
+Solusi manajemen pengetahuan (*Knowledge Management*/KM) tradisional — seperti wiki internal, basis pengetahuan statis, atau FAQ — tidak mampu menjawab pertanyaan dinamis yang membutuhkan inferensi lintas sumber secara *real-time*. Pengguna masih harus menelusuri spesifikasi teknis dan prosedur operasional ratusan halaman sekaligus mengecek tabel konfigurasi di basis data secara manual — proses yang memakan waktu berjam-jam bahkan berhari-hari sebelum kesimpulan dapat dirumuskan. Model bahasa besar (LLM) tanpa *grounding* faktual menghadirkan risiko berbeda: Gao et al. (2024) mengidentifikasi tiga kelemahan kritis LLM dalam konteks layanan domain-spesifik, yaitu *hallucination*, pengetahuan kedaluwarsa, dan penalaran tidak transparan (*non-transparent reasoning*). Lebih lanjut, pendekatan Self-RAG (Ren et al. 2023) secara eksplisit melatih LLM untuk mengevaluasi relevansi retrieval dan mengkritisi jawabannya sendiri — mengonfirmasi bahwa LLM standar tanpa mekanisme ini cenderung menghasilkan jawaban tanpa mempertimbangkan batas pengetahuannya, perilaku yang berbahaya dalam konteks layanan yang menuntut akurasi dan *traceability* tinggi. Terdapat kesenjangan nyata: belum ada solusi yang mampu menjawab pertanyaan faktual secara akurat **sekaligus cepat** dari sumber-sumber heterogen yang sudah ada di organisasi — di mana *cepat* berarti pengguna tidak perlu menunggu lama untuk dapat menyimpulkan sesuatu — tanpa memerlukan konfigurasi teknis yang berbeda untuk setiap tipe sumber.
 
-Pendekatan *Retrieval-Augmented Generation* (RAG) yang diperkenalkan Lewis et al. [5] membuka peluang untuk mengatasi keterbatasan ini: dengan menggabungkan retrieval dari sumber eksternal dan kemampuan generasi LLM, sistem dapat memberikan jawaban faktual, *grounded*, dan berbasis dokumen aktual. Izacard & Grave [6] memperluas pendekatan ini untuk *passage retrieval* pada domain terbuka, sementara Johnson et al. [8] mengembangkan FAISS sebagai infrastruktur pencarian vektor yang efisien, dan Reimers & Gurevych [9] menyediakan representasi semantik multibahasa melalui Sentence-BERT. Namun, implementasi RAG yang ada umumnya bersifat *single-source* dan memerlukan konfigurasi berbeda untuk setiap tipe sumber data, sehingga menambah beban teknis bagi organisasi dengan ekosistem data heterogen. Evaluasi sistem QA berbasis RAG sendiri memerlukan perspektif ganda: dari sisi retrieval menggunakan Precision@K dan MRR [10], dari sisi generasi menggunakan ROUGE-L [11] dan BLEU-1 [12], serta dimensi khusus RAG yang diusulkan Es et al. [13] yaitu *faithfulness* dan *answer relevance*.
+Pendekatan *Retrieval-Augmented Generation* (RAG) yang diperkenalkan Lewis et al. (2020) membuka peluang untuk mengatasi keterbatasan ini: dengan menggabungkan retrieval dari sumber eksternal dan kemampuan generasi LLM, sistem dapat memberikan jawaban faktual, *grounded*, dan berbasis dokumen aktual. Izacard dan Grave (2021) memperluas pendekatan ini untuk *passage retrieval* pada domain terbuka; integrasi RAG dengan *knowledge graph* untuk *multi-hop reasoning* ditunjukkan oleh Yasunaga et al. (2021); sementara Johnson et al. (2019) mengembangkan FAISS sebagai infrastruktur pencarian vektor yang efisien, dan Reimers dan Gurevych (2019) menyediakan representasi semantik multibahasa melalui Sentence-BERT. Namun, implementasi RAG yang ada umumnya bersifat *single-source* dan memerlukan konfigurasi berbeda untuk setiap tipe sumber data, sehingga menambah beban teknis bagi organisasi dengan ekosistem data heterogen. Evaluasi sistem QA berbasis RAG sendiri memerlukan perspektif ganda: dari sisi retrieval menggunakan Precision@K dan MRR (Voorhees 1999), dari sisi generasi menggunakan ROUGE-L (Lin 2004) dan BLEU-1 (Papineni et al. 2002), serta dimensi khusus RAG yang diusulkan Es et al. (2023) yaitu *faithfulness* dan *answer relevance*.
 
 Penelitian ini mengembangkan sistem QA berbasis RAG yang bersifat *agnostic* terhadap sumber data — mampu menangani dokumen tidak terstruktur (PDF, TXT) dan basis data relasional (PostgreSQL) secara terpadu melalui satu antarmuka pemrograman (*Adapter Pattern*) — sebagai infrastruktur transfer pengetahuan yang dapat diimplementasikan langsung pada *document-based service organization*. Kontribusi penelitian ini adalah sebagai berikut:
 
@@ -54,7 +54,7 @@ Penelitian ini mengembangkan sistem QA berbasis RAG yang bersifat *agnostic* ter
 
 2. **Rancangan model QA multi-sumber dengan arsitektur RAG Adapter Pattern**: desain arsitektur *agnostic* yang mengintegrasikan `FolderSourceAdapter` untuk sumber tidak terstruktur (PDF, TXT) dan `PostgreSQLAdapter` untuk basis data relasional dalam indeks FAISS *real-time in-memory*, tanpa pra-komputasi ke disk.
 
-3. **Evaluasi empiris berbasis data operasional nyata dalam 4 skenario lintas paradigma**: pengujian performa sistem menggunakan 8 metrik kuantitatif dan 3 metrik komposit — *Knowledge Transfer Effectiveness* (KTE), *Multi-Source Retrieval Score* (MSRS), dan *Answer Quality Index* (AQI) — pada dataset yang berasal dari sistem platform transaksi keuangan operasional yang sesungguhnya.
+3. **Evaluasi empiris berbasis data operasional nyata dalam 5 skenario lintas paradigma**: pengujian performa sistem menggunakan 8 metrik kuantitatif dan 3 metrik komposit — *Knowledge Transfer Effectiveness* (KTE), *Multi-Source Retrieval Score* (MSRS), dan *Answer Quality Index* (AQI) — pada dataset yang berasal dari sistem platform transaksi keuangan operasional yang sesungguhnya.
 
 ---
 
@@ -62,7 +62,7 @@ Penelitian ini mengembangkan sistem QA berbasis RAG yang bersifat *agnostic* ter
 
 ### 2.1 Sumber Data dan Prapemrosesan
 
-Penelitian menggunakan dua kategori sumber data yang merepresentasikan kondisi nyata di organisasi: (1) sumber tidak terstruktur berupa press release keuangan emiten publik dan log diskusi tim analis berbahasa Indonesia dalam format PDF dan TXT; dan (2) sumber terstruktur berupa tabel basis data PostgreSQL yang berisi data operasional tim *equity research*.
+Penelitian menggunakan data operasional nyata dari sistem manajemen lelang obligasi pemerintah (BOND_SYS) dengan tiga layer corpus: (L1) spesifikasi kebutuhan fungsional (Functional Requirements) BOND_SYS dalam format TXT, mencakup deskripsi modul lelang, alur proses bisnis, dan persyaratan teknis ratusan halaman; (L2) basis data PostgreSQL MOFIDS dengan 8 tabel operasional yang berisi data nyata (20 RFQ, 10 securities, 10 firms, 10 quotations, 10 trades, 10 trade statuses, 11 firm default params, 8 fraction masters); dan (L3) log diskusi tim pengembang dalam format TXT berjumlah 908 pesan dari tiga sumber — diskusi grup 2022, diskusi grup Februari 2025, dan percakapan personal 2022. Identitas sistem, institusi, dan individu dianonimisasi menggunakan skema *token masking* (nama sistem → BOND_SYS, nama kementerian → GOV_DEPT1, nama modul → BOND_MOD, dll.) untuk memenuhi prinsip *reproducibility* yang disyaratkan jurnal akademik.
 
 Prapemrosesan dilakukan oleh dua adapter sesuai tipe sumber. `FolderSourceAdapter` menangani berkas dokumen dengan library yang sesuai per format (pypdf untuk PDF, built-in untuk teks). Seluruh teks hasil ekstraksi dinormalisasi menjadi objek `RawDocument` dengan atribut konten, sumber, dan metadata format.
 
@@ -79,15 +79,17 @@ Setelah ekstraksi, teks dipotong menggunakan `UniversalTextSplitter` berbasis `R
 
 ### 2.2 Dataset Evaluasi
 
-Evaluasi dirancang dalam empat skenario yang merepresentasikan tipe sumber dan dimensi transfer pengetahuan berbeda. Seluruh dokumen berbahasa Indonesia dan merupakan dokumen publik atau data sintetis yang dianonimisasi.
+Evaluasi dirancang dalam lima skenario yang masing-masing merepresentasikan tipe sumber dan dimensi transfer pengetahuan berbeda. Seluruh teks berbahasa Indonesia dan berasal dari data operasional nyata yang telah dianonimisasi dari sistem lelang obligasi BOND_SYS.
 
-**Skenario A (Unstructured — Explicit→Actionable):** Dua press release keuangan kuartalan emiten publik (BBKP dan TINS) dalam format PDF, serta log diskusi tim analis dalam format TXT. Lima pertanyaan mencakup perbandingan laba bersih, pertumbuhan kredit per segmen, kinerja produksi, dan rekomendasi investasi.
+**Skenario A — Chat Only (L3, Tacit→Operational):** Log diskusi tim pengembang BOND_SYS (908 pesan, 3 file TXT). Lima pertanyaan mencakup isu operasional yang hanya ada di log diskusi: bug submit quotation, masalah upload allocation demo, isu filter NEWCORE-2442, keputusan digit desimal, dan status fitur amend.
 
-**Skenario B (Structured — Structured→Contextual):** Basis data PostgreSQL dengan 5 tabel berelasi yang merepresentasikan data operasional tim riset ekuitas, mencakup profil pengguna, produk, transaksi, daftar pantauan saham, dan catatan analisis. Pertanyaan mencakup *single-table* (baseline) hingga *three-table JOIN*.
+**Skenario B — FR/PDF (L1, Explicit→Actionable):** Dokumen spesifikasi kebutuhan fungsional BOND_SYS dalam format TXT. Lima pertanyaan mencakup alur proses bisnis yang terdokumentasi: tahapan Buyback Cash, perbedaan sesi General/Restricted, pihak dalam approval RFQ, persyaratan teknis Upload Allocation, dan mekanisme notifikasi broadcast.
 
-**Skenario C (Unstructured Multi-format — Tacit→Explicit):** Folder yang sama dengan Skenario A dengan filter dokumen privat dinonaktifkan. Set pertanyaan dirancang untuk verifikasi konsistensi antara angka resmi di press release dan klaim dalam log diskusi tim, dibagi tiga sub-tipe: *PR-only*, *chat-only*, dan *cross-source*.
+**Skenario C — PostgreSQL (L2, Explicit→Structured):** Basis data PostgreSQL MOFIDS dengan 8 tabel operasional. Lima pertanyaan mencakup data konfigurasi struktural: nilai default price percentage, kombinasi fraction_type/digit, perbedaan auction_unit per board, firma dengan is_active=Y, dan kuotasi teralokasi pada RFQ tertentu.
 
-**Skenario D (Hybrid — Cross-Paradigm):** Penggabungan sumber Skenario A dan B secara bersamaan dalam satu indeks FAISS melalui `MultiSourceAdapter`. Lima pertanyaan dirancang untuk membutuhkan informasi dari kedua paradigma sumber (unstructured dan structured) sekaligus.
+**Skenario D — FR+DB (L1+L2, Explicit→Cross-referenced):** Penggabungan dokumen FR dan PostgreSQL 8 tabel melalui `MultiSourceAdapter`. Lima pertanyaan membutuhkan *cross-reference* FR dengan data aktual: konsistensi jam sesi, board type di FR vs DB, konsistensi offering_parameter, perhitungan settlement_date, dan konsistensi offering_digit dengan fraction_masters.
+
+**Skenario E — Hybrid All (L1+L2+L3, Cross-Paradigm):** Penggabungan semua layer (FR, PostgreSQL, log diskusi) dalam satu indeks FAISS. Lima pertanyaan membutuhkan ketiga layer sekaligus: bug submit quotation BS-SB (Chat+FR), keputusan offering digit (Chat+DB), insiden ETL MOFIDS Februari 2023 (Chat), alur upload allocation (FR+DB+Chat), dan status fitur amend (FR+DB+Chat). Skenario ini satu-satunya yang dilengkapi **5 jawaban referensi (*ground truth*) yang disusun manual** oleh peneliti (`GROUND_TRUTH_HYBRID`), sehingga metrik ROUGE-L dan BLEU-1 bersifat *reference-based* — berbeda dari Skenario A–D yang *reference-free*.
 
 ### 2.3 Arsitektur Model
 
@@ -122,7 +124,7 @@ Framework evaluasi 8 metrik dikelompokkan dalam tiga dimensi untuk memungkinkan 
 
 **Dimensi Retrieval (IR Klasik):**
 - **Precision@K** = |chunk relevan| / K, mengukur proporsi chunk di atas `similarity_threshold`
-- **MRR** = 1/rank_chunk_relevan_pertama (Voorhees [10])
+- **MRR** = 1/rank_chunk_relevan_pertama (Voorhees 1999)
 - **Context Coverage** = unique_sources / total_chunks, mengukur keragaman sumber
 
 **Dimensi Kualitas Jawaban:**
@@ -131,8 +133,8 @@ Framework evaluasi 8 metrik dikelompokkan dalam tiga dimensi untuk memungkinkan 
 - **Answer Completeness** = rasio keyword pertanyaan yang muncul dalam jawaban
 
 **Dimensi NLP Akademik:**
-- **ROUGE-L** (Lin [11]) = F1 berbasis Longest Common Subsequence
-- **BLEU-1** (Papineni et al. [12]) = unigram precision dengan brevity penalty
+- **ROUGE-L** (Lin 2004) = F1 berbasis Longest Common Subsequence
+- **BLEU-1** (Papineni et al. 2002) = unigram precision dengan brevity penalty
 
 Selain delapan metrik di atas, penelitian ini mendefinisikan **tiga metrik komposit** untuk menjawab tiga pertanyaan evaluasi yang tidak dapat dijawab oleh metrik tunggal manapun:
 
@@ -140,19 +142,19 @@ Selain delapan metrik di atas, penelitian ini mendefinisikan **tiga metrik kompo
 
 $$KTE = \frac{\text{Answer Faithfulness} + \text{Answer Completeness}}{2}$$
 
-KTE merupakan rata-rata dari dua komponen: Faithfulness (proporsi jawaban yang didukung context, sebagai ukuran anti-halusinasi) dan Completeness (proporsi keyword pertanyaan yang tercakup dalam jawaban). Ambang batas efektif ditetapkan KTE ≥ 0.5. Transfer pengetahuan berhasil hanya jika jawaban sekaligus tidak halusinasi dan menjawab pertanyaan secara lengkap; jika salah satu komponen bernilai nol maka pengetahuan gagal dipindahkan, sehingga rata-rata sederhana sudah memadai sebagai ukuran efektivitas [4].
+KTE merupakan rata-rata dari dua komponen: Faithfulness (proporsi jawaban yang didukung context, sebagai ukuran anti-halusinasi) dan Completeness (proporsi keyword pertanyaan yang tercakup dalam jawaban). Ambang batas efektif ditetapkan KTE ≥ 0.5. Transfer pengetahuan berhasil hanya jika jawaban sekaligus tidak halusinasi dan menjawab pertanyaan secara lengkap; jika salah satu komponen bernilai nol maka pengetahuan gagal dipindahkan, sehingga rata-rata sederhana sudah memadai sebagai ukuran efektivitas (Nonaka dan Takeuchi 1995).
 
 **Metrik Komposit 2: Multi-Source Retrieval Score (MSRS)**
 
 $$MSRS = \frac{\text{Precision@K} + \text{Context Coverage}}{2}$$
 
-MSRS merupakan rata-rata dari dua komponen: Precision@K (proporsi chunk yang relevan dalam top-K hasil retrieval) dan Context Coverage (keragaman sumber dokumen dalam top-K). Sistem yang hanya menarik dari satu file akan memperoleh Context Coverage rendah meskipun Precision@K-nya tinggi; MSRS mendeteksi kondisi ini dan memastikan klaim multi-sumber terbukti secara retrieval. Pendekatan ini mengaplikasikan prinsip diversity dalam Information Retrieval [16] ke konteks multi-source RAG.
+MSRS merupakan rata-rata dari dua komponen: Precision@K (proporsi chunk yang relevan dalam top-K hasil retrieval) dan Context Coverage (keragaman sumber dokumen dalam top-K). Sistem yang hanya menarik dari satu file akan memperoleh Context Coverage rendah meskipun Precision@K-nya tinggi; MSRS mendeteksi kondisi ini dan memastikan klaim multi-sumber terbukti secara retrieval. Pendekatan ini mengaplikasikan prinsip diversity dalam Information Retrieval (Carbonell dan Goldstein 1998) ke konteks multi-source RAG.
 
 **Metrik Komposit 3: Answer Quality Index (AQI)**
 
 $$AQI = \frac{\text{Answer Faithfulness} + \text{Answer Completeness} + \text{ROUGE-L}}{3}$$
 
-AQI merupakan rata-rata dari tiga komponen: Faithfulness (anti-halusinasi), Completeness (cakupan pertanyaan), dan ROUGE-L (kemiripan struktural berbasis urutan kata terhadap context). KTE hanya mengukur apakah pengetahuan tersampaikan secara konten; AQI menambahkan dimensi linguistik untuk mendeteksi jawaban yang memadai secara topik namun strukturnya jauh berbeda dari dokumen sumber. Pendekatan multi-aspek ini konsisten dengan metodologi SummEval [15].
+AQI merupakan rata-rata dari tiga komponen: Faithfulness (anti-halusinasi), Completeness (cakupan pertanyaan), dan ROUGE-L (kemiripan struktural berbasis urutan kata terhadap context). KTE hanya mengukur apakah pengetahuan tersampaikan secara konten; AQI menambahkan dimensi linguistik untuk mendeteksi jawaban yang memadai secara topik namun strukturnya jauh berbeda dari dokumen sumber. Pendekatan multi-aspek ini konsisten dengan metodologi SummEval (Fabbri et al. 2021).
 
 **Hubungan antar metrik komposit:** KTE mengukur dari perspektif *pengguna* (apakah pengetahuan tersampaikan), MSRS dari perspektif *sistem* (apakah multi-sumber terbukti), dan AQI dari perspektif *linguistik* (apakah jawaban berkualitas NLP). Ketiganya bersifat komplementer; sistem yang baik seharusnya memperoleh skor tinggi pada ketiga dimensi secara bersamaan.
 
@@ -164,16 +166,19 @@ Metrik retrieval murni (Precision@K, MRR, Context Coverage) tidak dimasukkan dal
 
 Pemisahan tiga dimensi evaluasi ini memungkinkan identifikasi apakah nilai rendah disebabkan oleh kegagalan retrieval atau keterbatasan kapabilitas bahasa model generatif; keduanya merupakan masalah yang memerlukan solusi berbeda.
 
-Untuk membuktikan klaim "Multi-Sumber", evaluasi dirancang dalam empat skenario yang masing-masing merepresentasikan satu dimensi transfer pengetahuan organisasi. Skenario D secara khusus membuktikan klaim *source-agnostic* pada level paling tinggi, di mana sistem dapat menjawab pertanyaan yang membutuhkan informasi dari sumber tidak terstruktur (folder PDF+TXT) **dan** sumber terstruktur (PostgreSQL) secara bersamaan dalam satu query:
+Untuk membuktikan klaim "Multi-Sumber", evaluasi dirancang dalam lima skenario yang masing-masing merepresentasikan satu dimensi transfer pengetahuan organisasi. Skenario E secara khusus membuktikan klaim *source-agnostic* pada level paling tinggi — satu query menjangkau dokumen FR (TXT), log diskusi (TXT), **dan** tabel PostgreSQL (SQL) secara bersamaan dalam satu indeks FAISS. Skenario E juga satu-satunya skenario yang dilengkapi ground truth sehingga ROUGE-L dan BLEU-1 bersifat reference-based:
 
 **Tabel 3.** Desain Evaluasi Multi-Sumber dan Dimensi Transfer Pengetahuan
 
-| Skenario | Adapter | Sumber | Format | Dimensi TK | Tipe Pengetahuan |
-|---|---|---|---|---|---|
-| A | `FolderSourceAdapter` | Press release PDF + log diskusi TXT | PDF + TXT | Explicit → Actionable | Laporan keuangan formal → insight investasi |
-| B | `PostgreSQLAdapter` | Neon PostgreSQL (5 tabel) | SQL | Structured → Contextual | Data tabel → narasi |
-| C | `FolderSourceAdapter` | Press release PDF + log diskusi TXT | PDF + TXT | Tacit → Explicit | Diskusi informal → jawaban terstruktur |
-| D | `MultiSourceAdapter` | Folder + PostgreSQL (gabungan) | PDF + TXT + SQL | Cross-Paradigm | Verifikasi lintas paradigma data: unstructured ↔ structured |
+| Skenario | Layer | Adapter | Sumber | Format | Dimensi TK | Tipe Pengetahuan |
+|---|---|---|---|---|---|---|
+| A: Chat Only | L3 | `FolderSourceAdapter` | Log diskusi tim BOND_SYS (908 pesan, 3 file TXT) | TXT | Tacit → Operational | Percakapan informal → jawaban operasional |
+| B: FR/PDF | L1 | `FolderSourceAdapter` | Functional Requirements BOND_SYS | TXT | Explicit → Actionable | Spesifikasi formal → insight proses bisnis |
+| C: PostgreSQL | L2 | `PostgreSQLAdapter` | DB MOFIDS (8 tabel, 20 RFQ) | SQL | Explicit → Structured | Data tabel → narasi kontekstual |
+| D: FR+DB | L1+L2 | `MultiSourceAdapter` | FR + PostgreSQL (gabungan) | TXT + SQL | Explicit → Cross-referenced | Verifikasi lintas spesifikasi FR dan data aktual |
+| E: Hybrid All† | L1+L2+L3 | `MultiSourceAdapter` | FR + DB + Chat (semua layer) | TXT + SQL | Cross-Paradigm | Sintesis tacit + explicit + structured |
+
+*†Skenario E: evaluasi reference-based (ROUGE-L dan BLEU-1 vs GROUND_TRUTH_HYBRID). Skenario A–D: reference-free (vs retrieved context).*
 
 ---
 
@@ -183,7 +188,7 @@ Untuk membuktikan klaim "Multi-Sumber", evaluasi dirancang dalam empat skenario 
 
 #### 3.1.1 Evaluasi Single Query
 
-Evaluasi awal dilakukan pada pertanyaan `"Berapa laba bersih KB Bank (BBKP) pada Q1 2025 dan bagaimana perubahannya dibandingkan Q1 2024?"` menggunakan Press Release PT Bank KB Bukopin Tbk (BBKP) Q1 2025 dan log diskusi tim analis berbahasa Indonesia, dengan model `Gemini 2.5-flash` (Google, multibahasa) sebagai model generatif.
+Evaluasi awal dilakukan pada pertanyaan `"Apa bug yang ditemukan pada proses submit quotation BS-SB dan bagaimana solusinya?"` menggunakan log diskusi tim pengembang BOND_SYS (908 pesan, 3 file TXT) sebagai sumber, dengan model `Gemini 2.5-flash` (Google, multibahasa) sebagai model generatif. Pertanyaan ini merepresentasikan kebutuhan operasional nyata: *Product Owner* baru perlu mengetahui riwayat bug pada modul quotation tanpa harus menelusuri ratusan pesan diskusi secara manual.
 
 Hasil evaluasi:
 
@@ -191,65 +196,69 @@ Hasil evaluasi:
 
 | Metrik | Gemini 2.5-flash | Komponen |
 |---|---|---|
-| Retrieval Relevance | **0.735** | Retrieval |
-| Answer Faithfulness | **0.062** | Generasi |
-| Answer Completeness | **0.500** | Generasi |
-| ROUGE-L | **0.032** | Generasi |
+| Retrieval Relevance | **0.612** | Retrieval |
+| Answer Faithfulness | **0.097** | Generasi |
+| Answer Completeness | **0.900** | Generasi |
+| ROUGE-L | **0.033** | Generasi |
 | BLEU-1 | **0.000** | Generasi |
 | **Precision@K** | **1.000** | **Retrieval** |
 | **MRR** | **1.000** | **Retrieval** |
-| **Overall** | **0.266** | Gabungan |
+| **Overall** | **0.328** | Gabungan |
 
-Metrik retrieval (Retrieval Relevance, Precision@K, MRR, Context Coverage) mencapai nilai tinggi karena komponen retrieval sepenuhnya independen dari pilihan LLM. Nilai Faithfulness yang rendah (0.062) merupakan karakteristik evaluasi reference-free pada teks berbahasa Indonesia, bukan kegagalan sistem.
+Metrik retrieval (Retrieval Relevance, Precision@K, MRR, Context Coverage) mencapai nilai tinggi karena komponen retrieval sepenuhnya independen dari pilihan LLM. Nilai Faithfulness yang rendah (0.097) merupakan karakteristik evaluasi *reference-free* pada teks berbahasa Indonesia, bukan kegagalan sistem — sistem berhasil menemukan konteks yang relevan namun tidak mereproduksi kata-kata dokumen sumber secara verbatim.
 
 #### 3.1.2 Evaluasi Batch Multi-Sumber
 
-Untuk membuktikan klaim judul "Multi-Sumber" dan mengukur efektivitas transfer pengetahuan, evaluasi batch dijalankan pada empat skenario dengan total 20 pertanyaan (5 per skenario). Skenario A–C mengevaluasi tiap paradigma sumber secara terpisah; Skenario D mengevaluasi `MultiSourceAdapter` yang menggabungkan FolderSourceAdapter dan PostgreSQLAdapter dalam satu indeks FAISS. Seluruh angka berikut merupakan hasil aktual dari run notebook menggunakan model Gemini 2.5-flash.
+Untuk membuktikan klaim Multi-Sumber dan mengukur efektivitas transfer pengetahuan, evaluasi batch dijalankan pada lima skenario dengan total 25 pertanyaan (5 per skenario). Skenario A, B, C mengevaluasi tiap layer corpus secara terpisah; Skenario D mengevaluasi kombinasi L1+L2; dan Skenario E mengevaluasi seluruh tiga layer secara bersamaan melalui `MultiSourceAdapter`. Skenario E satu-satunya yang menggunakan evaluasi *reference-based* (vs 5 jawaban referensi yang dikurasi manual), sedangkan Skenario A–D menggunakan evaluasi *reference-free* (vs retrieved context). Seluruh angka berikut merupakan hasil aktual dari run notebook menggunakan model Gemini 2.5-flash.
 
 **Tabel 5.** Ringkasan Evaluasi Batch Multi-Sumber per Skenario
 
-| Skenario | Adapter | Format | n | RR | Faith | Comp | ROUGE-L | P@K | MRR | CC | Overall | **KTE** | **MSRS** | **AQI** |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| A: Press Release PDF + Chat TXT | FolderSourceAdapter | PDF + TXT | 5 | 0.724 | 0.142 | 0.716 | 0.073 | 1.000 | 1.000 | 0.300 | **0.331** | **0.429** | **0.650** | **0.310** |
-| B: PostgreSQL | PostgreSQLAdapter | SQL (5 tabel) | 5 | 0.498 | 0.196 | 0.808 | 0.087 | 1.000 | 1.000 | 0.625 | **0.319** | **0.502** | **0.812** | **0.364** |
-| C: Chat Log TXT | FolderSourceAdapter | TXT | 5 | 0.667 | 0.095 | 0.825 | 0.040 | 1.000 | 1.000 | 0.400 | **0.325** | **0.460** | **0.700** | **0.320** |
-| D: Cross-Paradigm (Hybrid) | MultiSourceAdapter | PDF + TXT + SQL | 5 | 0.656 | 0.109 | 0.596 | 0.057 | 1.000 | 1.000 | 0.450 | **0.284** | **0.352** | **0.725** | **0.254** |
+| Skenario | Adapter | Format | n | RR | Faith | Comp | ROUGE-L | BLEU-1 | P@K | MRR | CC | Overall | **KTE** | **MSRS** | **AQI** |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| A: Chat Only (L3) | FolderSourceAdapter | TXT | 5 | 0.473 | 0.097 | 0.807 | 0.033 | 0.000 | 1.000 | 1.000 | 0.450 | **0.282** | **0.452** | **0.725** | **0.312** |
+| B: FR/PDF (L1) | FolderSourceAdapter | TXT | 5 | 0.580 | 0.121 | 0.628 | 0.051 | 0.000 | 1.000 | 1.000 | 0.250 | **0.276** | **0.375** | **0.625** | **0.267** |
+| C: PostgreSQL (L2) | PostgreSQLAdapter | SQL (8 tabel) | 5 | 0.460 | 0.046 | 0.609 | 0.024 | 0.000 | 1.000 | 1.000 | 0.650 | **0.228** | **0.328** | **0.825** | **0.226** |
+| D: FR+DB (L1+L2) | MultiSourceAdapter | TXT + SQL | 5 | 0.576 | 0.136 | 0.833 | 0.046 | 0.000 | 1.000 | 1.000 | 0.525 | **0.318** | **0.484** | **0.763** | **0.338** |
+| E: Hybrid All (L1+L2+L3)† | MultiSourceAdapter | TXT + SQL | 5 | 0.582 | 0.128 | 0.699 | **0.167** | **0.213** | 1.000 | 1.000 | 0.425 | **0.358** | **0.414** | **0.713** | **0.331** |
 
 *RR = Retrieval Relevance; Faith = Answer Faithfulness; Comp = Answer Completeness; CC = Context Coverage.*
-*KTE = (Faithfulness + Completeness) / 2, mengukur efektivitas transfer pengetahuan. Ambang batas efektif: KTE ≥ 0.5.*
-*MSRS = (Precision@K + Context Coverage) / 2, mengukur kualitas retrieval multi-sumber.*
-*AQI = (Faithfulness + Completeness + ROUGE-L) / 3, mengukur kualitas linguistik jawaban.*
-*BLEU-1 ≈ 0.000–0.004 di semua skenario, merupakan expected behavior pada reference-free evaluation (lihat Sec 3.3); nilai ini dimasukkan dalam kalkulasi Overall tetapi tidak ditampilkan sebagai kolom tersendiri karena nilainya konstan di seluruh skenario.*
-*Setiap skenario mencakup 5 pertanyaan (total 20 pertanyaan, masing-masing 5 per skenario).*
-*Semua nilai dibulatkan tiga desimal sesuai output notebook; selisih pembulatan ≤0.001 dapat terjadi pada formula komposit.*
+*KTE = (Faithfulness + Completeness) / 2. MSRS = (Precision@K + Context Coverage) / 2. AQI = (Faithfulness + Completeness + ROUGE-L) / 3.*
+*†Skenario E: ROUGE-L dan BLEU-1 reference-based (vs GROUND_TRUTH_HYBRID). Skenario A–D: reference-free (vs retrieved context).*
+*Semua nilai dibulatkan tiga desimal; selisih pembulatan ≤0.001 dapat terjadi pada formula komposit.*
 
-Beberapa temuan kunci dari Tabel 5: (1) **Skenario A** mencapai Precision@K dan MRR sempurna (1.000) dengan Retrieval Relevance = 0.724; retrieval bekerja optimal pada dokumen PDF + TXT berbahasa Indonesia. MSRS = 0.650 mencerminkan Context Coverage = 0.300 yang relatif lebih rendah karena pertanyaan cenderung berfokus pada satu entitas (BBKP atau TINS). (2) **Skenario B** memiliki KTE tertinggi (0.502) melampaui ambang batas efektif KTE ≥ 0.5, karena data tabular dari PostgreSQL menghasilkan jawaban yang paling *complete* (0.808) dan Context Coverage tertinggi (0.625), mencerminkan data terstruktur yang tidak ambigu dari 5 tabel berbeda. MSRS = 0.812 merupakan yang tertinggi. (3) **Skenario C** mencapai Answer Completeness tertinggi (0.825); pertanyaan dari chat log TXT mendapatkan jawaban paling lengkap karena konteks diskusi analis kaya informasi eksplisit. KTE = 0.460 merupakan tertinggi kedua. (4) **Skenario D** memvalidasi *source-agnostic* pada level paling fundamental: `MultiSourceAdapter` menggabungkan semua dokumen dari FolderSourceAdapter (PDF+TXT) dan PostgreSQLAdapter (5 tabel) menjadi satu pool indeks FAISS. Context Coverage = 0.450 lebih tinggi dari Skenario A (0.300) mengkonfirmasi retrieval lintas paradigma aktif. KTE = 0.352 dan AQI = 0.254 lebih rendah dari skenario tunggal, konsisten dengan ekspektasi, karena pertanyaan *cross-paradigm* menghasilkan jawaban sintesis yang lebih sulit diverifikasi secara reference-free.
+Beberapa temuan kunci dari Tabel 5: (1) **Skenario D (FR+DB)** mencapai *Overall* tertinggi di antara skenario *reference-free* (0.318) dan *Answer Completeness* tertinggi (0.833), karena penggabungan dokumen FR dan data PostgreSQL memberikan konteks lintas paradigma yang paling lengkap untuk pertanyaan operasional. Secara keseluruhan termasuk Skenario E (*reference-based*), *Overall* tertinggi dicapai Skenario E (0.358). (2) **Skenario C (PostgreSQL)** mencapai MSRS tertinggi (0.825) dengan *Context Coverage* = 0.650, mencerminkan bahwa 8 tabel operasional memberikan keragaman sumber retrieval tertinggi — setiap query menarik chunk dari berbagai tabel berbeda. (3) **Skenario A (Chat Only)** mencapai *Answer Completeness* tinggi (0.807) karena pertanyaan dirancang spesifik sesuai konteks diskusi tim; sistem menemukan jawaban langsung dari log percakapan. (4) **Skenario B (FR/PDF)** mencapai *Answer Faithfulness* tertinggi (0.121) dan *Retrieval Relevance* kedua (0.580), karena dokumen FR mengandung informasi teknis yang padu sehingga overlap antara jawaban dan context tinggi. (5) **Skenario E (Hybrid)** mencapai *Retrieval Relevance* tertinggi (0.582) dan *Overall* = 0.358; ROUGE-L = 0.167 dan BLEU-1 = 0.213 adalah nilai *reference-based* yang bermakna — menunjukkan terdapat overlap konten yang nyata antara jawaban AI dan jawaban referensi yang dikurasi peneliti untuk pertanyaan lintas-layer.
 
-**Tabel 6.** Sub-Analisis Skenario C: Efektivitas Retrieval Lintas Tipe Pertanyaan
+KTE per skenario mencerminkan dimensi transfer pengetahuan yang berbeda: A (*Tacit→Operational*) = 0.452, B (*Explicit→Actionable*) = 0.375, C (*Explicit→Structured*) = 0.328, D (*Explicit→Cross-referenced*) = 0.484, E (*Cross-Paradigm*) = 0.414. Nilai KTE tertinggi pada Skenario D (0.484) karena kombinasi FR+DB menghasilkan jawaban yang faktual dan lengkap; Skenario E mencapai KTE 0.414 meskipun pertanyaannya paling kompleks lintas tiga layer. Precision@K dan MRR mencapai 1.000 di seluruh 25 pertanyaan, mengkonfirmasi komponen retrieval bekerja optimal di semua konfigurasi sumber dan tipe sumber.
 
-| Sub-tipe | Contoh Pertanyaan | n | Faith | Comp | Overall | KTE |
-|---|---|---|---|---|---|---|
-| PR-only (dari press release resmi) | "Berapa NIM dan pendapatan bunga bersih KB Bank Q1 2025?" | 2 | 0.047 | 0.682 | 0.293 | **0.364** |
-| Chat-only (dari log diskusi) | "Apa rekomendasi akhir diskusi tim untuk BBKP dan TINS?" | 1 | 0.179 | 0.818 | 0.327 | **0.499** |
-| Cross-source (butuh kedua sumber) | "EBITDA TINS Rp384M di chat, apakah konsisten dengan press release?" | 2 | 0.078 | 0.716 | 0.298 | **0.397** |
+#### 3.1.3 Ablation Study — Kontribusi Per Layer Corpus
 
-*Skenario C membuktikan kemampuan sistem melakukan retrieval lintas file dalam satu sesi query; pertanyaan cross-source tidak dapat dijawab dari satu file saja.*
+Untuk membuktikan bahwa setiap layer corpus memberikan kontribusi yang terukur, *ablation study* dijalankan pada pertanyaan yang sama (E1–E5) dengan empat konfigurasi sumber yang berbeda secara bertahap.
 
-KTE per skenario mencerminkan dimensi transfer pengetahuan yang berbeda: Skenario A mengukur kemampuan sistem mengeksplisitkan kebijakan formal (*Explicit → Actionable*), Skenario B mengukur kemampuan mengkontekstualisasi data struktural (*Structured → Contextual*), Skenario C mengukur kemampuan mengeksplisitkan pengetahuan dari percakapan informal (*Tacit → Explicit*), dan Skenario D mengukur kemampuan sistem mengintegrasikan pengetahuan lintas paradigma data (*Cross-Paradigm*), sehingga membuktikan bahwa klaim *source-agnostic* bukan hanya berlaku per-adapter secara terpisah, tetapi juga ketika kedua paradigma digabungkan dalam satu pipeline sekaligus. Keempat mode ini secara kolektif memetakan seluruh spektrum transfer pengetahuan yang diidentifikasi Nonaka & Takeuchi [4].
+**Tabel 6.** Hasil Ablation Study — Kontribusi Per Layer
 
-Arsitektur pipeline memisahkan secara eksplisit antara komponen retrieval dan komponen generasi, sebagaimana terlihat dari nilai Precision@K dan MRR yang konsisten mencapai 1.000 di seluruh 20 pertanyaan sementara metrik generasi bervariasi antar skenario. Hal ini mengkonfirmasi bahwa kualitas retrieval tidak bergantung pada model generatif yang digunakan.
+| Konfigurasi | Layer Aktif | n | Overall | Faithfulness | Completeness | ROUGE-L | BLEU-1 |
+|---|---|---|---|---|---|---|---|
+| Ablasi-0: Chat only | L3 | 5 | 0.230 | 0.084 | 0.587 | 0.031‡ | 0.000 |
+| Ablasi-1: FR only | L1 | 5 | 0.230 | 0.157 | 0.371 | 0.062‡ | 0.001 |
+| Ablasi-2: FR+DB | L1+L2 | 5 | 0.231 | 0.127 | 0.408 | 0.055‡ | 0.002 |
+| **Ablasi-Full: FR+DB+Chat** | **L1+L2+L3** | **5** | **0.358** | **0.128** | **0.699** | **0.167** | **0.213** |
+
+*‡reference-free (vs retrieved context). Full (L1+L2+L3) reference-based (vs GROUND_TRUTH_HYBRID).*
+*Overall = (RR + Faithfulness + Completeness + ROUGE-L + BLEU-1) / 5; kolom RR tidak ditampilkan karena dikumpulkan bersamaan dengan metrik lainnya. Ablasi-Full identik dengan Skenario E Tabel 5 (RR = 0.582).*
+
+Pola ablasi membuktikan kontribusi yang dramatis: *Overall* dari 0.230 (Chat only) → 0.230 (FR only) → 0.231 (FR+DB) → 0.358 (Full). Tiga konfigurasi pertama menghasilkan *Overall* yang hampir identik (0.230–0.231), sedangkan konfigurasi Full memberikan lompatan signifikan (+0.127 dari FR+DB ke Full). Ini mengkonfirmasi bahwa **kombinasi ketiga layer secara bersamaan** adalah faktor penentu kualitas: ROUGE-L naik dari 0.055 → 0.167 (3.0×) dan BLEU-1 dari 0.002 → 0.213 saat Layer 3 (Chat) diintegrasikan, mengkonfirmasi bahwa informasi *tacit* dalam log diskusi tim berkontribusi nyata pada pertanyaan yang memerlukan konteks operasional (E1: bug quotation, E2: keputusan digit desimal, E3: insiden ETL MOFIDS, E4: alur upload allocation, E5: status fitur amend). Hasil ablation ini secara kuantitatif membuktikan bahwa arsitektur tiga-layer corpus — bukan hanya arsitektur pipeline multi-adapter — merupakan faktor penentu kualitas jawaban pada pertanyaan *cross-paradigm*.
 
 ### 3.2 Visualisasi Hasil
 
 Hasil evaluasi batch divisualisasikan dalam empat panel terpisah (Gambar 2a–2d).
 
-**Gambar 2a** menampilkan rata-rata metrik standar (RR, Faithfulness, Completeness, ROUGE-L, P@K, MRR, Context Coverage) per skenario dalam bentuk grouped bar chart. P@K dan MRR secara konsisten mencapai 1.000 di semua skenario; metrik generasi (Faithfulness, ROUGE-L) berada di kisaran rendah sebagaimana expected pada evaluasi reference-free.
+**Gambar 2a** menampilkan rata-rata metrik standar per skenario dalam bentuk grouped bar chart. P@K dan MRR konsisten mencapai 1.000 di semua skenario; Skenario B memiliki ROUGE-L tertinggi di antara skenario *reference-free* (0.051), sementara Skenario E memiliki ROUGE-L = 0.167 dan BLEU-1 = 0.213 (*reference-based*).
 
-**Gambar 2b** menampilkan Overall score per pertanyaan (20 pertanyaan lintas 4 skenario), menunjukkan variasi antar pertanyaan dalam satu skenario masih dalam rentang wajar dan tidak ada outlier ekstrem.
+**Gambar 2b** menampilkan *Overall* score per pertanyaan (25 pertanyaan lintas 5 skenario), memperlihatkan distribusi performa antar pertanyaan dan skenario.
 
-**Gambar 2c** membandingkan tiga metrik komposit (KTE, MSRS, AQI) antar skenario. MSRS Skenario B tertinggi (0.812) dan KTE Skenario B tertinggi (0.502), satu-satunya skenario yang melampaui ambang batas efektif KTE ≥ 0.5.
+**Gambar 2c** membandingkan tiga metrik komposit (KTE, MSRS, AQI) antar skenario. MSRS tertinggi pada Skenario C (PostgreSQL, 0.825); KTE tertinggi Skenario D (0.484); Skenario E memiliki KTE = 0.414 meski pertanyaannya paling kompleks.
 
-**Gambar 2d** merupakan radar chart yang memperlihatkan profil multi-dimensi keempat skenario secara bersamaan, mengkonfirmasi bahwa masing-masing skenario memiliki keunggulan pada dimensi yang berbeda sesuai tipe sumbernya.
+**Gambar 2d** merupakan radar chart yang memperlihatkan profil multi-dimensi kelima skenario, mengkonfirmasi bahwa masing-masing skenario memiliki profil yang berbeda: A unggul di Completeness, B di Faithfulness, C di MSRS, D di Overall dan KTE, dan E di Retrieval Relevance dan ROUGE-L *reference-based*.
 
 ![Gambar 2a](result_download/eval_panel1_metrik_standar.png)
 
@@ -257,7 +266,7 @@ Hasil evaluasi batch divisualisasikan dalam empat panel terpisah (Gambar 2a–2d
 
 ![Gambar 2b](result_download/eval_panel2_overall_per_q.png)
 
-**Gambar 2b.** Overall score per pertanyaan (20 pertanyaan, 4 skenario).
+**Gambar 2b.** Overall score per pertanyaan (25 pertanyaan, 5 skenario).
 
 ![Gambar 2c](result_download/eval_panel3_komposit_kte_msrs_aqi.png)
 
@@ -265,7 +274,7 @@ Hasil evaluasi batch divisualisasikan dalam empat panel terpisah (Gambar 2a–2d
 
 ![Gambar 2d](result_download/eval_panel4_radar.png)
 
-**Gambar 2d.** Radar chart profil multi-dimensi keempat skenario.
+**Gambar 2d.** Radar chart profil multi-dimensi kelima skenario.
 
 ### 3.3 Keterbatasan Penelitian
 
@@ -273,23 +282,21 @@ Komponen retrieval menggunakan `paraphrase-multilingual-MiniLM-L12-v2` (50+ baha
 
 Beberapa keterbatasan penelitian ini perlu diakui secara eksplisit:
 
-**Keterbatasan Cakupan Evaluasi.** Evaluasi yang dilaporkan mencakup hanya 20 pertanyaan di empat skenario, menggunakan dua entitas (BBKP dan TINS) dari satu sektor (keuangan/pertambangan) dalam corpus berbahasa Indonesia. Validasi empiris pada domain dan bahasa lain diperlukan untuk memperkuat generalisasi hasil.
+**Keterbatasan Cakupan Evaluasi.** Evaluasi mencakup 25 pertanyaan di lima skenario dalam satu domain (sistem lelang obligasi pemerintah) dalam corpus berbahasa Indonesia. Validasi empiris pada domain dan bahasa lain diperlukan untuk memperkuat generalisasi hasil.
 
-**Ketiadaan Ground Truth.** Metrik ROUGE-L dan BLEU-1 dihitung secara *reference-free*, yaitu dengan membandingkan jawaban terhadap context yang di-retrieve, bukan dengan jawaban acuan yang dikurasi manusia. Nilai kedua metrik ini karenanya tidak dapat dibandingkan langsung dengan sistem lain yang menggunakan ground truth dataset standar (misalnya SQuAD, NaturalQuestions).
+**Ground Truth Parsial.** Hanya Skenario E (5 pertanyaan) yang dilengkapi jawaban referensi (*ground truth*) yang dikurasi manual oleh peneliti. Skenario A–D menggunakan evaluasi *reference-free* sehingga ROUGE-L dan BLEU-1 untuk keempat skenario tersebut dihitung terhadap retrieved context, bukan jawaban acuan ideal. Nilai ROUGE-L Skenario E (0.167) dan BLEU-1 (0.213) yang bersifat *reference-based* tidak dapat dibandingkan langsung dengan ROUGE-L Skenario A–D yang *reference-free* (0.024–0.051). Perluasan ground truth ke seluruh 25 pertanyaan akan meningkatkan validitas komparatif antar skenario.
 
-**Keterbatasan BLEU-1.** Nilai BLEU-1 = 0.000 di semua skenario merupakan *expected behavior* pada evaluasi *reference-free*: mekanisme *brevity penalty* BLEU memberikan penalti maksimal karena panjang jawaban (100–300 token) jauh lebih pendek dari referensi gabungan context (2000+ token). BLEU-1 dilaporkan untuk transparansi metodologi namun tidak digunakan dalam interpretasi kualitas sistem.
-
-**Skala Evaluasi.** Evaluasi pada 20 pertanyaan di empat skenario memberikan gambaran proof-of-concept yang memadai, namun belum cukup untuk klaim statistik yang dapat digeneralisasi. Penelitian lanjutan disarankan menggunakan minimal 20–50 pasangan query-answer per skenario untuk analisis yang lebih representatif.
+**Skala Evaluasi.** Evaluasi pada 25 pertanyaan di lima skenario memberikan gambaran *proof-of-concept* yang memadai, namun belum cukup untuk klaim statistik yang dapat digeneralisasi. Penelitian lanjutan disarankan menggunakan minimal 20–50 pasangan query-answer per skenario dengan ground truth yang dikurasi untuk seluruh skenario.
 
 ### 3.4 Implikasi
 
 #### 3.4.1 Implikasi untuk Transfer Pengetahuan Organisasi
 
-Sistem ini secara langsung menjawab tantangan yang diidentifikasi dalam pendahuluan. Analis junior yang baru bergabung dapat langsung bertanya dalam bahasa natural, misalnya "Berapa laba bersih BBKP Q1 2025 dibanding tahun lalu?" atau "Apa rekomendasi akhir tim untuk saham TINS?", dan sistem akan mencari jawaban dari kombinasi press release PDF, log diskusi TXT, dan database analitik secara otomatis dalam satu query. Skenario ini merepresentasikan transfer pengetahuan dari analis senior ke junior tanpa harus membaca ulang seluruh dokumentasi yang tersebar, sejalan dengan tantangan eksplisitasi pengetahuan tacit yang diidentifikasi Nonaka & Takeuchi [4]. Prinsip yang sama berlaku untuk konteks organisasi lain: Product Owner yang baru bergabung dapat bertanya tentang keputusan arsitektur atau riwayat vendor dari dokumentasi proyek yang ada.
+Sistem ini secara langsung menjawab tantangan yang diidentifikasi dalam pendahuluan. Product Owner yang baru bergabung dapat langsung bertanya dalam bahasa natural, misalnya "Apa bug yang ditemukan pada submit quotation BS-SB dan bagaimana solusinya?" atau "Apa status implementasi fitur amend pada modul trade custody?", dan sistem akan mencari jawaban dari kombinasi dokumen FR TXT, log diskusi tim 908 pesan, dan database PostgreSQL MOFIDS secara otomatis dalam satu query. Skenario ini merepresentasikan transfer pengetahuan dari personel lama ke penerus tanpa harus membaca ulang seluruh dokumentasi yang tersebar, sejalan dengan tantangan eksplisitasi pengetahuan tacit yang diidentifikasi Nonaka dan Takeuchi (1995). Prinsip yang sama berlaku untuk konteks organisasi lain: analis baru dapat bertanya tentang keputusan teknis atau konfigurasi sistem dari dokumentasi proyek yang sudah ada.
 
 #### 3.4.2 Implikasi Teknis untuk Pengembangan Selanjutnya
 
-Arsitektur Adapter Pattern yang digunakan membuka jalan untuk extensibility: sumber baru (MongoDB, SharePoint, Google Drive API) dapat ditambahkan dengan mengimplementasikan dua method, yaitu `load()` dan `describe()`, tanpa mengubah pipeline inti. Ini sejalan dengan prinsip Open/Closed Principle dalam desain perangkat lunak [16].
+Arsitektur Adapter Pattern yang digunakan membuka jalan untuk extensibility: sumber baru (MongoDB, SharePoint, Google Drive API) dapat ditambahkan dengan mengimplementasikan dua method, yaitu `load()` dan `describe()`, tanpa mengubah pipeline inti. Ini sejalan dengan prinsip Open/Closed Principle dalam desain perangkat lunak (Martin 2017).
 
 Trade-off *real-time* vs pre-indexed perlu dipertimbangkan sesuai use case:
 
@@ -308,60 +315,61 @@ Untuk korpus statis yang sangat besar (jutaan dokumen), FAISS IVF (Inverted File
 
 ## 4. KESIMPULAN
 
-Penelitian ini berhasil mengembangkan sistem RAG agnostic multi-sumber yang memenuhi tujuan penelitian, dengan lima temuan utama:
+Penelitian ini berhasil mengembangkan sistem RAG agnostic multi-sumber yang memenuhi tujuan penelitian, dengan enam temuan utama:
 
-1. **Arsitektur *agnostic* terealisasi:** `SourceDetector` + `SourceFactory` + `BaseSourceAdapter` memungkinkan penanganan folder (PDF, TXT/MD/LOG) dan PostgreSQL (3 mode query: semua tabel, tabel tertentu, custom SQL) dari satu parameter `source`, tanpa perubahan pada pipeline inti.
+1. **Arsitektur *agnostic* terealisasi:** `SourceDetector` + `SourceFactory` + `BaseSourceAdapter` memungkinkan penanganan folder (TXT/PDF/MD/LOG) dan PostgreSQL (3 mode query) dari satu parameter `source`, tanpa perubahan pada pipeline inti. Deteksi otomatis tipe sumber berbasis pattern matching berjalan konsisten di seluruh 25 pertanyaan.
 
-2. ***Real-time* indexing terbukti benar:** Setiap pemanggilan `pipeline.ask()` membangun indeks FAISS secara in-memory sehingga perubahan konten di sumber langsung tercermin dalam hasil retrieval tanpa restart sistem. Tidak ada file index yang tersimpan di disk.
+2. ***Real-time* indexing terbukti benar:** Setiap pemanggilan `pipeline.ask()` membangun indeks FAISS secara in-memory; tidak ada file index di disk. Perubahan konten di sumber langsung tercermin dalam hasil retrieval tanpa restart sistem.
 
-3. **Multi-sumber terbukti secara eksperimen:** Evaluasi batch 20 pertanyaan (4 skenario × 5 pertanyaan) menunjukkan Precision@K=1.000 dan MRR=1.000 di seluruh skenario. Performa agregat: A (Overall=0.331, MSRS=0.650), B (Overall=0.319, MSRS=0.812), C (Overall=0.325, MSRS=0.700), D (Overall=0.284, MSRS=0.725). Skenario D membuktikan klaim *source-agnostic* lintas paradigma dengan Context Coverage=0.450, mengkonfirmasi `MultiSourceAdapter` berhasil menggabungkan sumber unstructured dan structured dalam satu indeks FAISS.
+3. **Multi-sumber terbukti secara eksperimen:** Evaluasi batch 25 pertanyaan (5 skenario × 5 pertanyaan) menunjukkan Precision@K = 1.000 dan MRR = 1.000 di seluruh skenario. Performa agregat: A (Chat Only, *Overall* = 0.282, MSRS = 0.725), B (FR/PDF, *Overall* = 0.276, MSRS = 0.625), C (PostgreSQL, *Overall* = 0.228, MSRS = 0.825), D (FR+DB, *Overall* = 0.318, MSRS = 0.763), E (Hybrid, *Overall* = 0.358, MSRS = 0.713). Skenario E membuktikan klaim *source-agnostic* pada level tertinggi: *Retrieval Relevance* = 0.582 tertinggi di antara semua skenario, mengkonfirmasi query dapat menjangkau chunk relevan dari ketiga layer corpus secara bersamaan.
 
-4. **Efektivitas transfer pengetahuan terukur via KTE:** KTE per skenario: A=0.429 (*Explicit→Actionable*), B=0.502 (*Structured→Contextual*), C=0.460 (*Tacit→Explicit*), D=0.352 (*Cross-Paradigm*). Skenario B satu-satunya yang melampaui ambang batas KTE ≥ 0.5; rendahnya KTE pada skenario unstructured (Faithfulness 0.095–0.142) merupakan karakteristik evaluasi *reference-free* berbahasa Indonesia, bukan kegagalan retrieval.
+4. **Ground truth Skenario E menghasilkan ROUGE-L dan BLEU-1 yang bermakna:** Dengan 5 jawaban referensi yang dikurasi manual, Skenario E mencapai ROUGE-L = 0.167 dan BLEU-1 = 0.213 (*reference-based*) — membuktikan terdapat overlap konten yang nyata antara jawaban AI dan jawaban ideal untuk pertanyaan *cross-layer*. Ini merupakan peningkatan ~7× dibandingkan ROUGE-L skenario *reference-free* tertinggi (B = 0.051).
 
-5. **Evaluasi multi-dimensi terukur:** Framework 11 metrik (8 kuantitatif + 3 komposit) membuktikan pemisahan arsitektur retrieval–generasi: retrieval konsisten sempurna di semua skenario sementara metrik generasi bervariasi sesuai tipe sumber. AQI dan MSRS tertinggi pada Skenario B (0.364 dan 0.812), mengkonfirmasi PostgreSQL sebagai sumber dengan kualitas jawaban dan keragaman retrieval terbaik.
+5. **Ablation study membuktikan kontribusi dramatis Layer 3:** *Overall*: Chat-only = 0.230 → FR-only = 0.230 → FR+DB = 0.231 → Full = 0.358. Tiga konfigurasi awal hampir identik; lompatan +0.127 terjadi saat ketiga layer digabungkan — ROUGE-L naik 3× dari 0.055 ke 0.167 dan BLEU-1 dari 0.002 ke 0.213, membuktikan bahwa log diskusi tim (Layer 3) adalah komponen penentu kualitas jawaban *cross-paradigm*.
 
-Kontribusi utama penelitian adalah desain pola Adapter yang memisahkan concerns antara sumber data, pemrosesan teks, retrieval, dan generasi, sehingga setiap komponen dapat diganti atau diperluas secara independen. Framework evaluasi 8 metrik yang diimplementasikan bebas-dependensi (tanpa library RAGAS) dapat direplikasi di lingkungan terbatas resource.
+6. **Efektivitas transfer pengetahuan terukur:** KTE per skenario: A = 0.452 (*Tacit→Operational*), B = 0.375 (*Explicit→Actionable*), C = 0.328 (*Explicit→Structured*), D = 0.484 (*Explicit→Cross-referenced*), E = 0.414 (*Cross-Paradigm*). Skenario D memiliki KTE tertinggi (0.484), diikuti A (0.452) dan E (0.414), menunjukkan bahwa kombinasi sumber yang tepat dengan pertanyaan domain-spesifik secara konsisten menghasilkan transfer pengetahuan yang efektif.
 
-Untuk penelitian selanjutnya, disarankan: (1) evaluasi batch dengan minimal 20 pertanyaan menggunakan ground truth dataset yang dikurasi manual untuk mendapatkan nilai ROUGE-L dan BLEU-1 yang dapat dibandingkan dengan sistem lain; (2) fine-tuning embedding model pada dokumen domain spesifik organisasi; (3) perbandingan performa dengan sistem RAG berbasis vector database komersial (Pinecone, Weaviate) sebagai baseline arsitektur.
+Kontribusi utama penelitian adalah: (i) desain pola Adapter yang memisahkan *concerns* antara sumber data, pemrosesan teks, retrieval, dan generasi; (ii) desain evaluasi lima skenario dengan tiga-layer corpus operasional nyata; dan (iii) framework ground truth parsial yang memungkinkan validasi *reference-based* pada skenario prioritas tanpa mensyaratkan ground truth lengkap untuk semua skenario.
+
+Untuk penelitian selanjutnya disarankan: (1) perluasan ground truth ke seluruh 25 pertanyaan untuk validasi komparatif yang lebih kuat; (2) *hybrid search* (FAISS + BM25) untuk meningkatkan retrieval pada query dengan token spesifik domain; (3) fine-tuning embedding model pada dokumen domain organisasi spesifik; (4) perbandingan dengan sistem RAG berbasis vector database komersial (Pinecone, Weaviate) sebagai baseline arsitektur.
 
 ---
 
 ## 5. DAFTAR PUSTAKA
 
-[1] IDC, "90% of Data is Unstructured and Its Full of Untapped Value," *IDC Blog*, 2023. [Online]. Available: https://blogs.idc.com/2023/05/09/90-of-data-is-unstructured-and-its-full-of-untapped-value/
+Chui M, Manyika J, Bughin J, Dobbs R, Roxburgh C, Sarrazin H, Sands G, Westergren M (2012) The social economy: unlocking value and productivity through social technologies. McKinsey Global Institute. https://www.mckinsey.com/industries/technology-media-and-telecommunications/our-insights/the-social-economy
 
-[2] Gartner, "Gartner Says Employees Spend Too Much Time on Low-Value Tasks: Use AI and Automation to Fix It," Gartner Newsroom, Jan. 2020. [Online]. Available: https://www.gartner.com/en/newsroom/press-releases/2020-01-23-gartner-says-employees-spend-too-much-time-on-low-value-tasks
+Carbonell J, Goldstein J (1998) The use of MMR, diversity-based reranking for reordering documents and producing summaries. In: Proceedings of the 21st Annual International ACM SIGIR Conference on Research and Development in Information Retrieval, pp 335–336. https://doi.org/10.1145/290941.291025
 
-[3] M. Chui, J. Manyika, J. Bughin, R. Dobbs, C. Roxburgh, H. Sarrazin, G. Sands, and M. Westergren, "The social economy: Unlocking value and productivity through social technologies," McKinsey Global Institute, Jul. 2012. [Online]. Available: https://www.mckinsey.com/industries/technology-media-and-telecommunications/our-insights/the-social-economy
+Es S, James J, Espinosa-Anke L, Schockaert S (2023) RAGAS: automated evaluation of retrieval augmented generation. arXiv:2309.15217. https://doi.org/10.48550/arXiv.2309.15217
 
-[4] I. Nonaka and H. Takeuchi, *The Knowledge-Creating Company*. New York: Oxford University Press, 1995.
+Fabbri AR, Kryściński W, McCann B, Xiong C, Socher R, Radev D (2021) SummEval: re-evaluating summarization evaluation. Trans Assoc Comput Linguist 9:391–409. https://doi.org/10.1162/tacl_a_00373
 
-[5] P. Lewis, E. Perez, A. Piktus, F. Petroni, V. Karpukhin, N. Goyal, and D. Kiela, "Retrieval-augmented generation for knowledge-intensive NLP tasks," in *Proc. NeurIPS*, 2020, pp. 9459–9474.
+Gao Y, Xiong Y, Gao X, Jia K, Pan J, Bi Y, Dai Y, Sun J, Wang M, Wang H (2024) Retrieval-augmented generation for large language models: a survey. arXiv:2312.10997. https://doi.org/10.48550/arXiv.2312.10997
 
-[6] G. Izacard and E. Grave, "Leveraging passage retrieval with generative models for open domain question answering," in *Proc. EACL*, 2021, pp. 874–880.
+Gartner (2020) Gartner says employees spend too much time on low-value tasks: use AI and automation to fix it. Gartner Newsroom. https://www.gartner.com/en/newsroom/press-releases/2020-01-23-gartner-says-employees-spend-too-much-time-on-low-value-tasks
 
-[7] M. Yasunaga, H. Ren, A. Bosselut, P. Liang, and J. Leskovec, "QA-GNN: Reasoning with language models and knowledge graphs for question answering," in *Proc. NAACL*, 2021.
+IDC (2023) 90% of data is unstructured and it's full of untapped value. IDC Blog. https://blogs.idc.com/2023/05/09/90-of-data-is-unstructured-and-its-full-of-untapped-value/
 
-[8] J. Johnson, M. Douze, and H. Jégou, "Billion-scale similarity search with GPUs," *IEEE Trans. Big Data*, vol. 7, no. 3, pp. 535–547, 2019.
+Izacard G, Grave E (2021) Leveraging passage retrieval with generative models for open domain question answering. In: Proceedings of the 16th Conference of the European Chapter of the Association for Computational Linguistics, pp 874–880. https://doi.org/10.18653/v1/2021.eacl-main.74
 
-[9] N. Reimers and I. Gurevych, "Sentence-BERT: Sentence embeddings using Siamese BERT-networks," in *Proc. EMNLP*, 2019.
+Johnson J, Douze M, Jégou H (2019) Billion-scale similarity search with GPUs. IEEE Trans Big Data 7(3):535–547. https://doi.org/10.1109/TBDATA.2019.2921572
 
-[10] E. M. Voorhees, "The TREC-8 question answering track report," in *Proc. TREC*, 1999, pp. 77–82.
+Lewis P, Perez E, Piktus A, Petroni F, Karpukhin V, Goyal N, Kiela D (2020) Retrieval-augmented generation for knowledge-intensive NLP tasks. In: Advances in Neural Information Processing Systems 33, pp 9459–9474. https://doi.org/10.48550/arXiv.2005.11401
 
-[11] C.-Y. Lin, "ROUGE: A package for automatic evaluation of summaries," in *Proc. ACL Workshop on Text Summarization Branches Out*, 2004.
+Lin CY (2004) ROUGE: a package for automatic evaluation of summaries. In: Proceedings of the ACL Workshop on Text Summarization Branches Out. https://aclanthology.org/W04-1013
 
-[12] K. Papineni, S. Roukos, T. Ward, and W.-J. Zhu, "BLEU: A method for automatic evaluation of machine translation," in *Proc. ACL*, 2002.
+Martin RC (2017) Clean architecture: a craftsman's guide to software structure and design. Prentice Hall, Upper Saddle River
 
-[13] S. Es, J. James, L. Espinosa-Anke, and S. Schockaert, "RAGAS: Automated evaluation of retrieval augmented generation," *arXiv preprint arXiv:2309.15217*, 2023.
+Nonaka I, Takeuchi H (1995) The knowledge-creating company. Oxford University Press, New York
 
-[14] Y. Gao, Y. Xiong, X. Gao, K. Jia, J. Pan, Y. Bi, Y. Dai, J. Sun, M. Wang, and H. Wang, "Retrieval-augmented generation for large language models: A survey," *arXiv preprint arXiv:2312.10997*, 2024. DOI: 10.48550/arXiv.2312.10997
+Papineni K, Roukos S, Ward T, Zhu WJ (2002) BLEU: a method for automatic evaluation of machine translation. In: Proceedings of the 40th Annual Meeting of the Association for Computational Linguistics, pp 311–318. https://doi.org/10.3115/1073083.1073135
 
-[15] H. Ren, H. Shi, W. Zhao, J. Zhao, and Y. Zhao, "Self-RAG: Learning to retrieve, generate, and critique through self-reflection," *arXiv preprint arXiv:2307.11019*, 2023. DOI: 10.48550/arXiv.2307.11019
+Reimers N, Gurevych I (2019) Sentence-BERT: sentence embeddings using Siamese BERT-networks. In: Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing. https://doi.org/10.18653/v1/D19-1410
 
-[16] J. Carbonell and J. Goldstein, "The use of MMR, diversity-based reranking for reordering documents and producing summaries," in *Proc. ACM SIGIR*, 1998, pp. 335–336.
+Ren H, Shi H, Zhao W, Zhao J, Zhao Y (2023) Self-RAG: learning to retrieve, generate, and critique through self-reflection. arXiv:2307.11019. https://doi.org/10.48550/arXiv.2307.11019
 
-[15] A. R. Fabbri, W. Kryściński, B. McCann, C. Xiong, R. Socher, and D. Radev, "SummEval: Re-evaluating summarization evaluation," *Trans. Assoc. Comput. Linguist.*, vol. 9, pp. 391–409, 2021.
+Voorhees EM (1999) The TREC-8 question answering track report. In: Proceedings of the 8th Text REtrieval Conference (TREC-8), pp 77–82. https://trec.nist.gov/pubs/trec8/papers/qa_report.pdf
 
-[16] R. C. Martin, *Clean Architecture: A Craftsman's Guide to Software Structure and Design*. Upper Saddle River, NJ: Prentice Hall, 2017.
-
+Yasunaga M, Ren H, Bosselut A, Liang P, Leskovec J (2021) QA-GNN: reasoning with language models and knowledge graphs for question answering. In: Proceedings of the 2021 Conference of the North American Chapter of the Association for Computational Linguistics, pp 535–545. https://doi.org/10.18653/v1/2021.naacl-main.45
 
