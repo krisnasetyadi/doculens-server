@@ -1,7 +1,7 @@
 # Perencanaan Evaluasi RAG - Jurnal SINTA
 
-> **Versi:** Pre-planning v3.1 — April 2026
-> **Status:** Ground truth selesai — siap re-run Skenario E (reference-based)
+> **Versi:** Pre-planning v3.5 — 6 Mei 2026
+> **Status:** Draft jurnal selesai — MYJOURNAL.md (EN Springer-style) siap review dosen
 
 ---
 
@@ -38,11 +38,39 @@
 - [x] Dapat sample data nyata dari DBeaver (rfq, securities, firm_masters) → `data/mofids_sample.sql`
 - [x] **Introduction baru ditulis** — urgency framing: *document-based service organizations*, turnover 2x/tahun, motivating scenario, 3 kontribusi eksplisit
 - [x] Referensi [14] Gao et al. 2024 dan [15] Ren et al. 2023 ditambahkan ke DRAFT_JURNAL.md
-- [x] Tentukan 4 skenario evaluasi — **finalisasi selesai**, 20 pertanyaan draft v1 tersedia
+- [x] Tentukan 5 skenario evaluasi — **finalisasi selesai**, 25 pertanyaan draft v2 tersedia
 - [x] Siapkan layer ketiga — **keputusan final: gunakan chat Teams** (3 file: `cuplikan`, `cuplikan2`, `cuplikan-personal-message`). `change_logs` **tidak digunakan**.
-- [x] Buat 20 pertanyaan evaluasi (5 per skenario) — draft v1 selesai
-- [ ] Jalankan evaluasi RAG
+- [x] Buat 25 pertanyaan evaluasi (5 per skenario) — draft v2 selesai
+- [x] Jalankan evaluasi RAG — selesai 2 Mei 2026, hasil di `newresult/`
+- [x] **Terminologi FR → PDF** diterapkan di seluruh draft (3 Mei 2026)
+- [x] **Tabel 5 dipecah → Tabel 5a (retrieval) + Tabel 5b (generation/composite)** (3 Mei 2026)
+- [x] **DRAFT_JURNAL_EN.md** dibuat sebagai versi bahasa Inggris lengkap
+- [x] **Citation style** dikonversi ke author-year + DOI link di seluruh bibliography
+- [x] **Domain masking** "lelang obligasi pemerintah" → BOND_SYS diterapkan
+- [x] **MYJOURNAL** — content review selesai 6 Mei 2026: seluruh konten (5 skenario, 8 metrik, 3 komposit, Tabel 5a/5b, ablation, BOND_SYS masking) ✅ sesuai rencana
+- [x] **MYJOURNAL body language** dikonversi ke **English** penuh (Springer-style) — 6 Mei 2026
+- [x] **Token masking final** diterapkan di MYJOURNAL.md — 6 Mei 2026 (lihat tabel masking di bawah)
+- [ ] Gambar 1 arsitektur → PNG ≥300 DPI (draft Mermaid tersedia di `GAMBAR_1_ARSITEKTUR.md`)
 - [ ] Encode/masking data untuk lampiran jurnal
+- [ ] Integrasi RAGAS (Faithfulness + Answer Relevance)
+- [ ] Tambah std deviation di tabel ringkasan
+
+---
+
+## Token Masking Log — MYJOURNAL.md
+
+> Catatan: Masking hanya berlaku untuk **MYJOURNAL.md** (versi publikasi). Google Colab dan notebook internal tetap menggunakan nama asli untuk keperluan demo.
+
+| Nama Asli | Token di Paper | Alasan |
+|---|---|---|
+| MOFIDS | BOND_SYS | Nama sistem internal platform lelang obligasi |
+| Direktorat Jenderal Pengelolaan Pembiayaan dan Risiko (DJPPR) | GOV_DEPT1 | Nama institusi pemerintah pemilik platform |
+| LPDU (Lembaga Penjual Dealer Utama) / nama modul nyata | BOND_MOD | Nama modul internal platform |
+| BS-SB | BOARD_TYPE_A | Kode board type internal platform |
+| Buyback Cash | INSTRUMENT_TYPE_A | Nama produk instrumen internal |
+| trade custody module | BOND_MOD_CUSTODY | Nama modul internal (pola BOND_MOD) |
+| ETL incident February 2023 | ETL incident (anonymized period) | Tanggal spesifik dapat mengidentifikasi organisasi |
+| NEWCORE-2442 | ISSUE_REF_2442 | Nomor tiket internal (sudah sebagian ter-mask) |
 
 ---
 
@@ -436,15 +464,15 @@ File mofids-personal-message.txt di root = backup sumber mentah (identik dengan 
 | Tahap | Task | Status |
 |---|---|---|
 | **1** | Update `PERENCANAAN_EVALUASI.md` — redesign 5 skenario + 25 pertanyaan | ✅ Selesai (v3.0) |
-| **2** | Tambah **Skenario A (Chat only)** di notebook — cell baru sebelum Skenario B | ⬜ |
-| **3** | Rename Skenario B→C, C→D, D→E di notebook (cell label + variabel + print) | ⬜ |
-| **4** | Fix `SOURCE_FR` Skenario B → `sample_data/pdf/` (bukan `sample_data/`) | ⬜ |
-| **5** | Update Ablation Study — tambah konfigurasi Chat-only sebagai baseline | ⬜ |
+| **2** | Tambah **Skenario A (Chat only)** di notebook — cell baru sebelum Skenario B | ✅ Selesai |
+| **3** | Rename Skenario B→C, C→D, D→E di notebook (cell label + variabel + print) | ✅ Selesai |
+| **4** | Fix `SOURCE_FR` Skenario B → `sample_data/pdf/` (bukan `sample_data/`) | ✅ Selesai |
+| **5** | Update Ablation Study — tambah konfigurasi Chat-only sebagai baseline | ✅ Selesai |
 | **6** | Buat **5 ground truth answers** untuk Skenario E | ✅ Selesai — cell `GROUND_TRUTH_HYBRID` di notebook |
 | **7** | Tambahkan evaluasi RAGAS (Faithfulness + Relevance) minimal untuk Skenario E | ⬜ |
 | **8** | Tambahkan std deviation di tabel ringkasan | ⬜ |
 | **9** | Update arsitektur diagram & tabel skenario di markdown header notebook | ⬜ |
-| **10** | Re-run semua skenario A–E + Ablation di Google Colab | ⬜ |
+| **10** | Re-run semua skenario A–E + Ablation di Google Colab | ✅ Selesai — hasil di `newresult/` 2 Mei 2026 |
 
 ---
 
@@ -486,14 +514,22 @@ Tabel hasil evaluasi → Bab 4 DRAFT_JURNAL.md
 | 8 | Q17 corpus fix: klarifikasi offering digit ditambah ke chat | ✅ Selesai |
 | 9 | Q20 corpus fix: status amend IN PROGRESS ditambah ke chat | ✅ Selesai |
 | 10 | Redesign 5 skenario + 25 pertanyaan (v3.0) | ✅ Selesai |
-| 11 | Tambah Skenario A (Chat only) di notebook | ⬜ Berikutnya |
-| 12 | Rename skenario B–E di notebook | ⬜ |
+| 11 | Tambah Skenario A (Chat only) di notebook | ✅ Selesai |
+| 12 | Rename skenario B–E di notebook | ✅ Selesai |
 | 13 | Buat 5 ground truth answers untuk Skenario E | ✅ Selesai — `GROUND_TRUTH_HYBRID` di notebook |
-| 14 | Re-run Skenario E (reference-based) + Ablation di Colab | ⬜ Berikutnya |
-| 15 | Integrasi RAGAS (Faithfulness + Answer Relevance) | ⬜ |
-| 16 | Re-run semua skenario A–E final di Google Colab | ⬜ |
-| 16 | Analisis hasil → tulis Bab 3–4 DRAFT_JURNAL.md | ⬜ |
-| 17 | Encoding autonumber data untuk lampiran jurnal | ⬜ (akhir) |
+| 14 | Re-run Skenario E (reference-based) + Ablation di Colab | ✅ Selesai — 2 Mei 2026 |
+| 15 | Re-run semua skenario A–E final di Google Colab | ✅ Selesai — 2 Mei 2026, `newresult/evaluasi_multisumber_20260502_162002.csv` |
+| 16 | Analisis hasil → tulis Bab 2–4 DRAFT_JURNAL.md | ✅ Selesai |
+| 17 | **Terminologi FR → PDF** di seluruh draft (ID + EN) | ✅ Selesai — 3 Mei 2026 |
+| 18 | **Tabel 5 → 5a + 5b** (retrieval + generation terpisah) | ✅ Selesai — 3 Mei 2026 |
+| 19 | **DRAFT_JURNAL_EN.md** (versi Inggris lengkap) | ✅ Selesai — 3 Mei 2026 |
+| 20 | **Citation style** author-year + DOI link bibliography | ✅ Selesai |
+| 21 | **Domain masking** BOND_SYS konsisten | ✅ Selesai |
+| 22 | **Gambar 1** — draft Mermaid di `GAMBAR_1_ARSITEKTUR.md` | ⬜ Perlu render PNG ≥300 DPI |
+| 23 | Kirim draft ke dosen untuk review | ⬜ Next step |
+| 24 | Integrasi RAGAS (Faithfulness + Answer Relevance) | ⬜ Opsional |
+| 25 | Tambah std deviation di tabel ringkasan | ⬜ Opsional |
+| 26 | Encoding autonumber data untuk lampiran jurnal | ⬜ Sebelum submit |
 
 ---
 
