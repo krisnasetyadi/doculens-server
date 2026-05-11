@@ -154,13 +154,22 @@ async def hybrid_query(request: HybridQueryRequest, req: Request):
         )
 
         # Generate answer with optional LLM selection
-        answer, model_used = await asyncio.to_thread(
+        answer_result = await asyncio.to_thread(
             processor.generate_hybrid_answer, 
             hybrid_results, 
             request.question,
             request.llm_provider,
             request.llm_model
         )
+        
+        # Unpack result: now returns (answer, model_used, metadata)
+        if isinstance(answer_result, tuple) and len(answer_result) == 3:
+            answer, model_used, _ = answer_result  # Ignore metadata for backward compatibility
+        elif isinstance(answer_result, tuple) and len(answer_result) == 2:
+            answer, model_used = answer_result  # Old format support
+        else:
+            answer = str(answer_result)
+            model_used = request.llm_model or config.model_name
 
         # Prepare response
         processing_time = (datetime.now() - start_time).total_seconds()
@@ -297,10 +306,18 @@ async def get_table_sample(table_name: str, limit: int = 5):
             detail="Terjadi kesalahan saat mengambil data sampel dari tabel"
         )
     
-# router/hybrid.py - update endpoint
+# router/hybrid.py - Enhanced endpoint with comprehensive metadata
 @router.post('/query/hybrid/enhanced', response_model=EnhancedHybridResponse)
 async def enhanced_hybrid_query(request: HybridQueryRequest, req: Request):
-    """Enhanced hybrid query dengan aggregasi yang lebih baik"""
+    """
+    Enhanced hybrid query with comprehensive metadata and conflict detection.
+    
+    Returns detailed information about:
+    - Answer metadata (confidence, intent, exact matches, boost applied)
+    - Source breakdown (PDF, DB, Chat)
+    - Conflict detection and resolution
+    - Processing steps for observability
+    """
     start_time = datetime.now()
     
     try:
@@ -315,7 +332,7 @@ async def enhanced_hybrid_query(request: HybridQueryRequest, req: Request):
             request.chat_collection_ids
         )
         
-        # Generate answer dengan metadata
+        # Generate answer with comprehensive metadata
         answer_result = await asyncio.to_thread(
             processor.generate_hybrid_answer,
             hybrid_results,
@@ -324,21 +341,24 @@ async def enhanced_hybrid_query(request: HybridQueryRequest, req: Request):
             request.llm_model
         )
         
-        # Unpack result safely
+        # Unpack result: (answer, model_used, answer_metadata)
         if isinstance(answer_result, tuple) and len(answer_result) == 3:
             answer, model_used, answer_metadata = answer_result
         else:
             # Fallback if format unexpected
             answer = str(answer_result)
             model_used = request.llm_model or config.model_name
-            answer_metadata = {}
+            answer_metadata = {
+                "confidence_score": 0,
+                "primary_intent": "unknown",
+                "sources_used": {"pdf": 0, "database": 0, "chat": 0}
+            }
         
         # Extract PDF sources with detailed snippets
         pdf_sources = []
         pdf_sources_detailed = []
         pdf_docs = hybrid_results.get('pdf_documents', [])
         for doc in pdf_docs:
-            # doc is a Document object with .metadata attribute
             if hasattr(doc, 'metadata'):
                 source = doc.metadata.get('source', 'Unknown')
                 collection_id = doc.metadata.get('collection_id', '')
@@ -347,7 +367,7 @@ async def enhanced_hybrid_query(request: HybridQueryRequest, req: Request):
                 # Extract relevant snippet (first 300 chars)
                 content_preview = doc.page_content[:300] if hasattr(doc, 'page_content') else ""
                 
-                # Parse page number (handle both int and string)
+                # Parse page number
                 page_value = doc.metadata.get('page', None)
                 if page_value is not None:
                     try:
@@ -366,53 +386,33 @@ async def enhanced_hybrid_query(request: HybridQueryRequest, req: Request):
                     content_preview=content_preview
                 )
                 pdf_sources_detailed.append(pdf_source_info)
-            else:
-                source = 'Unknown'
-            
-            if source not in pdf_sources:
-                pdf_sources.append(source)
+                
+                if source not in pdf_sources:
+                    pdf_sources.append(source)
         
-        # Calculate overall confidence
-        merged_results = hybrid_results.get('merged_results', [])
-        overall_confidence = 0
-        if merged_results:
-            overall_confidence = sum(r.get('confidence', 0) for r in merged_results[:3]) / min(3, len(merged_results))
-        
-        # Convert chat documents to dictionaries with UI-friendly format
+        # Convert chat documents to dictionaries
         chat_docs = hybrid_results.get('chat_documents', [])
         chat_results = []
         for doc in chat_docs:
             if hasattr(doc, 'page_content') and hasattr(doc, 'metadata'):
                 metadata = doc.metadata
-                # Format for UI display
                 chat_result = {
                     'source': metadata.get('source', 'Unknown'),
                     'platform': metadata.get('platform', 'chat'),
                     'relevance_score': metadata.get('similarity_score', 0),
-                    'content_preview': doc.page_content[:500],  # First 500 chars for preview
+                    'content_preview': doc.page_content[:500],
                     'participants': metadata.get('participants', ''),
                     'time_range_start': metadata.get('time_range_start', ''),
                     'time_range_end': metadata.get('time_range_end', ''),
                     'message_count': metadata.get('message_count', 0)
                 }
                 chat_results.append(chat_result)
-            elif isinstance(doc, dict):
-                # If already dict, ensure UI fields exist
-                if 'content' in doc and 'metadata' in doc:
-                    metadata = doc['metadata']
-                    chat_result = {
-                        'source': metadata.get('source', 'Unknown'),
-                        'platform': metadata.get('platform', 'chat'),
-                        'relevance_score': metadata.get('similarity_score', 0),
-                        'content_preview': doc['content'][:500],
-                        'participants': metadata.get('participants', ''),
-                        'time_range_start': metadata.get('time_range_start', ''),
-                        'time_range_end': metadata.get('time_range_end', ''),
-                        'message_count': metadata.get('message_count', 0)
-                    }
-                    chat_results.append(chat_result)
-                else:
-                    chat_results.append(doc)
+        
+        # Get merged results and conflicts from hybrid_results
+        merged_results = hybrid_results.get('merged_results', [])
+        
+        # Extract conflicts from answer_metadata
+        conflicts = answer_metadata.get('conflict_details', [])
         
         processing_time = (datetime.now() - start_time).total_seconds()
         
@@ -426,9 +426,9 @@ async def enhanced_hybrid_query(request: HybridQueryRequest, req: Request):
             processing_time=processing_time,
             search_analysis=hybrid_results.get('search_analysis', {}),
             merged_results_preview=merged_results[:5],
-            conflicts=hybrid_results.get('conflicts', []),
+            conflicts=conflicts,
             model_used=model_used or "unknown",
-            confidence_score=overall_confidence
+            confidence_score=answer_metadata.get('confidence_score', 0)
         )
         
     except Exception as e:

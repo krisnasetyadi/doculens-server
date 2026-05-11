@@ -189,17 +189,31 @@ class ChatSearchResult(BaseModel):
     relevance_score: float
     context_messages: Optional[List[ChatMessage]] = None  # Surrounding messages for context
 
-# models.py - tambahkan enhanced response model
+# models.py - Enhanced response model with comprehensive metadata
 class EnhancedHybridResponse(BaseModel):
+    """Enhanced hybrid query response with detailed metadata and conflict detection"""
     answer: str
-    answer_metadata: Dict[str, Any]
-    pdf_sources: List[str]
-    pdf_sources_detailed: Optional[List[PdfSourceInfo]] = None
-    db_results: Dict[str, Any]
-    chat_results: Optional[List[Dict[str, Any]]] = None
+    
+    # Comprehensive metadata about answer generation
+    answer_metadata: Dict[str, Any]  # Contains: confidence_score, primary_intent, sources_used,
+                                      # search_strategy, conflicts_detected, exact_matches,
+                                      # boost_applied, ranking_algorithm, processing_steps,
+                                      # total_results_processed, conflict_details, model_used
+    
+    # Source information
+    pdf_sources: List[str]  # Simple list (backward compatible)
+    pdf_sources_detailed: Optional[List[PdfSourceInfo]] = None  # Detailed with URLs and previews
+    db_results: Dict[str, Any]  # Database query results by table
+    chat_results: Optional[List[Dict[str, Any]]] = None  # Chat log search results
+    
+    # Processing info
     processing_time: float
-    search_analysis: Dict[str, Any]
-    merged_results_preview: Optional[List[Dict[str, Any]]] = None
-    conflicts: Optional[List[Dict[str, Any]]] = None
-    model_used: str
+    search_analysis: Dict[str, Any]  # Query intent and search strategy analysis
+    merged_results_preview: Optional[List[Dict[str, Any]]] = None  # Top merged results
+    
+    # Conflict detection and resolution
+    conflicts: Optional[List[Dict[str, Any]]] = None  # Detected conflicts with resolution recommendations
+    
+    # Model identification
+    model_used: str  # LLM model identifier (e.g., "huggingface/flan-t5-base")
     confidence_score: float  # Overall confidence 0-1

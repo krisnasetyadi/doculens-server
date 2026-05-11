@@ -1,0 +1,107 @@
+=== CHAT LOG: DISKUSI TIM EQUITY RESEARCH — KB Bank (BBKP) & PT TIMAH (TINS) ===
+Tanggal: 15 April 2025
+Peserta: Reza Firmansyah (Lead Equity Analyst), Dian Kusuma (Equity Analyst), Andika Prasetyo (Junior Analyst)
+Platform: Internal Research Chat — Tim Equity Research
+
+--------------------------------------------------------------------------------
+
+[REZA]: Selamat pagi semua. Kita review dua emiten sekaligus hari ini — BBKP dan TINS.
+Dian, mulai dari BBKP dulu ya.
+
+[DIAN]: Siap Pak Reza. KB Bank cukup positif di Q1 2025. Laba bersih konsolidasi
+Rp352 miliar, bandingkan dengan rugi Rp827 miliar di Q1 tahun lalu. Transformasi mereka
+mulai kelihatan hasilnya.
+
+[REZA]: Signifikan sekali. Apa faktor utamanya?
+
+[DIAN]: Beberapa hal. Pertama, NIM naik dari 0.94% ke 1.09%. Kedua, pendapatan bunga
+bersih bank-only Rp184 miliar, tumbuh 11.19% year-on-year. Ketiga, DPK tumbuh 10.86%
+YoY ke Rp43.83 triliun, CASA naik 16.83% ke Rp12.38 triliun. Pendapatan bunga bersih
+konsolidasi Rp248 miliar, tumbuh 8.93%.
+
+[ANDIKA]: NPL-nya gimana Kak Dian? Sebelumnya kan tinggi banget.
+
+[DIAN]: NPL gross turun dari 9.92% ke 9.10%. LAR juga turun drastis dari 34.33% ke
+23.41%. Masih tinggi dibanding industri, tapi tren perbaikan jelas terlihat.
+
+[REZA]: Yang paling penting menurut saya adalah NGBS. KB Bank berhasil menyelesaikan
+migrasi core banking ke Next Generation Banking System (NGBS) di Q1 2025. Ini fondasi
+untuk akselerasi digital ke depan. Ini achievement besar setelah proses yang panjang.
+
+[ANDIKA]: Oh ya, saya baca di press release — KB Kookmin Bank Korea pegang 66.88% saham,
+lalu STIC Eugene 16.98%, sisanya publik 16.14%. Jadi ada dukungan strategis kuat dari
+induk Korea.
+
+[REZA]: Betul. Kredit juga tumbuh solid. Retail +22.68%, korporasi +12.14%, UMKM +3.29%.
+Total kredit tumbuh 14.87% YoY. Segmen ritel paling agresif.
+
+[DIAN]: Untuk rekomendasi BBKP, saya condong ke BUY dengan catatan. Trajectory jelas
+positif — dari rugi hampir Rp1 triliun ke laba Rp352 miliar dalam satu tahun adalah
+transformasi yang fundamental.
+
+[REZA]: Saya sependapat. Risiko utama: NPL gross 9.10% masih di atas rata-rata industri,
+dan LAR 23.41% perlu monitoring terus. Tapi arahnya benar. Rekomendasi: BUY, monitoring
+NPL dan NIM di kuartal berikutnya.
+
+[ANDIKA]: Oke, noted. Sekarang TINS?
+
+[REZA]: Oke, sekarang TINS. Andika, kamu yang tracking ya.
+
+[ANDIKA]: Siap. PT TIMAH Q1 2025 cukup menarik. Laba bersih Rp116.86 miliar, itu 120%
+dari target internal mereka yang Rp97.46 miliar. Jadi mereka melampaui target.
+
+[REZA]: Revenue?
+
+[ANDIKA]: Revenue Rp2.10 triliun, naik 2.1% YoY. Yang menarik, beban pokok turun 2.6%
+jadi Rp1.72 triliun, laba usaha Rp148 miliar dari Rp93 miliar Q1 2024 — naik hampir
+60%. EBITDA Rp384 miliar, tumbuh 14% YoY.
+
+[DIAN]: Tapi produksi turun ya? Saya lihat angkanya signifikan.
+
+[ANDIKA]: Ya betul, ini paradoks menarik. Produksi bijih timah turun 40% YoY jadi 3.215
+ton Sn. Produksi logam timah turun 31% jadi 3.095 MT. Penjualan logam juga turun 18%
+ke 2.874 MT.
+
+[REZA]: Tapi margin tetap terjaga karena harga?
+
+[ANDIKA]: Tepat sekali. Harga jual rata-rata naik 20% ke USD32.495 per MT. Harga LME
+Q1 2025 di USD31.804,37 per MT, naik 21.2% YoY. Jadi volume turun tapi profitabilitas
+meningkat karena harga kompensasi.
+
+[DIAN]: Neraca juga membaik. Total aset Rp12.49 triliun. Liabilitas turun 9% ke Rp4.85
+triliun, ekuitas naik 3% ke Rp7.64 triliun. DER 63.5%, Current Ratio 238.7%.
+Quick Ratio 66.1%, Debt-to-Asset 38.8%.
+
+[REZA]: Ekspor ke mana saja?
+
+[ANDIKA]: Korea 19%, Jepang 19%, Singapura 14%, Belanda 11%. Diversifikasi cukup bagus,
+tapi Korea dan Jepang gabungan itu 38% — ada konsentrasi di Asia Timur.
+
+[REZA]: Rekomendasi untuk TINS?
+
+[DIAN]: Saya rasa HOLD dulu. Perbaikan profitabilitas positif — EBITDA Rp384 miliar
+naik 14%, laba usaha nyaris dua kali lipat. Tapi penurunan produksi 40% perlu dimonitor.
+Kalau produksi bisa recovery di Q2-Q3, baru bisa upgrade ke BUY.
+
+[REZA]: Saya sependapat. TINS ini menjalankan strategi high-price low-volume di Q1 2025.
+Berhasil di kuartal ini karena harga LME mendukung, tapi sustainability-nya perlu
+dikonfirmasi.
+
+[ANDIKA]: Catatan risiko tambahan: penurunan produksi 40% bisa jadi masalah jika harga
+LME koreksi. Harga LME naik 21.2% YoY jadi buffer saat ini, tapi volatilitas komoditas
+selalu ada.
+
+[REZA]: Oke, kesimpulan hari ini:
+- BBKP: Rekomendasi BUY. Transformasi nyata dari rugi ke laba. NGBS selesai jadi
+  katalis digital. Monitor NPL dan LAR.
+- TINS: Rekomendasi HOLD. Melampaui target laba tapi produksi turun 40%. Tunggu
+  konfirmasi recovery produksi di Q2-Q3 sebelum upgrade.
+
+Dian, tolong update di analyst_notes ya. Andika, siapkan slide ringkasan untuk klien.
+
+[DIAN]: Siap, akan saya update segera. Untuk klien, framing BBKP sebagai turnaround
+story dan TINS sebagai high-price low-volume play.
+
+[ANDIKA]: Siap Pak Reza. Saya siapkan perbandingan BBKP vs TINS untuk presentasi.
+
+=== END OF CHAT LOG ===

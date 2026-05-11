@@ -1,0 +1,55 @@
+[2025-12-16 14:10:23] IT Support: Halo, IT Helpdesk TMB Bank. Ada yang bisa dibantu?
+
+[2025-12-16 14:10:58] Budi Santoso: Halo, laptop saya tidak bisa connect ke VPN kantor nih
+
+[2025-12-16 14:11:30] IT Support: Baik Pak Budi, saya akan bantu troubleshoot. Bisa info error message yang muncul?
+
+[2025-12-16 14:12:15] Budi Santoso: Error "Connection timeout - Unable to reach VPN server"
+
+[2025-12-16 14:12:50] IT Support: Understood. Beberapa pengecekan:
+1. Apakah internet bapak stabil? Coba buka google.com
+2. Apakah sedang menggunakan WiFi kantor atau WiFi rumah/mobile data?
+
+[2025-12-16 14:13:35] Budi Santoso: Internet stabil, google bisa dibuka. Saya pakai WiFi rumah
+
+[2025-12-16 14:14:20] IT Support: Oke, kemungkinan firewall WiFi rumah memblokir VPN. Coba langkah ini:
+1. Buka VPN client (Cisco AnyConnect)
+2. Klik gear icon (Settings)
+3. Pastikan "Allow local LAN access" dicentang
+4. Coba connect lagi
+
+[2025-12-16 14:15:40] Budi Santoso: Masih error yang sama nih
+
+[2025-12-16 14:16:25] IT Support: Baik, kita coba cara lain:
+1. Disconnect dari WiFi sebentar
+2. Matikan VPN client completely (klik kanan icon di taskbar > Exit)
+3. Nyalakan mobile hotspot dari HP
+4. Connect laptop ke hotspot HP
+5. Buka VPN client lagi dan coba connect
+
+[2025-12-16 14:18:10] Budi Santoso: Wah berhasil! Sekarang connected pakai hotspot HP
+
+[2025-12-16 14:18:45] IT Support: Good! Berarti memang WiFi rumah yang blokir VPN. Solusinya:
+
+Option 1: Pakai hotspot HP saat butuh VPN
+Option 2: Setting router WiFi rumah (perlu akses admin router)
+
+Untuk option 2, bapak bisa:
+1. Login ke router (biasanya 192.168.1.1)
+2. Cari menu Firewall atau Security
+3. Allow UDP port 443 dan 500
+4. Allow protocol ESP (IP protocol 50)
+5. Save dan restart router
+
+[2025-12-16 14:20:15] Budi Santoso: Wah ribet ya settingnya. Saya pakai hotspot aja deh kalau mau WFH
+
+[2025-12-16 14:20:50] IT Support: No problem Pak Budi! Itu solusi tercepat. Tips:
+- Pastikan kuota internet HP cukup
+- Jika ada masalah VPN lagi, bisa hubungi helpdesk ext. 1234
+- Atau email ke helpdesk@tmb.co.id
+
+[2025-12-16 14:21:30] Budi Santoso: Siap, terima kasih banyak ya! Sangat membantu
+
+[2025-12-16 14:21:45] IT Support: Sama-sama Pak Budi! Jangan ragu hubungi kami kalau ada kendala teknis lainnya. Have a great day! 👍
+
+[2025-12-16 14:22:00] Budi Santoso: Thanks!

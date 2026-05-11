@@ -1,0 +1,112 @@
+[2025-12-18 08:30:15] Project Manager: Morning team! Daily standup time 🌅
+
+[2025-12-18 08:30:45] Dev - Sarah: Morning! Ready
+
+[2025-12-18 08:31:02] Dev - Kevin: Good morning 👋
+
+[2025-12-18 08:31:20] QA - Linda: Morning everyone!
+
+[2025-12-18 08:31:35] Designer - Rina: Halo semua!
+
+[2025-12-18 08:32:00] Project Manager: Let's start. Sarah, yesterday's progress?
+
+[2025-12-18 08:32:40] Dev - Sarah: Yesterday:
+✅ Completed user authentication API
+✅ Fixed bug in password reset flow
+✅ Added unit tests (coverage 85%)
+
+Today:
+🎯 Implement JWT token refresh mechanism
+🎯 Review Kevin's PR for payment integration
+
+Blocker: None
+
+[2025-12-18 08:33:25] Project Manager: Great progress Sarah! Kevin, your turn
+
+[2025-12-18 08:34:10] Dev - Kevin: Yesterday:
+✅ Payment gateway integration (Midtrans)
+✅ Created PR #234 for review
+✅ Updated API documentation
+
+Today:
+🎯 Fix review comments from Sarah
+🎯 Add payment webhook handler
+🎯 Testing payment flow end-to-end
+
+Blocker: Waiting sandbox API key from Midtrans (emailed them yesterday)
+
+[2025-12-18 08:35:00] Project Manager: Good work Kevin. I'll follow up with Midtrans today. Linda, QA update?
+
+[2025-12-18 08:35:45] QA - Linda: Yesterday:
+✅ Tested registration & login flows (15 test cases, all passed)
+✅ Found 2 minor UI bugs (reported in Jira: TMB-891, TMB-892)
+✅ Updated test documentation
+
+Today:
+🎯 Test password reset flow
+🎯 Regression testing for payment module
+🎯 Prepare test data for UAT
+
+Blocker: Need staging server to be updated with latest code
+
+[2025-12-18 08:36:40] Dev - Sarah: @Linda I'll deploy to staging after standup, should be ready by 10am
+
+[2025-12-18 08:37:05] QA - Linda: Perfect, thanks Sarah!
+
+[2025-12-18 08:37:20] Project Manager: Excellent! Rina, design updates?
+
+[2025-12-18 08:38:10] Designer - Rina: Yesterday:
+✅ Finalized dashboard mockups (sent to team Slack)
+✅ Created payment success/error screens
+✅ Updated design system with new color palette
+
+Today:
+🎯 Design notification component
+🎯 Create loading states for all pages
+🎯 Export assets for mobile app
+
+Blocker: Need feedback on dashboard mockups from product owner
+
+[2025-12-18 08:39:00] Project Manager: I'll schedule review session with PO today at 2pm. You can join.
+
+Quick reminders:
+📌 Sprint ends Friday (20 Dec)
+📌 Demo to stakeholders on Monday (23 Dec)
+📌 Code freeze Thursday 5pm
+📌 Team lunch Friday 12pm - don't forget! 🍕
+
+Any questions?
+
+[2025-12-18 08:39:50] Dev - Kevin: What's the priority: payment webhook or fixing review comments?
+
+[2025-12-18 08:40:25] Project Manager: Review comments first (needed for demo), then webhook. Webhook can be in next sprint if needed.
+
+[2025-12-18 08:40:45] Dev - Kevin: Got it, thanks!
+
+[2025-12-18 08:41:00] QA - Linda: Quick question - when can I get access to production logs for bug investigation?
+
+[2025-12-18 08:41:40] Dev - Sarah: I'll set up your access today Linda. You'll get read-only access to CloudWatch logs.
+
+[2025-12-18 08:42:00] QA - Linda: Awesome, thanks!
+
+[2025-12-18 08:42:20] Project Manager: Anything else team?
+
+[2025-12-18 08:42:35] Designer - Rina: All good from me!
+
+[2025-12-18 08:42:42] Dev - Sarah: 👍
+
+[2025-12-18 08:42:48] Dev - Kevin: All clear!
+
+[2025-12-18 08:42:55] QA - Linda: Good to go!
+
+[2025-12-18 08:43:10] Project Manager: Perfect! Keep up the great work everyone. Let's crush this sprint! 💪
+
+Remember: Slack me if any blockers come up. Have a productive day! ☕
+
+[2025-12-18 08:43:30] Dev - Sarah: Thanks PM! ☕
+
+[2025-12-18 08:43:35] Dev - Kevin: 🚀
+
+[2025-12-18 08:43:40] QA - Linda: Let's do this! 💯
+
+[2025-12-18 08:43:45] Designer - Rina: Happy coding! 🎨

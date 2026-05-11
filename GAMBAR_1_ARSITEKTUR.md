@@ -103,7 +103,7 @@ flowchart TD
 
 ## Official Caption (English -- for paper submission)
 
-> **Figure 1.** End-to-end architecture of the Agnostic Multi-Source RAG System. The SourceDetector automatically classifies the input source parameter into one of three types (Folder, PostgreSQL, or Hybrid) and delegates document loading to the corresponding adapter via SourceFactory. Raw documents are split into 2000-character chunks with 300-character overlap using RecursiveCharacterTextSplitter, then encoded by a multilingual MiniLM model (384 dimensions) into a FAISS in-memory vector store. At query time, QueryProcessor embeds the user question, retrieves the top-8 most similar chunks (similarity threshold 0.2), and passes a formatted context string to AnswerGenerator, which invokes Gemini 2.5-flash with zero-shot prompting and an automatic retry/model-fallback chain. The final RAGResult is simultaneously scored by eight quantitative metrics: Retrieval Relevance (RR), Answer Faithfulness (AF), Answer Completeness (AC), ROUGE-L, BLEU-1, Precision@K, MRR, and Context Coverage (CC).
+> **Figure 1.** End-to-end architecture of the Agnostic Multi-Source RAG System. The SourceDetector automatically classifies the input source parameter into one of three types (Folder, PostgreSQL, or Hybrid) and delegates document loading to the corresponding adapter via SourceFactory. Raw documents are split into 2000-character chunks with 300-character overlap using RecursiveCharacterTextSplitter, then encoded by a multilingual MiniLM model (384 dimensions) into a FAISS in-memory vector store. At query time, QueryProcessor embeds the user question, retrieves the top-8 most similar chunks (similarity threshold 0.2), and passes a formatted context string to AnswerGenerator, which invokes Gemini 2.5-flash with zero-shot prompting and an automatic retry/model-fallback chain (attempt 2 falls back to gemini-2.0-flash, attempt 4 to gemini-1.5-flash; exponential backoff with base_delay = 15 s, max 6 retries). The final RAGResult is simultaneously scored by eight quantitative metrics: Retrieval Relevance (RR), Answer Faithfulness (AF), Answer Completeness (AC), ROUGE-L, BLEU-1, Precision@K, MRR, and Context Coverage (CC). *Directed edges represent data flow; dashed edges indicate parallel scoring paths in which intermediate retrieval artefacts (chunks and relevance scores) are forwarded to the Evaluator independently of the generation step.*
 
 ---
 
@@ -202,3 +202,181 @@ flowchart TD
     style DET fill:#D5F5E3,stroke:#1E8449,color:#000
     style OUT fill:#D5F5E3,stroke:#1ABC9C,color:#000
 ```
+
+---
+
+## Minimalist Version (journal Figure 1 — reviewer-friendly)
+
+`mermaid
+flowchart LR
+
+    Q(["User Question"])
+    SRC(["Source String
+folder path / postgresql:// / folder|pg://"])
+
+    SD{"SourceDetector
+auto-classifies
+source type"}
+
+    FA["FolderAdapter
+PDF  TXT  MD  LOG
+pypdf / read_text"]
+    PA["PostgreSQLAdapter
+8 BOND_SYS tables
+SELECT * LIMIT 1000"]
+    MA["MultiSourceAdapter
+Folder AND PostgreSQL
+composite load"]
+
+    SP["Text Splitter
+RecursiveCharacter
+chunk 2000 / overlap 300"]
+    EM["Embedding Model
+MiniLM-L12-v2
+384-dim per chunk"]
+    FI[("FAISS Index
+in-memory
+session cache")]
+
+    QP["Query Processor
+embed question
+top-8 chunks, thr 0.2"]
+    GEN["Answer Generator
+Gemini 2.5-flash
+zero-shot + retry chain"]
+
+    EV["Evaluator - 8 Metrics
+RR  AF  AC  ROUGE-L  BLEU-1
+P@K  MRR  CC"]
+
+    OUT(["RAGResult
+Answer + 8 Scores + Timing"])
+
+    Q   --> SD
+    SRC --> SD
+    SD  -->|"FOLDER"| FA
+    SD  -->|"POSTGRES"| PA
+    SD  -->|"HYBRID"| MA
+    FA  --> SP
+    PA  --> SP
+    MA  --> SP
+    SP  --> EM
+    EM  --> FI
+    FI  --> QP
+    Q   -->|"embed"| QP
+    QP  --> GEN
+    GEN --> EV
+    EV  --> OUT
+
+    style Q   fill:#DBEAFE,stroke:#3B82F6,color:#1E3A5F
+    style SRC fill:#DBEAFE,stroke:#3B82F6,color:#1E3A5F
+    style SD  fill:#D1FAE5,stroke:#059669,color:#064E3B
+    style FA  fill:#FEF3C7,stroke:#D97706,color:#78350F
+    style PA  fill:#FEF3C7,stroke:#D97706,color:#78350F
+    style MA  fill:#FDE8D8,stroke:#EA580C,color:#7C2D12
+    style SP  fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    style EM  fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    style FI  fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    style QP  fill:#FCE7F3,stroke:#DB2777,color:#831843
+    style GEN fill:#FEE2E2,stroke:#DC2626,color:#7F1D1D
+    style EV  fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E
+    style OUT fill:#D1FAE5,stroke:#059669,color:#064E3B
+`
+
+**Figure 1.** End-to-end architecture of the Agnostic Multi-Source RAG System.
+SourceDetector classifies the source string (FOLDER / POSTGRES / HYBRID) and routes
+to the matching adapter. Documents are chunked (2,000 chars, 300 overlap), encoded into
+384-dim vectors by MiniLM-L12-v2, and indexed in-memory via FAISS with session caching.
+At query time QueryProcessor retrieves the top-8 chunks (threshold 0.2) as context for
+AnswerGenerator (Gemini 2.5-flash, zero-shot, automatic retry+fallback chain).
+The Evaluator scores the final answer on 8 metrics: RR, AF, AC, ROUGE-L, BLEU-1, P@K, MRR, CC.
+
+
+---
+
+## Minimalist Version (journal Figure 1 — reviewer-friendly)
+
+```mermaid
+flowchart LR
+
+    Q(["User Question"])
+    SRC(["Source String
+folder path  /  postgresql://  /  folder|pg://"])
+
+    SD{"SourceDetector
+auto-classifies source type
+FOLDER / POSTGRES / HYBRID"}
+
+    FA["FolderAdapter
+PDF · TXT · MD · LOG
+pypdf / read_text"]
+    PA["PostgreSQLAdapter
+8 BOND_SYS tables
+SELECT * LIMIT 1000"]
+    MA["MultiSourceAdapter
+Folder + PostgreSQL
+composite load"]
+
+    SP["Text Splitter
+RecursiveCharacterTextSplitter
+chunk 2000 / overlap 300"]
+    EM["Embedding Model
+MiniLM-L12-v2
+384-dim per chunk"]
+    FI[("FAISS Index
+in-memory
+session cache")]
+
+    QP["Query Processor
+embed question
+top-8 chunks · threshold 0.2"]
+    GEN["Answer Generator
+Gemini 2.5-flash
+zero-shot · retry + fallback"]
+
+    EV["Evaluator
+RR · AF · AC · ROUGE-L · BLEU-1
+P@K · MRR · CC"]
+
+    OUT(["RAGResult
+Answer + 8 Scores + Timing"])
+
+    Q   --> SD
+    SRC --> SD
+    SD  -->|"FOLDER"|   FA
+    SD  -->|"POSTGRES"| PA
+    SD  -->|"HYBRID"|   MA
+    FA  --> SP
+    PA  --> SP
+    MA  --> SP
+    SP  --> EM
+    EM  --> FI
+    FI  --> QP
+    Q   -->|"embed"| QP
+    QP  --> GEN
+    GEN --> EV
+    EV  --> OUT
+
+    style Q   fill:#DBEAFE,stroke:#3B82F6,color:#1E3A5F
+    style SRC fill:#DBEAFE,stroke:#3B82F6,color:#1E3A5F
+    style SD  fill:#D1FAE5,stroke:#059669,color:#064E3B
+    style FA  fill:#FEF3C7,stroke:#D97706,color:#78350F
+    style PA  fill:#FEF3C7,stroke:#D97706,color:#78350F
+    style MA  fill:#FDE8D8,stroke:#EA580C,color:#7C2D12
+    style SP  fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    style EM  fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    style FI  fill:#EDE9FE,stroke:#7C3AED,color:#3B0764
+    style QP  fill:#FCE7F3,stroke:#DB2777,color:#831843
+    style GEN fill:#FEE2E2,stroke:#DC2626,color:#7F1D1D
+    style EV  fill:#E0F2FE,stroke:#0284C7,color:#0C4A6E
+    style OUT fill:#D1FAE5,stroke:#059669,color:#064E3B
+```
+
+**Figure 1.** End-to-end architecture of the Agnostic Multi-Source RAG System.
+`SourceDetector` classifies the input source string (FOLDER / POSTGRES / HYBRID) and
+routes to the matching adapter. Documents are chunked (2,000 chars, 300 overlap),
+encoded into 384-dim vectors by MiniLM-L12-v2, and indexed in-memory via FAISS with
+session caching. At query time `QueryProcessor` retrieves the top-8 chunks
+(similarity threshold 0.2) as context for `AnswerGenerator` (Gemini 2.5-flash,
+zero-shot, automatic retry + model-fallback chain). The `Evaluator` scores the
+answer simultaneously on 8 metrics: RR, AF, AC, ROUGE-L, BLEU-1, P@K, MRR, CC.

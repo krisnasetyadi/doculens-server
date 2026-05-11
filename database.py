@@ -217,6 +217,7 @@ class DatabaseManager:
     def check_connection_health(self) -> bool:
         """Check if database connection is alive, reconnect if needed"""
         import time
+        current_time = time.time()
         
         # Return False immediately if no connection
         if not self.connection:
@@ -413,7 +414,7 @@ class DatabaseManager:
             logger.error(f"Search in table {table_name} failed: {str(e)}")
             return []
 
-    def search_with_fts(self, table_name: str, search_terms: List[str], limit: int = 10, phrases: List[str] = None) -> List[Dict[str, Any]]:
+    def search_with_fts(self, table_name: str, search_terms: List[str], limit: int = 10, phrases: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """Full-Text Search with ts_rank scoring - prioritizes exact matches and phrases"""
         self.ensure_connection()
         if not self.connection:
@@ -507,7 +508,7 @@ class DatabaseManager:
             logger.warning(f"FTS search failed for {table_name}: {e}")
             return []
 
-    def search_with_ilike(self, table_name: str, search_terms: List[str], limit: int = 10, phrases: List[str] = None) -> List[Dict[str, Any]]:
+    def search_with_ilike(self, table_name: str, search_terms: List[str], limit: int = 10, phrases: Optional[List[str]] = None) -> List[Dict[str, Any]]:
         """Fallback ILIKE search with basic scoring - case insensitive, prioritizes phrase matches"""
         self.ensure_connection()
         if not self.connection:

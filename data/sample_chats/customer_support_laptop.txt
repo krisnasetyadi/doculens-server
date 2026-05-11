@@ -1,0 +1,51 @@
+[2025-12-15 09:23:45] Customer Support: Selamat pagi! Ada yang bisa kami bantu?
+
+[2025-12-15 09:24:12] Ahmad Rizki: Pagi, saya mau tanya tentang produk laptop yang ada di website
+
+[2025-12-15 09:24:30] Customer Support: Baik, kami punya beberapa pilihan laptop. Anda mencari untuk keperluan apa? Gaming, office work, atau editing?
+
+[2025-12-15 09:25:01] Ahmad Rizki: Untuk kerja kantoran aja, tapi kadang buat zoom meeting juga
+
+[2025-12-15 09:25:45] Customer Support: Saya rekomendasikan ThinkPad E14 Gen 5 atau HP ProBook 440 G10. Keduanya bagus untuk produktivitas dan meeting online. Budget berapa ya?
+
+[2025-12-15 09:26:20] Ahmad Rizki: Budget sekitar 10-12 juta
+
+[2025-12-15 09:27:05] Customer Support: Perfect! Dengan budget itu, ThinkPad E14 Gen 5 (Rp 11.500.000) sangat cocok:
+- Intel Core i5-1335U
+- RAM 16GB
+- SSD 512GB
+- Webcam HD dengan privacy shutter
+- Battery life sampai 10 jam
+
+[2025-12-15 09:27:45] Ahmad Rizki: Wah menarik. Ada garansi berapa lama?
+
+[2025-12-15 09:28:10] Customer Support: Garansi resmi 3 tahun dari Lenovo Indonesia, mencakup hardware dan software support. Plus gratis upgrade Windows 11 Pro.
+
+[2025-12-15 09:28:50] Ahmad Rizki: Oke, saya mau order yang itu. Cara pembayarannya gimana?
+
+[2025-12-15 09:29:30] Customer Support: Bisa transfer bank atau cicilan 0% sampai 12 bulan. Mau yang mana?
+
+[2025-12-15 09:30:05] Ahmad Rizki: Transfer aja langsung. Kirim ke Surabaya bisa?
+
+[2025-12-15 09:30:40] Customer Support: Bisa! Ongkir ke Surabaya Rp 50.000 via JNE reguler (3-4 hari). Saya buatkan invoice sekarang ya. Mohon info nama lengkap dan alamat lengkap untuk pengiriman.
+
+[2025-12-15 09:31:25] Ahmad Rizki: Ahmad Rizki Wijaya
+Jl. Raya Darmo No. 123, Wonokromo, Surabaya 60241
+HP: 08123456789
+
+[2025-12-15 09:32:10] Customer Support: Terima kasih Pak Ahmad! Invoice sudah saya kirim ke email. Total pembayaran:
+- Laptop ThinkPad E14: Rp 11.500.000
+- Ongkir: Rp 50.000
+- Total: Rp 11.550.000
+
+Transfer ke BCA 1234567890 a.n. PT TechStore Indonesia
+
+[2025-12-15 09:33:00] Ahmad Rizki: Oke siap, saya transfer sekarang
+
+[2025-12-15 09:45:30] Ahmad Rizki: Sudah transfer ya, saya kirim buktinya
+
+[2025-12-15 09:46:15] Customer Support: Terima kasih Pak Ahmad! Pembayaran sudah kami terima. Laptop akan kami proses hari ini dan dikirim besok pagi. Nomor resi akan kami info via WhatsApp.
+
+[2025-12-15 09:46:45] Ahmad Rizki: Mantap! Terima kasih banyak
+
+[2025-12-15 09:47:00] Customer Support: Sama-sama Pak Ahmad! Jika ada pertanyaan, silakan hubungi kami kapan saja. Selamat berbelanja! 😊

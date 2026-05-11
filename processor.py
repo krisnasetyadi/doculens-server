@@ -828,8 +828,21 @@ Answer:"""
             raise ImportError("Please install: pip install langchain-google-genai")
         
         logger.info(f"🔑 Using Gemini API with model: {model_name}")
+        
+        # Fix model name - Gemini uses different naming convention
+        # Map common names to actual Gemini model names
+        model_mapping = {
+            'gemini-1.5-flash': 'gemini-1.5-flash-latest',
+            'gemini-1.5-pro': 'gemini-1.5-pro-latest',
+            'gemini-pro': 'gemini-1.5-pro-latest'
+        }
+        
+        actual_model = model_mapping.get(model_name, model_name)
+        if actual_model != model_name:
+            logger.info(f"🔄 Model name mapped: {model_name} -> {actual_model}")
+        
         return ChatGoogleGenerativeAI(
-            model=model_name,
+            model=actual_model,
             google_api_key=config.gemini_api_key,
             temperature=config.temperature,
         )
@@ -1487,48 +1500,96 @@ Answer:"""
         
         return merged[:20]  # Return top 20 results
 
-    def detect_conflicts(self, results: Dict[str, Any]) -> List[Dict]:
-        """Detect conflicts between different sources"""
+    def detect_conflicts(self, merged_results: List[Dict[str, Any]]) -> List[Dict]:
+        """Enhanced conflict detection - identifies contradictions between sources"""
         conflicts = []
         
-        # Extract key information untuk conflict detection
-        extracted_info = {}
+        # Extract entities and values from all sources
+        entity_values = {}  # {entity_key: [{value, source, type, confidence}]}
         
-        # Simple conflict detection based on numerical values
-        numerical_values = []
-        
-        if 'database_results' in results:
-            for table_name, db_result in results['database_results'].items():
-                if hasattr(db_result, 'data'):
-                    for record in db_result.data:
-                        for key, value in record.items():
-                            if isinstance(value, (int, float)) and key != 'id':
-                                numerical_values.append({
-                                    'value': value,
-                                    'source': f'db_{table_name}',
-                                    'field': key
-                                })
-        
-        # Check for significant differences in similar fields
-        if len(numerical_values) > 1:
-            # Group by field
-            field_groups = {}
-            for item in numerical_values:
-                field = item['field']
-                if field not in field_groups:
-                    field_groups[field] = []
-                field_groups[field].append(item)
+        # 1. Extract numerical values (prices, quantities, counts)
+        for result in merged_results:
+            content = result.get('content', '')
+            source = result.get('source', 'Unknown')
+            source_type = result.get('type', 'unknown')
+            confidence = result.get('confidence', 0)
             
-            # Check for conflicts in each field group
-            for field, items in field_groups.items():
-                if len(items) > 1:
-                    values = [item['value'] for item in items]
-                    if max(values) / min(values) > 2:  # If difference > 100%
+            # Extract numbers with context (price, quantity, count)
+            import re
+            
+            # Price patterns: "Rp 500000", "$100", "500 ribu"
+            price_matches = re.findall(r'(?:Rp\s*|\$)?([0-9.,]+)\s*(?:ribu|juta|rb|jt|k|million)?', content, re.IGNORECASE)
+            for match in price_matches:
+                key = f"price_{source_type}"
+                if key not in entity_values:
+                    entity_values[key] = []
+                entity_values[key].append({
+                    'value': match,
+                    'source': source,
+                    'type': source_type,
+                    'confidence': confidence
+                })
+            
+            # Name conflicts: different person names for same role
+            # Pattern: "IT Manager: Ahmad" vs "IT Manager: Budi"
+            role_name_matches = re.findall(r'([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*):\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)', content)
+            for role, name in role_name_matches:
+                key = f"role_{role.lower().replace(' ', '_')}"
+                if key not in entity_values:
+                    entity_values[key] = []
+                entity_values[key].append({
+                    'value': name,
+                    'source': source,
+                    'type': source_type,
+                    'confidence': confidence
+                })
+        
+        # 2. Detect conflicts: same entity with different values
+        for entity_key, values in entity_values.items():
+            if len(values) > 1:
+                unique_values = {}
+                for item in values:
+                    val = item['value']
+                    if val not in unique_values:
+                        unique_values[val] = []
+                    unique_values[val].append(item)
+                
+                # If multiple distinct values exist for same entity
+                if len(unique_values) > 1:
+                    conflicts.append({
+                        'entity': entity_key,
+                        'type': 'value_mismatch',
+                        'values': [
+                            {
+                                'value': k,
+                                'sources': [i['source'] for i in v],
+                                'source_types': [i['type'] for i in v],
+                                'avg_confidence': sum(i['confidence'] for i in v) / len(v)
+                            }
+                            for k, v in unique_values.items()
+                        ],
+                        'message': f"Conflicting information for {entity_key}: {list(unique_values.keys())}",
+                        'resolution': f"Prioritize {max(unique_values.items(), key=lambda x: sum(i['confidence'] for i in x[1]))[0]} (highest confidence)"
+                    })
+        
+        # 3. Semantic conflicts: contradictory statements
+        for i, result1 in enumerate(merged_results[:3]):
+            for result2 in merged_results[i+1:4]:
+                if result1['type'] != result2['type']:  # Only check across different source types
+                    # Check for negation conflicts
+                    content1_lower = result1['content'].lower()
+                    content2_lower = result2['content'].lower()
+                    
+                    # Simple contradiction detection
+                    if ('tidak' in content1_lower or 'no' in content1_lower) and \
+                       ('tidak' not in content2_lower and 'no' not in content2_lower):
+                        # Potential contradiction
                         conflicts.append({
-                            'field': field,
-                            'values': items,
-                            'type': 'numerical_conflict',
-                            'message': f'Significant difference in {field} values'
+                            'type': 'semantic_contradiction',
+                            'sources': [result1['source'], result2['source']],
+                            'source_types': [result1['type'], result2['type']],
+                            'message': f"Potential contradiction between {result1['type']} and {result2['type']}",
+                            'resolution': f"Prioritize {result1['type']} (higher confidence: {result1['confidence']:.2%})"
                         })
         
         return conflicts
@@ -1565,7 +1626,9 @@ Answer:"""
                 for record in db_result.data:
                     # Hitung skor untuk record database berdasarkan kemiripan dengan search_terms
                     record_text = ' '.join([str(v) for v in record.values()])
-                    score = self.calculate_text_match_score(record_text, search_terms)
+                    # Simple text match scoring: count matching terms
+                    record_lower = record_text.lower()
+                    score = sum(1.0 for term in search_terms if term.lower() in record_lower) / max(len(search_terms), 1)
                     combined.append({
                         'type': 'database',
                         'content': record_text,
@@ -1850,17 +1913,39 @@ Answer:"""
         llm_provider: Optional[str] = None,
         llm_model: Optional[str] = None
     ) -> Tuple[str, str, Dict[str, Any]]:
-        """Enhanced hybrid answer generation dengan conflict resolution"""
+        """Enhanced hybrid answer generation dengan conflict resolution and comprehensive metadata"""
         
         llm, model_id = self.get_llm(llm_provider, llm_model)
         
         intent_analysis = hybrid_results.get('search_analysis', {}).get('intent', {})
         merged_results = hybrid_results.get('merged_results', [])
-        conflicts = hybrid_results.get('has_conflicts', [])
+        
+        # Enhanced conflict detection
+        conflicts = self.detect_conflicts(merged_results)
+        
+        # Track processing steps for observability
+        processing_steps = ["Intent analysis completed", "Sources merged and ranked"]
         
         # Check if we have chat or DB results with good info - prioritize them over PDF
         question_lower = question.lower()
         is_person_query = any(kw in question_lower for kw in ['siapa', 'who', 'handle', 'yang', 'contact'])
+        
+        # Track exact matches and boost application
+        exact_matches = []
+        boost_applied = {"exact_match": 0.0, "person_query": 0.0, "brand_whitelist": 0.0}
+        
+        # Detect exact matches in results
+        search_terms = hybrid_results.get('search_terms', [])
+        for result in merged_results[:5]:
+            content_lower = result.get('content', '').lower()
+            for term in search_terms:
+                if term.lower() in content_lower:
+                    exact_matches.append({"term": term, "source": result.get('source', 'Unknown'), "type": result['type']})
+                    # Check if boost was applied (from database exact match algorithm)
+                    if result['type'] == 'database' and result.get('confidence', 0) > 0.9:
+                        boost_applied["exact_match"] += 50.0  # +50 boost from database.py
+        
+        processing_steps.append(f"Detected {len(exact_matches)} exact matches")
         
         # For person queries, prioritize chat and DB results
         if is_person_query and merged_results:
@@ -1869,6 +1954,8 @@ Answer:"""
             db_results = [r for r in merged_results if r['type'] == 'database']
             pdf_results = [r for r in merged_results if r['type'] == 'pdf']
             merged_results = chat_results + db_results + pdf_results
+            boost_applied["person_query"] = 1.8  # Person query boost multiplier
+            processing_steps.append("Person query detected - prioritized chat/DB results")
         
         # Check if confidence is too low and no chat/db results - use direct extraction
         if merged_results and merged_results[0]['confidence'] < 0.25:
@@ -1923,21 +2010,37 @@ Answer:"""
             
             # Validasi dan post-processing
             answer = self._validate_and_clean_answer(answer, question, merged_results)
+            processing_steps.append("Answer validated and cleaned")
             
-            # Generate metadata untuk response
+            # Generate comprehensive metadata untuk response
             answer_metadata = {
-                "intent": intent_analysis.get('primary_intent', 'unknown'),
+                "confidence_score": merged_results[0]['confidence'] if merged_results else 0,
+                "primary_intent": intent_analysis.get('primary_intent', 'data_retrieval'),
                 "sources_used": source_breakdown,
-                "top_confidence": merged_results[0]['confidence'] if merged_results else 0,
+                "search_strategy": "hybrid_multi_source",
                 "conflicts_detected": len(conflicts) > 0,
-                "conflict_details": conflicts if conflicts else None
+                "exact_matches": exact_matches[:10],  # Top 10 exact matches
+                "boost_applied": boost_applied,
+                "ranking_algorithm": "weighted_scoring_with_intent",
+                "processing_steps": processing_steps,
+                "total_results_processed": len(merged_results),
+                "conflict_details": conflicts if conflicts else [],
+                "model_used": model_id,
+                "is_person_query": is_person_query
             }
             
             return answer, model_id, answer_metadata
             
         except Exception as e:
             logger.error(f"LLM generation failed: {e}")
-            return self._generate_fallback_answer(hybrid_results, question), model_id, {"error": str(e)}
+            processing_steps.append(f"LLM generation failed: {str(e)[:100]}")
+            return self._generate_fallback_answer(hybrid_results, question), model_id, {
+                "error": str(e),
+                "processing_steps": processing_steps,
+                "sources_used": {"pdf": 0, "database": 0, "chat": 0},
+                "confidence_score": 0,
+                "conflicts_detected": False
+            }
 
     def _build_aggregation_prompt(self, context: str, question: str, conflicts: List) -> str:
         """Build prompt untuk aggregation queries"""
@@ -2259,7 +2362,9 @@ JAWABAN:"""
             
             # Try to extract relevant sentence containing keyword
             content = best_doc.page_content
-            relevant_snippet = self._extract_relevant_snippet(content, keywords)
+            # Convert keywords list to question string for _extract_relevant_snippet
+            keyword_query = " ".join(keywords)
+            relevant_snippet = self._extract_relevant_snippet(content, keyword_query)
             
             if relevant_snippet:
                 return f"Berdasarkan {source} (halaman {page}):\n\n{relevant_snippet}"
@@ -2277,31 +2382,6 @@ JAWABAN:"""
         
         return "Maaf, sistem tidak dapat menghasilkan jawaban yang valid. Silakan coba pertanyaan yang lebih spesifik."
     
-    def _extract_relevant_snippet(self, content: str, keywords: list) -> str:
-        """Extract the most relevant sentence/paragraph containing keywords"""
-        if not keywords:
-            return ""
-        
-        # Split into sentences
-        import re
-        sentences = re.split(r'[.!?]\s+', content)
-        
-        best_sentence = ""
-        best_matches = 0
-        
-        for sentence in sentences:
-            sentence_lower = sentence.lower()
-            matches = sum(1 for kw in keywords if kw in sentence_lower)
-            if matches > best_matches:
-                best_matches = matches
-                best_sentence = sentence.strip()
-        
-        if best_sentence and len(best_sentence) > 20:
-            # Include a bit more context (up to 300 chars)
-            return best_sentence[:300] + ("..." if len(best_sentence) > 300 else "")
-        
-        return ""
-
     def get_source_info(self, hybrid_results: Dict[str, Any]) -> List[SourceInfo]:
         """Extract source information for response"""
         sources = []

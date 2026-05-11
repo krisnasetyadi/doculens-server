@@ -60,28 +60,28 @@ class Config(BaseSettings):
     gemini_model: str = Field(default="gemini-1.5-flash")
     
     # Common LLM settings
-    embedding_model: str = Field(...)
-    max_new_tokens: int = Field(...)
-    temperature: float = Field(...)
+    embedding_model: str = Field(default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
+    max_new_tokens: int = Field(default=256)
+    temperature: float = Field(default=0.3)
 
     # File Paths - PDF
-    upload_folder: str = Field(...)
-    index_folder: str = Field(...)
+    upload_folder: str = Field(default="data/uploads")
+    index_folder: str = Field(default="data/indices")
     
     # File Paths - Chat Logs
-    chat_upload_folder: str = Field(...)
-    chat_index_folder: str = Field(...)
+    chat_upload_folder: str = Field(default="data/chat_uploads")
+    chat_index_folder: str = Field(default="data/chat_indices")
 
     # Retrieval Parameters
-    chunk_size: int = Field(...)
-    chunk_overlap: int = Field(...)
-    k_results: int = Field(...)
-    k_per_collection: int = Field(...)
-    total_k_results: int = Field(...)
+    chunk_size: int = Field(default=500)
+    chunk_overlap: int = Field(default=50)
+    k_results: int = Field(default=5)
+    k_per_collection: int = Field(default=3)
+    total_k_results: int = Field(default=10)
     
     # Chat-specific retrieval
-    chat_chunk_size: int = Field(...)
-    chat_chunk_overlap: int = Field(...)
+    chat_chunk_size: int = Field(default=300)
+    chat_chunk_overlap: int = Field(default=50)
 
     # Database Configuration
     # Option 1: Use DATABASE_URL (recommended for cloud: Neon, Supabase)
@@ -124,7 +124,7 @@ class Config(BaseSettings):
         return v
     
     # CORS Configuration
-    cors_origins: str = Field(...)
+    cors_origins: str = Field(default="*")
     
     @property
     def cors_origin_list(self) -> List[str]:
@@ -134,9 +134,9 @@ class Config(BaseSettings):
         return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
     
     # Hybrid Search
-    enable_hybrid_search: bool = Field(...)
-    db_result_limit: int = Field(...)
-    min_similarity_score: float = Field(...)
+    enable_hybrid_search: bool = Field(default=True)
+    db_result_limit: int = Field(default=10)
+    min_similarity_score: float = Field(default=0.3)
     
     # Supported chat platforms
     supported_chat_platforms: List[str] = Field(default=["whatsapp"])

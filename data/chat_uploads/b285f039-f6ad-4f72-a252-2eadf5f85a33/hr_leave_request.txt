@@ -1,0 +1,63 @@
+[2025-12-17 10:05:12] HR Department: Selamat pagi, ini dari HR Department. Ada yang bisa kami bantu?
+
+[2025-12-17 10:05:45] Siti Nurhaliza: Pagi bu, saya mau tanya tentang proses cuti tahunan
+
+[2025-12-17 10:06:20] HR Department: Baik Bu Siti, silakan. Mau mengajukan cuti atau ada pertanyaan tentang saldo cuti?
+
+[2025-12-17 10:06:55] Siti Nurhaliza: Saya mau cek saldo cuti saya dulu, terus mau ajukan cuti untuk bulan Januari
+
+[2025-12-17 10:07:40] HR Department: Baik, saya cek dulu ya. Nama lengkap dan NIK nya bu?
+
+[2025-12-17 10:08:10] Siti Nurhaliza: Siti Nurhaliza, NIK 2024-HR-0156
+
+[2025-12-17 10:09:30] HR Department: Terima kasih Bu Siti. Berikut info cuti Anda:
+📊 Saldo Cuti 2025:
+- Jatah tahunan: 12 hari
+- Sudah diambil: 3 hari (Maret 2025)
+- Sisa: 9 hari
+- Cuti hangus 31 Desember 2025
+
+[2025-12-17 10:10:20] Siti Nurhaliza: Oke berarti masih banyak ya. Saya mau ambil cuti 6-10 Januari 2025, bisa?
+
+[2025-12-17 10:11:05] HR Department: Saya cek dulu jadwal tim Anda ya bu...
+
+[2025-12-17 10:12:45] HR Department: Bu Siti, tanggal 6-10 Januari bisa approved! Tidak ada konflik dengan cuti rekan tim lainnya. Prosedur pengajuan:
+
+1. Login ke HRIS Portal (hris.company.com)
+2. Menu: Leave Management > Apply Leave
+3. Pilih tanggal: 6-10 Jan 2025 (5 hari kerja)
+4. Leave type: Annual Leave
+5. Reason: isi alasan singkat
+6. Upload surat jika perlu (opsional)
+7. Submit untuk approval atasan
+
+[2025-12-17 10:13:50] Siti Nurhaliza: Oke bu, saya submit sekarang. Kira-kira berapa lama proses approval?
+
+[2025-12-17 10:14:30] HR Department: Biasanya 1-2 hari kerja. Atasan langsung akan approve dulu, baru ke HR. Anda akan dapat notif email kalau sudah approved.
+
+Tips:
+- Submit minimal 7 hari sebelum tanggal cuti (Anda masih 20 hari, aman!)
+- Pastikan handover tugas ke rekan
+- Set auto-reply email saat cuti
+
+[2025-12-17 10:15:20] Siti Nurhaliza: Sudah saya submit tadi bu. Oh iya, kalau misalnya ada keperluan mendadak dan harus cancel cuti, bisa gak?
+
+[2025-12-17 10:16:10] HR Department: Bisa Bu Siti, selama belum melewati tanggal H-3. Caranya:
+1. Login HRIS
+2. Menu: Leave Management > My Leave History
+3. Find leave request yang mau dicancel
+4. Klik "Cancel Request"
+5. Isi alasan pembatalan
+
+Saldo cuti akan otomatis kembali.
+
+[2025-12-17 10:17:00] Siti Nurhaliza: Oke paham bu. Terima kasih banyak infonya! Sangat jelas
+
+[2025-12-17 10:17:25] HR Department: Sama-sama Bu Siti! Selamat berlibur nanti di Januari. Kalau ada pertanyaan HR lainnya, jangan sungkan hubungi kami ya 😊
+
+Contact HR:
+📞 Ext: 1100
+📧 hr@company.com
+🕐 Senin-Jumat: 08.00-17.00
+
+[2025-12-17 10:17:50] Siti Nurhaliza: Siap bu, terima kasih!

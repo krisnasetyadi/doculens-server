@@ -1,0 +1,69 @@
+--- GRUP: Tim Equity Research — Sekuritas Andalan ---
+--- Anggota: Reza Firmansyah (Lead Equity Analyst), Dian Kusuma (Equity Analyst), Andika Prasetyo (Equity Analyst) ---
+--- Konteks: Diskusi internal sebelum presentasi rekomendasi AADI kepada klien institusional, 08 April 2026 ---
+
+[08/04/2026, 08:12:33] Reza Firmansyah: Tim, saya baru selesai baca FS Adaro Andalan (AADI) Q1 2025. Ada beberapa hal yang perlu kita bahas sebelum meeting klien jam 2 siang.
+
+[08/04/2026, 08:15:47] Dian Kusuma: Siap Pak Reza. Saya juga sudah buka. Revenue-nya turun ya dibanding Q1 2024?
+
+[08/04/2026, 08:17:22] Reza Firmansyah: Betul. Revenue Q1 2025 USD 1,164,437 ribu vs Q1 2024 USD 1,314,579 ribu. Turun sekitar 11.4%. Tapi margin-nya masih oke.
+
+[08/04/2026, 08:19:05] Dian Kusuma: Gross margin berapa Pak? Saya masih hitung.
+
+[08/04/2026, 08:20:31] Reza Firmansyah: Gross profit Q1 2025 USD 347,408 ribu, jadi gross margin sekitar 29.8%. Q1 2024 gross margin-nya 32.9%. Ada kompresi margin tapi masih dalam range yang acceptable untuk batubara thermal.
+
+[08/04/2026, 08:22:14] Andika Prasetyo: Pagi semua. Saya lihat operating income juga turun dari USD 350 juta ke USD 288 juta. Ada penjelasan dari management soal ini?
+
+[08/04/2026, 08:24:50] Reza Firmansyah: Belum ada press release resmi. Tapi dari angka cash flow, pembayaran royalti turun dari USD 248 juta ke USD 231 juta, jadi ada efisiensi di sana. Kemungkinan besar karena harga batubara internasional yang lebih rendah.
+
+[08/04/2026, 08:27:03] Dian Kusuma: Pak Reza, saya perhatikan utang bank jangka panjang turun drastis dari USD 645,705 ke USD 389,915. Ini ada pelunasan besar ya?
+
+[08/04/2026, 08:28:45] Reza Firmansyah: Iya, di cash flow aktivitas pendanaan kelihatan. Pembayaran utang bank USD 316,160 ribu. Plus pembayaran pinjaman dari pihak berelasi USD 402 juta. Total pelunasan utang lebih dari USD 700 juta di Q1. Ini leverage reduction yang signifikan.
+
+[08/04/2026, 08:30:12] Andika Prasetyo: Berarti mereka pakai kas operasi buat deleveraging? Net cash from operations USD 326 juta tapi net financing activities minus USD 392 juta. Jadi kas turun sekitar USD 153 juta.
+
+[08/04/2026, 08:32:40] Reza Firmansyah: Tepat sekali Andika. Makanya cash and cash equivalents turun dari USD 1,518,688 ke USD 1,358,333. Tapi masih sangat liquid. Current ratio mereka masih di atas 2x kalau saya hitung kasar.
+
+[08/04/2026, 08:35:18] Dian Kusuma: Equity naik dari USD 3,363,482 ke USD 3,488,175. Retained earnings belum dicadangkan naik dari USD 394,841 ke USD 590,837. Berarti laba Q1 ditahan semua ya?
+
+[08/04/2026, 08:37:22] Reza Firmansyah: Hampir. Laba yang diatribusikan ke induk USD 195,996 ribu. Tapi ada dividen yang dibayar ke non-controlling interests USD 61,658 ribu. Jadi net ekuitas induk naik USD 162 juta.
+
+[08/04/2026, 08:39:55] Andika Prasetyo: Bagaimana dengan goodwill? Masih USD 737,278 ribu sama seperti Desember 2024? Tidak ada impairment test?
+
+[08/04/2026, 08:41:10] Reza Firmansyah: Sesuai yang tercatat, tidak ada perubahan goodwill. Biasanya impairment test dilakukan tahunan kecuali ada indikator. Untuk Q1 interim, umumnya tidak ada adjustment kecuali ada trigger signifikan.
+
+[08/04/2026, 08:43:30] Dian Kusuma: Pak, total aset turun dari USD 5,992,658 ke USD 5,827,769. Penurunan sekitar USD 164 juta. Ini mainly karena kas turun dan investasi turun ya?
+
+[08/04/2026, 08:45:02] Reza Firmansyah: Betul. Aset lancar turun dari USD 2,214,052 ke USD 1,997,263. Penyumbang terbesar: kas turun USD 160 juta, prepaid tax bagian lancar turun USD 61 juta (kemungkinan sudah direstitusi, terbukti dari penerimaan VAT refund USD 98 juta di cash flow operasi).
+
+[08/04/2026, 08:47:15] Andika Prasetyo: Tapi aset tidak lancar naik sedikit, dari USD 3,778,606 ke USD 3,830,506. Ini karena penambahan fixed assets ya? Belanja modal?
+
+[08/04/2026, 08:49:33] Reza Firmansyah: Iya, di cash flow investing activities ada pembayaran penambahan aset tetap USD 71,318 ribu. Fixed assets naik dari USD 974,740 ke USD 1,063,911. Artinya ada capex bersih sekitar USD 89 juta Q1. Ini cukup agresif.
+
+[08/04/2026, 08:51:44] Dian Kusuma: Provisi rehabilitasi tambang naik dari USD 206,773 ke USD 212,225. Ini konsisten dengan standar IFRS 37 kan Pak? Unwinding of discount?
+
+[08/04/2026, 08:53:20] Reza Firmansyah: Betul Dian, itu normal. Provisi mine closure itu didiskon dan setiap periode ada unwinding yang masuk ke beban keuangan. Tidak perlu dikhawatirkan selama operasinya masih jalan.
+
+[08/04/2026, 08:55:40] Andika Prasetyo: EPS-nya USD 0.02517 per saham Q1 2025 vs USD 0.03950 Q1 2024. Turun sekitar 36%. Ini yang paling akan disorot analis market.
+
+[08/04/2026, 08:57:12] Reza Firmansyah: Betul. Tapi konteksnya harga batubara global memang terkoreksi. Kalau kita annualized, EPS tahunannya sekitar USD 0.1007. Dengan harga saham sekarang, P/E masih di kisaran yang wajar untuk sektor ini.
+
+[08/04/2026, 08:59:30] Dian Kusuma: Pak Reza, ada catatan soal pinjaman dari pihak berelasi yang besar ya? USD 713,949 ribu di non-current. Ini risikonya gimana dari sisi tata kelola?
+
+[08/04/2026, 09:01:55] Reza Firmansyah: Ini perlu dilihat di notes detail. Tapi untuk grup Adaro, transaksi afiliasi biasanya sudah melalui arm's length transaction dan diungkapkan di laporan keuangan. Selama disclosed dengan benar dan sudah diaudit, risikonya terkendali.
+
+[08/04/2026, 09:04:20] Andika Prasetyo: Satu lagi Pak, laba bersih dari associates dan joint ventures minus USD 4,425 ribu di Q1 2025, padahal Q1 2024 positif USD 14,958 ribu. Ada entitas asosiasi yang rugi?
+
+[08/04/2026, 09:06:08] Reza Firmansyah: Ini perlu dibaca di Catatan 13. Kemungkinan ada entitas asosiasi di sektor energi baru yang masih fase investasi atau ada foreign exchange impact di beberapa venture.
+
+[08/04/2026, 09:08:45] Dian Kusuma: Oke Pak, saya ringkas poin utamanya: (1) Revenue turun 11.4%, (2) Gross margin 29.8%, (3) Deleveraging signifikan USD 700+ juta, (4) Kas masih kuat USD 1.35 miliar, (5) Capex agresif USD 89 juta bersih, (6) EPS turun 36%. Betul ya?
+
+[08/04/2026, 09:10:22] Reza Firmansyah: Perfect summary Dian. Tambahkan satu poin: (7) Total equity naik ke USD 3.49 miliar meskipun ada other comprehensive loss USD 36.5 juta karena mark-to-market investasi. Ini jadi talking point positif untuk klien.
+
+[08/04/2026, 09:12:50] Andika Prasetyo: Saya masih penasaran soal investasi lain-lain yang turun dari USD 550 juta (gabungan current + non-current) ke sekitar USD 520 juta. Apa yang dijual?
+
+[08/04/2026, 09:14:15] Reza Firmansyah: Di cash flow investing ada penerimaan penjualan investasi lain-lain USD 4,624 ribu. Angkanya kecil, sebagian besar penurunan kemungkinan karena fair value adjustment yang masuk ke OCI — terbukti dari kerugian komprehensif lain perubahan nilai wajar investasi funds USD 29,619 ribu.
+
+[08/04/2026, 09:16:40] Dian Kusuma: Ah iya betul. Non-cash item. Oke tim, saya prepare slide deck untuk meeting jam 2. Saya akan fokus ke tren deleveraging dan capex sebagai growth story. Setuju?
+
+[08/04/2026, 09:18:22] Reza Firmansyah: Setuju. Tambahkan juga liquidity buffer yang masih kuat sebagai mitigasi risiko. Good luck tim!
