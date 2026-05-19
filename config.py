@@ -39,9 +39,10 @@ AVAILABLE_MODELS = {
         "google/flan-t5-xl",        # Best quality, needs GPU
     ],
     LLMProvider.GEMINI: [
-        "gemini-1.5-flash",         # Fast, free tier (recommended)
-        "gemini-2.0-flash",         # Latest flash model
-        "gemini-2.5-pro",           # Better quality
+        "gemini-2.5-flash",         # Latest, paid (recommended)
+        "gemini-2.5-pro",           # Best quality, paid
+        "gemini-2.0-flash",         # Previous gen flash
+        "gemini-1.5-flash",         # Legacy, free tier
     ],
 }
 
@@ -57,7 +58,7 @@ class Config(BaseSettings):
     
     # Gemini settings (cloud - free tier)
     gemini_api_key: Optional[str] = Field(default=None)
-    gemini_model: str = Field(default="gemini-1.5-flash")
+    gemini_model: str = Field(default="gemini-2.5-flash")
     
     # Common LLM settings
     embedding_model: str = Field(default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")
