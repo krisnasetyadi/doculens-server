@@ -134,6 +134,38 @@ def is_enabled() -> bool:
     )
 
 
+def list_collection_ids_from_s3() -> List[str]:
+    """List collection IDs by scanning the pdf-indices bucket (top-level prefixes)."""
+    s3 = _s3_client()
+    if not s3:
+        return []
+    try:
+        resp = s3.list_objects_v2(Bucket=_INDICES_BUCKET, Delimiter="/")
+        prefixes = resp.get("CommonPrefixes", [])
+        ids = [p["Prefix"].rstrip("/") for p in prefixes]
+        logger.info("list_collection_ids_from_s3: found %d collections", len(ids))
+        return ids
+    except Exception as e:
+        logger.warning("list_collection_ids_from_s3 failed: %s", e)
+        return []
+
+
+def list_chat_collection_ids_from_s3() -> List[str]:
+    """List chat collection IDs by scanning the chat-indices bucket (top-level prefixes)."""
+    s3 = _s3_client()
+    if not s3:
+        return []
+    try:
+        resp = s3.list_objects_v2(Bucket=_CHAT_INDICES_BUCKET, Delimiter="/")
+        prefixes = resp.get("CommonPrefixes", [])
+        ids = [p["Prefix"].rstrip("/") for p in prefixes]
+        logger.info("list_chat_collection_ids_from_s3: found %d collections", len(ids))
+        return ids
+    except Exception as e:
+        logger.warning("list_chat_collection_ids_from_s3 failed: %s", e)
+        return []
+
+
 def has_database() -> bool:
     return bool(os.getenv("DATABASE_URL"))
 
