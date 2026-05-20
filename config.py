@@ -124,11 +124,15 @@ class Config(BaseSettings):
             raise ValueError(f"Invalid table names: {invalid_tables}. Allowed: {ALLOWED_TABLES}")
         return v
     
-    # Supabase Storage (for persistent PDF + index storage across restarts)
-    # Set SUPABASE_URL and SUPABASE_SERVICE_KEY in .env / HF Space secrets.
-    # If not set, the server falls back to local disk (data/uploads, data/indices).
-    supabase_url: Optional[str] = Field(default=None)
-    supabase_service_key: Optional[str] = Field(default=None)
+    # Supabase Storage — S3-compatible credentials
+    # Find at: Supabase Dashboard → Storage → S3 Access Keys
+    # When set, PDFs and FAISS indexes are stored in Supabase Storage buckets
+    # and survive container restarts (HF Space, Docker, etc.).
+    # If not set, files are stored on local disk only.
+    supabase_s3_access_key_id: Optional[str] = Field(default=None)
+    supabase_s3_secret_key: Optional[str] = Field(default=None)
+    supabase_s3_endpoint: Optional[str] = Field(default=None)
+    supabase_s3_region: str = Field(default="ap-southeast-1")
 
     # CORS Configuration
     cors_origins: str = Field(default="*")
