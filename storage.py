@@ -45,8 +45,10 @@ def ensure_schema():
         return
     database_url = os.getenv("DATABASE_URL")
     if not database_url:
+        logger.warning("ensure_schema: DATABASE_URL not set — skipping auto-migration")
         _migration_done = True
         return
+    logger.info("ensure_schema: connecting to DB to create tables...")
     try:
         import psycopg2
         conn = psycopg2.connect(database_url, sslmode="require")
@@ -312,8 +314,10 @@ def register_collection(
     storage_paths: Optional[List[str]] = None,
 ) -> bool:
     ensure_schema()
+    logger.info("register_collection: collection_id=%s, has_db=%s", collection_id, has_database())
     conn = _db_conn()
     if not conn:
+        logger.warning("register_collection: no DB connection, skipping insert")
         return False
     try:
         with conn.cursor() as cur:

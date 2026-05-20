@@ -866,7 +866,9 @@ Answer:"""
         model_mapping = {
             'gemini-1.5-flash': 'gemini-1.5-flash-latest',
             'gemini-1.5-pro': 'gemini-1.5-pro-latest',
-            'gemini-pro': 'gemini-1.5-pro-latest'
+            'gemini-pro': 'gemini-1.5-pro-latest',
+            'gemini-2.5-flash': 'gemini-2.5-flash-preview-05-20',
+            'gemini-2.5-pro': 'gemini-2.5-pro-preview-05-06',
         }
         
         actual_model = model_mapping.get(model_name, model_name)
