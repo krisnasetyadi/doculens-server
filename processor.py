@@ -454,7 +454,7 @@ Answer:"""
     def get_all_chat_collections(self):
         """Return list of available chat collection IDs (Supabase DB first, disk fallback)"""
         try:
-            import supabase_storage
+            import storage as supabase_storage
             if supabase_storage.has_database():
                 rows = supabase_storage.list_chat_collections()
                 if rows:
@@ -484,7 +484,7 @@ Answer:"""
         index_path = os.path.join(config.chat_index_folder, collection_id)
         if not os.path.exists(os.path.join(index_path, "index.faiss")):
             try:
-                import supabase_storage
+                import storage as supabase_storage
                 if supabase_storage.is_enabled():
                     logger.info(f"Downloading chat index from S3: {collection_id}")
                     supabase_storage.download_chat_index(collection_id, index_path)

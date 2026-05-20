@@ -12,7 +12,7 @@ import shutil
 from datetime import datetime
 from typing import Optional, List
 
-import supabase_storage
+import storage as supabase_storage
 from config import config
 from models import ChatUploadResponse, ChatPlatform, ChatCollection
 from chat_parser import ChatParser
