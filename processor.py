@@ -2098,15 +2098,20 @@ Answer:"""
     JAWABAN:"""
 
     def _build_general_prompt(self, context: str, question: str, conflicts: List, source_breakdown: Dict) -> str:
-        """Build prompt untuk general queries - optimized for small models"""
+        """Build prompt untuk general queries"""
         
-        return f"""Jawab pertanyaan berdasarkan informasi berikut:
+        return f"""Jawab pertanyaan berdasarkan dokumen berikut SAJA.
 
+DOKUMEN:
 {context}
 
 Pertanyaan: {question}
 
-Jawab dengan ringkas dan jelas dalam Bahasa Indonesia. Sebutkan sumber jika relevan.
+INSTRUKSI PENTING:
+- Jawab HANYA berdasarkan isi dokumen di atas
+- Jika tidak ada informasi yang relevan, katakan: "Informasi ini tidak ditemukan dalam dokumen yang diunggah."
+- JANGAN gunakan pengetahuan umum atau informasi dari luar dokumen
+- Jawab ringkas dan jelas dalam Bahasa Indonesia
 
 Jawaban:"""
 
@@ -2130,19 +2135,19 @@ JAWABAN:"""
 
     def _build_explanation_prompt(self, context: str, question: str, conflicts: List) -> str:
         """Build prompt untuk explanation queries"""
-        return f"""Anda adalah asisten yang menjelaskan informasi dengan detail.
+        return f"""Anda adalah asisten yang menjawab HANYA berdasarkan dokumen yang diberikan.
 
-INFORMASI YANG TERSEDIA:
+DOKUMEN YANG TERSEDIA:
 {context}
 
 PERTANYAAN: {question}
 
-INSTRUKSI:
-1. Jelaskan konsep atau informasi dengan detail
-2. Gunakan bahasa yang mudah dipahami
-3. Berikan contoh jika relevan
-4. Struktur penjelasan dengan baik (gunakan poin-poin jika perlu)
-5. Jawab dalam Bahasa Indonesia
+INSTRUKSI PENTING:
+- Jawab HANYA berdasarkan informasi di dokumen di atas
+- Jika informasi tidak ada dalam dokumen, katakan: "Informasi ini tidak ditemukan dalam dokumen yang diunggah."
+- JANGAN gunakan pengetahuan umum atau informasi dari luar dokumen
+- Struktur penjelasan dengan baik menggunakan poin-poin
+- Jawab dalam Bahasa Indonesia
 
 JAWABAN:"""
 
