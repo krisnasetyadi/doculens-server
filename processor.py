@@ -196,7 +196,7 @@ class PDFQAProcessor:
         return list(set(expanded_queries))
 
     def get_vector_store(self, collection_id):
-        """Get vector store from cache or load from disk with thread safety"""
+        """Get vector store from cache, local disk, or Supabase Storage."""
         with self._cache_lock:
             if collection_id in self.vector_store_cache:
                 logger.debug(f"Returning cached vector store for {collection_id}")
@@ -204,24 +204,28 @@ class PDFQAProcessor:
 
             logger.info(f"🔍 Loading vector store for collection: {collection_id}")
             index_path = os.path.join(config.index_folder, collection_id)
-            logger.info(f"📁 Index path: {index_path}")
-            
+
+            # ── If index not on disk, try Supabase download ────────────────
+            if not os.path.exists(os.path.join(index_path, "index.faiss")):
+                try:
+                    import storage as supabase_storage
+                    if supabase_storage.is_enabled():
+                        logger.info(f"📥 Downloading index from Supabase: {collection_id}")
+                        ok = supabase_storage.download_index(collection_id, index_path)
+                        if not ok:
+                            logger.warning(f"❌ Supabase download incomplete for {collection_id}")
+                except Exception as dl_err:
+                    logger.warning(f"Supabase download error: {dl_err}")
+
             if not os.path.exists(index_path):
                 logger.warning(f"❌ Index path not found: {index_path}")
                 return None
 
-            # Check if index files exist
-            faiss_file = os.path.join(index_path, "index.faiss")
-            pkl_file = os.path.join(index_path, "index.pkl")
-            logger.info(f"📄 FAISS file exists: {os.path.exists(faiss_file)}")
-            logger.info(f"📄 PKL file exists: {os.path.exists(pkl_file)}")
-            
             if not all(os.path.exists(os.path.join(index_path, f))
                        for f in ["index.faiss", "index.pkl"]):
                 logger.error(f"❌ Incomplete index files for {collection_id}")
                 return None
 
-            # Check embeddings are loaded
             if self.embeddings is None:
                 logger.error("❌ Embeddings model not loaded!")
                 return None
@@ -234,15 +238,14 @@ class PDFQAProcessor:
                     allow_dangerous_deserialization=True
                 )
                 logger.info(f"✅ Successfully loaded vector store for {collection_id}")
-                
-                # Test the vector store with a simple search
+
                 try:
                     test_results = vector_store.similarity_search("test", k=1)
                     logger.info(f"🧪 Test search returned {len(test_results)} results")
                 except Exception as test_e:
                     logger.error(f"❌ Test search failed: {test_e}")
                     return None
-                
+
                 self.vector_store_cache[collection_id] = vector_store
                 return vector_store
 
@@ -250,7 +253,6 @@ class PDFQAProcessor:
                 logger.error(
                     f"❌ Failed to load vector store for {collection_id}: {str(e)}"
                 )
-                logger.error(f"🔍 Error type: {type(e).__name__}")
                 import traceback
                 logger.error(f"🔍 Traceback: {traceback.format_exc()}")
                 return None
@@ -425,11 +427,23 @@ Answer:"""
             return "Maaf, terjadi kesalahan dalam menghasilkan jawaban."
 
     def get_all_collections(self):
-        """Return list of available PDF collections"""
+        """Return list of available PDF collection IDs (Supabase DB → local disk fallback)."""
+        # ── Supabase first ─────────────────────────────────────────────────
+        try:
+            import storage as supabase_storage
+            if supabase_storage.is_enabled():
+                rows = supabase_storage.list_collections()
+                if rows is not None:
+                    ids = [r["collection_id"] for r in rows]
+                    logger.debug("get_all_collections: %d from Supabase", len(ids))
+                    return ids
+        except Exception as e:
+            logger.warning("Supabase list_collections failed, using disk: %s", e)
+
+        # ── Local disk fallback ────────────────────────────────────────────
         collections = []
         if not os.path.exists(config.index_folder):
             return collections
-
         for entry in os.listdir(config.index_folder):
             entry_path = os.path.join(config.index_folder, entry)
             if (os.path.isdir(entry_path) and

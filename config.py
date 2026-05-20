@@ -124,6 +124,12 @@ class Config(BaseSettings):
             raise ValueError(f"Invalid table names: {invalid_tables}. Allowed: {ALLOWED_TABLES}")
         return v
     
+    # Supabase Storage (for persistent PDF + index storage across restarts)
+    # Set SUPABASE_URL and SUPABASE_SERVICE_KEY in .env / HF Space secrets.
+    # If not set, the server falls back to local disk (data/uploads, data/indices).
+    supabase_url: Optional[str] = Field(default=None)
+    supabase_service_key: Optional[str] = Field(default=None)
+
     # CORS Configuration
     cors_origins: str = Field(default="*")
     
