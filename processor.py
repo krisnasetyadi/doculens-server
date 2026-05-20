@@ -1463,7 +1463,7 @@ Answer:"""
                 }
             },
             "merged_results": all_results,
-            "has_conflicts": self.detect_conflicts(results)
+            "has_conflicts": self.detect_conflicts(all_results if isinstance(all_results, list) else [])
         }
 
     def merge_and_rank_results(self, results: Dict[str, Any], intent_analysis: Dict) -> List[Dict]:
