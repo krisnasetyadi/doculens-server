@@ -320,7 +320,8 @@ class PDFQAProcessor:
         # Remove duplicates and sort by score
         unique_results = {}
         for doc, score in all_results:
-            content_hash = hash(doc.page_content[:100])  # Hash first 100 chars
+            content = doc.page_content if isinstance(doc.page_content, str) else str(doc.page_content)
+            content_hash = hash(content[:100])  # Hash first 100 chars
             if content_hash not in unique_results or score > unique_results[content_hash][1]:
                 unique_results[content_hash] = (doc, score)
 

@@ -60,18 +60,23 @@ async def upload_pdfs(files: List[UploadFile] = File(...)):
         # 2. FAISS index files
         index_dir = os.path.join(config.index_folder, collection_id)
         supabase_storage.upload_index(collection_id, index_dir)
+        logger.info("Collection %s S3 upload done (%d file(s))",
+                    collection_id, len(storage_paths))
+    else:
+        logger.info("S3 not configured — skipping file upload to Supabase Storage")
 
-        # 3. Register in pdf_collections table
+    # Register metadata in DB (only needs DATABASE_URL, independent of S3)
+    if supabase_storage.has_database():
+        index_dir = os.path.join(config.index_folder, collection_id)
         supabase_storage.register_collection(
             collection_id=collection_id,
             file_names=file_names,
             chunk_count=chunk_count,
             storage_paths=storage_paths,
         )
-        logger.info("Collection %s persisted to Supabase (%d file(s))",
-                    collection_id, len(storage_paths))
+        logger.info("Collection %s registered in Supabase DB", collection_id)
     else:
-        logger.info("Supabase not configured — collection stored on local disk only")
+        logger.info("DATABASE_URL not set — skipping Supabase DB registration")
 
     return UploadResponse(
         collection_id=collection_id,
