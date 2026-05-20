@@ -12,6 +12,7 @@ import shutil
 from datetime import datetime
 from typing import Optional, List
 
+import supabase_storage
 from config import config
 from models import ChatUploadResponse, ChatPlatform, ChatCollection
 from chat_parser import ChatParser
@@ -91,6 +92,26 @@ async def upload_chat(
         # Create vector store from chunks
         await _create_chat_vector_store(collection_id, chunks, metadata, platform)
         
+        # Upload to Supabase Storage
+        if supabase_storage.is_enabled():
+            try:
+                index_dir = os.path.join(config.chat_index_folder, collection_id)
+                supabase_storage.upload_chat_file(collection_id, file_path, file.filename)
+                supabase_storage.upload_chat_index(collection_id, index_dir)
+                supabase_storage.register_chat_collection(
+                    collection_id=collection_id,
+                    file_name=file.filename,
+                    platform=platform.lower(),
+                    message_count=len(messages),
+                    participants=metadata.get("participants", []),
+                    date_range=metadata.get("date_range"),
+                    keywords=keywords,
+                    storage_paths=[f"chat-uploads/{collection_id}/{file.filename}"],
+                )
+                logger.info(f"☁️ Chat collection synced to Supabase: {collection_id}")
+            except Exception as e:
+                logger.warning(f"Supabase sync failed (disk fallback): {e}")
+
         # Save collection metadata
         collection = ChatCollection(
             collection_id=collection_id,
@@ -188,8 +209,17 @@ def _save_collection_metadata(collection_id: str, collection: dict):
 @router.get('/chat/collections')
 async def list_chat_collections():
     """List all available chat collections"""
+    # Query Supabase DB first
+    if supabase_storage.has_database():
+        try:
+            rows = supabase_storage.list_chat_collections()
+            if rows:
+                return {"collections": rows, "count": len(rows)}
+        except Exception as e:
+            logger.warning(f"Supabase list_chat_collections failed, using disk: {e}")
+
+    # Disk fallback
     collections = []
-    
     chat_index_folder = config.chat_index_folder
     if not os.path.exists(chat_index_folder):
         return {"collections": []}
@@ -204,11 +234,7 @@ async def list_chat_collections():
                     metadata = json.load(f)
                     collections.append(metadata)
             else:
-                # Basic info if no metadata
-                collections.append({
-                    "collection_id": collection_id,
-                    "status": "no_metadata"
-                })
+                collections.append({"collection_id": collection_id, "status": "no_metadata"})
     
     return {"collections": collections, "count": len(collections)}
 
@@ -223,19 +249,22 @@ async def delete_chat_collection(collection_id: str):
     cache_key = f"chat_{collection_id}"
     if cache_key in processor.vector_store_cache:
         del processor.vector_store_cache[cache_key]
-    
-    # Delete upload folder
+
+    # Delete from Supabase (DB row + S3 objects)
+    if supabase_storage.is_enabled() or supabase_storage.has_database():
+        try:
+            supabase_storage.delete_chat_collection_from_db(collection_id)
+        except Exception as e:
+            logger.warning(f"Supabase delete failed for {collection_id}: {e}")
+
+    # Delete local upload folder
     upload_path = os.path.join(config.chat_upload_folder, collection_id)
     if os.path.exists(upload_path):
         shutil.rmtree(upload_path)
-    
-    # Delete index folder
+
+    # Delete local index folder
     index_path = os.path.join(config.chat_index_folder, collection_id)
     if os.path.exists(index_path):
         shutil.rmtree(index_path)
-        return {"status": "deleted", "collection_id": collection_id}
-    
-    raise HTTPException(
-        status_code=404,
-        detail=f"Chat collection not found: {collection_id}"
-    )
+
+    return {"status": "deleted", "collection_id": collection_id}

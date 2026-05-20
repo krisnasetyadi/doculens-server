@@ -452,11 +452,20 @@ Answer:"""
         return collections
 
     def get_all_chat_collections(self):
-        """Return list of available chat collections"""
+        """Return list of available chat collection IDs (Supabase DB first, disk fallback)"""
+        try:
+            import supabase_storage
+            if supabase_storage.has_database():
+                rows = supabase_storage.list_chat_collections()
+                if rows:
+                    return [r["collection_id"] for r in rows]
+        except Exception as e:
+            logger.warning(f"Supabase list_chat_collections failed: {e}")
+
+        # Disk fallback
         collections = []
         if not os.path.exists(config.chat_index_folder):
             return collections
-
         for entry in os.listdir(config.chat_index_folder):
             entry_path = os.path.join(config.chat_index_folder, entry)
             if (os.path.isdir(entry_path) and
@@ -473,6 +482,14 @@ Answer:"""
                 return self.vector_store_cache[cache_key]
         
         index_path = os.path.join(config.chat_index_folder, collection_id)
+        if not os.path.exists(os.path.join(index_path, "index.faiss")):
+            try:
+                import supabase_storage
+                if supabase_storage.is_enabled():
+                    logger.info(f"Downloading chat index from S3: {collection_id}")
+                    supabase_storage.download_chat_index(collection_id, index_path)
+            except Exception as e:
+                logger.warning(f"S3 chat index download failed: {e}")
         if not os.path.exists(index_path):
             logger.warning(f"Chat index not found: {index_path}")
             return None
