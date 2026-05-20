@@ -49,9 +49,9 @@ AVAILABLE_MODELS = {
 
 class Config(BaseSettings):
     # Default LLM Provider (used if no parameter sent)
-    llm_provider: LLMProvider = Field(default=LLMProvider.HUGGINGFACE)
+    llm_provider: LLMProvider = Field(default=LLMProvider.GEMINI)
     
-    # HuggingFace settings (local - default)
+    # HuggingFace settings (local - fallback)
     model_name: str = Field(default="google/flan-t5-base")
     
     # (Ollama config removed for HuggingFace Spaces deployment)
