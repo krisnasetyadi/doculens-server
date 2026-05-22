@@ -428,18 +428,29 @@ Answer:"""
             return "Maaf, terjadi kesalahan dalam menghasilkan jawaban."
 
     def get_all_collections(self):
-        """Return list of available PDF collection IDs (Supabase DB → local disk fallback)."""
-        # ── Supabase first ─────────────────────────────────────────────────
+        """Return list of available PDF collection IDs (Supabase DB → S3 scan → local disk fallback)."""
+        # ── Supabase DB first ───────────────────────────────────────────────
+        try:
+            import storage as supabase_storage
+            if supabase_storage.has_database():
+                rows = supabase_storage.list_collections()
+                if rows:
+                    ids = [r["collection_id"] for r in rows]
+                    logger.info("get_all_collections: %d from Supabase DB", len(ids))
+                    return ids
+        except Exception as e:
+            logger.warning("Supabase list_collections failed: %s", e)
+
+        # ── S3 bucket scan fallback ─────────────────────────────────────────
         try:
             import storage as supabase_storage
             if supabase_storage.is_enabled():
-                rows = supabase_storage.list_collections()
-                if rows is not None:
-                    ids = [r["collection_id"] for r in rows]
-                    logger.debug("get_all_collections: %d from Supabase", len(ids))
+                ids = supabase_storage.list_collection_ids_from_s3()
+                if ids:
+                    logger.info("get_all_collections: %d from S3 scan", len(ids))
                     return ids
         except Exception as e:
-            logger.warning("Supabase list_collections failed, using disk: %s", e)
+            logger.warning("S3 collection scan failed: %s", e)
 
         # ── Local disk fallback ────────────────────────────────────────────
         collections = []
@@ -450,6 +461,7 @@ Answer:"""
             if (os.path.isdir(entry_path) and
                     os.path.exists(os.path.join(entry_path, "index.faiss"))):
                 collections.append(entry)
+        logger.info("get_all_collections: %d from local disk", len(collections))
         return collections
 
     def get_all_chat_collections(self):

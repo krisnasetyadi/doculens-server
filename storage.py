@@ -86,6 +86,21 @@ def ensure_schema():
                     ON chat_collections (collection_id);
                 CREATE INDEX IF NOT EXISTS idx_chat_collections_created
                     ON chat_collections (created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS chat_sessions (
+                    id               BIGSERIAL PRIMARY KEY,
+                    session_id       TEXT        NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
+                    title            TEXT        NOT NULL DEFAULT '',
+                    messages         JSONB       NOT NULL DEFAULT '[]',
+                    pdf_collections  TEXT[]      NOT NULL DEFAULT '{}',
+                    chat_collections TEXT[]      NOT NULL DEFAULT '{}',
+                    created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS idx_chat_sessions_sid
+                    ON chat_sessions (session_id);
+                CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated
+                    ON chat_sessions (updated_at DESC);
             """)
         conn.close()
         logger.info("pdf_collections + chat_collections schema ensured.")
