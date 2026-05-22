@@ -165,6 +165,50 @@ def list_collection_ids_from_s3() -> List[str]:
         return []
 
 
+def list_collections_from_s3() -> List[Dict[str, Any]]:
+    """Scan pdf-indices for collection IDs, then pdf-uploads for file names.
+    Returns list of dicts: {collection_id, file_names, chunk_count, created_at}
+    """
+    s3 = _s3_client()
+    if not s3:
+        return []
+    try:
+        # Get collection IDs from indices bucket
+        resp = s3.list_objects_v2(Bucket=_INDICES_BUCKET, Delimiter="/")
+        prefixes = resp.get("CommonPrefixes", [])
+        collection_ids = [p["Prefix"].rstrip("/") for p in prefixes]
+    except Exception as e:
+        logger.warning("list_collections_from_s3 (indices scan) failed: %s", e)
+        return []
+
+    results = []
+    for cid in collection_ids:
+        file_names = []
+        created_at = ""
+        try:
+            upload_resp = s3.list_objects_v2(Bucket=_UPLOADS_BUCKET, Prefix=f"{cid}/")
+            for obj in upload_resp.get("Contents", []):
+                key = obj["Key"]
+                fname = key.split("/", 1)[-1]
+                if fname and fname.lower().endswith(".pdf"):
+                    file_names.append(fname)
+                    if not created_at:
+                        created_at = obj.get("LastModified", "")  # datetime or str
+                        if hasattr(created_at, "isoformat"):
+                            created_at = created_at.isoformat()
+        except Exception as e:
+            logger.warning("list_collections_from_s3 (uploads scan %s) failed: %s", cid, e)
+        results.append({
+            "collection_id": cid,
+            "file_names": file_names,
+            "chunk_count": len(file_names),
+            "created_at": created_at,
+        })
+
+    logger.info("list_collections_from_s3: found %d collections", len(results))
+    return results
+
+
 def list_chat_collection_ids_from_s3() -> List[str]:
     """List chat collection IDs by scanning the chat-indices bucket (top-level prefixes)."""
     s3 = _s3_client()

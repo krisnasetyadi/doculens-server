@@ -36,19 +36,21 @@ async def list_collections():
                 logger.info("Listed %d collections from Supabase DB", len(result))
                 return result
 
-            # DB empty → scan S3 to find orphaned collections
-            s3_ids = supabase_storage.list_collection_ids_from_s3()
-            if s3_ids:
-                logger.info("DB empty; found %d collections via S3 scan — auto-registering", len(s3_ids))
+            # DB empty → scan S3 to find orphaned collections (with file names)
+            s3_cols = supabase_storage.list_collections_from_s3()
+            if s3_cols:
+                logger.info("DB empty; found %d collections via S3 scan — auto-registering", len(s3_cols))
                 result = []
-                for cid in s3_ids:
+                for col in s3_cols:
+                    cid = col["collection_id"]
+                    fnames = col["file_names"]
                     # Auto-register so next call hits DB
-                    supabase_storage.register_collection(cid, [], 0)
+                    supabase_storage.register_collection(cid, fnames, len(fnames))
                     result.append(CollectionInfo(
                         collection_id=cid,
-                        document_count=0,
-                        created_at="",
-                        file_names=[],
+                        document_count=len(fnames),
+                        created_at=col.get("created_at", ""),
+                        file_names=fnames,
                     ))
                 return result
 
