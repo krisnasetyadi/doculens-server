@@ -142,6 +142,30 @@ async def hybrid_query(request: HybridQueryRequest, req: Request):
 
         logger.info(f"🔍 Search flags - PDF: {should_search_pdfs} ({len(pdf_collection_ids) if pdf_collection_ids else 0} collections), DB: {should_search_db}, Chat: {should_search_chat} ({len(chat_collection_ids) if chat_collection_ids else 0} collections)")
 
+        # No sources at all → answer as app assistant (no RAG needed)
+        if not should_search_pdfs and not should_search_db and not should_search_chat:
+            answer = await asyncio.to_thread(
+                processor.generate_hybrid_answer,
+                {"pdf_documents": [], "db_results": [], "chat_documents": []},
+                request.question,
+                request.llm_provider,
+                request.llm_model,
+            )
+            if isinstance(answer, tuple):
+                answer = answer[0]
+            processing_time = (datetime.now() - start_time).total_seconds()
+            return HybridResponse(
+                answer=answer,
+                sources=[],
+                processing_time=processing_time,
+                model_used=request.llm_model or config.model_name,
+                pdf_sources=[],
+                pdf_sources_detailed=[],
+                db_results=[],
+                chat_sources=[],
+                metadata={"mode": "app_assistant", "no_sources": True},
+            )
+
         # Perform hybrid search with collection selection
         hybrid_results = await asyncio.to_thread(
             processor.hybrid_search, 

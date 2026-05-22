@@ -150,23 +150,57 @@ class AnswerGenerator:
         """
         if not self._llm:
             return "LLM not loaded. Call load_gemini() or load_huggingface() first."
-        if not context.strip():
-            return "No relevant context found."
 
-        prompt = (
-            "You are an assistant that answers questions based strictly on the provided context.\n"
-            "The context may come from documents, reports, discussion logs, tables, or other sources.\n"
-            "Instructions:\n"
-            "1. Answer using only the information available in the CONTEXT below.\n"
-            "2. If the context contains partial information, provide the partial answer and note what is missing.\n"
-            "3. If the context contains numbers, tables, or data — extract and display them directly.\n"
-            "4. Only say 'Information not found in the available data sources.' if the context contains "
-            "ABSOLUTELY NO information relevant to the question.\n"
-            "5. Do not fabricate facts outside the context.\n\n"
-            f"CONTEXT:\n{context}\n\n"
-            f"QUESTION: {question}\n\n"
-            "ANSWER (based on the context above):"
+        APP_DESCRIPTION = (
+            "DocuLens is an AI-powered document intelligence platform. "
+            "Users can upload PDF documents and chat logs (WhatsApp, Telegram, etc.), "
+            "then ask questions in natural language. The system retrieves relevant passages "
+            "from those sources and generates precise, grounded answers. "
+            "Key capabilities: multi-PDF Q&A, chat log analysis, hybrid search across documents "
+            "and databases, source citations with page references, dark mode, conversation history, "
+            "and support for multiple AI models (Gemini 2.5-flash, etc.)."
         )
+
+        META_KEYWORDS = (
+            "what is", "how does", "how do i", "how to use", "what can", "what are",
+            "tell me about", "explain", "help me", "guide", "tutorial", "getting started",
+            "fitur", "cara", "apa itu", "bagaimana", "panduan", "mulai"
+        )
+        q_lower = question.lower().strip()
+        is_meta = any(q_lower.startswith(kw) for kw in META_KEYWORDS)
+
+        # No context at all — answer as app assistant
+        if not context.strip():
+            prompt = (
+                f"You are the DocuLens AI assistant. {APP_DESCRIPTION}\n\n"
+                "The user has not selected any document sources yet, or their question is about the app itself.\n"
+                "Answer helpfully as an onboarding assistant. Be concise and friendly.\n"
+                "If the question is unrelated to DocuLens, politely redirect them to upload documents and ask questions about them.\n\n"
+                f"USER: {question}\n\nASSISTANT:"
+            )
+        elif is_meta and len(context.strip()) < 200:
+            # Very thin context + meta question → blend app knowledge with context
+            prompt = (
+                f"You are the DocuLens AI assistant. {APP_DESCRIPTION}\n\n"
+                f"CONTEXT FROM DOCUMENTS:\n{context}\n\n"
+                f"USER: {question}\n\nASSISTANT:"
+            )
+        else:
+            prompt = (
+                "You are DocuLens AI, an assistant that answers questions based strictly on the provided context.\n"
+                f"About this platform: {APP_DESCRIPTION}\n\n"
+                "Instructions:\n"
+                "1. Answer using only the information available in the CONTEXT below.\n"
+                "2. If the context contains partial information, provide the partial answer and note what is missing.\n"
+                "3. If the context contains numbers, tables, or data — extract and display them directly.\n"
+                "4. Only say 'Information not found in the available data sources.' if the context contains "
+                "ABSOLUTELY NO information relevant to the question.\n"
+                "5. Do not fabricate facts outside the context.\n"
+                "6. If the user asks about the app itself (what it does, how to use it), answer from your app knowledge.\n\n"
+                f"CONTEXT:\n{context}\n\n"
+                f"QUESTION: {question}\n\n"
+                "ANSWER (based on the context above):"
+            )
 
         def _get_llm(attempt: int):
             if attempt >= 4 and len(self._FALLBACK_MODELS) >= 2:
