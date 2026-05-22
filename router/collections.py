@@ -18,21 +18,38 @@ logger = logging.getLogger(__name__)
 
 @router.get("/collections", response_model=List[CollectionInfo])
 async def list_collections():
-    """List available PDF document collections (Supabase DB → local disk fallback)."""
+    """List available PDF document collections (Supabase DB → S3 scan → local disk fallback)."""
     try:
-        # ── Try Supabase first ─────────────────────────────────────────────
+        # ── Try Supabase DB first ──────────────────────────────────────────
         if supabase_storage.is_enabled():
             rows = supabase_storage.list_collections()
-            if rows is not None:  # empty list is valid
-                result = []
-                for row in rows:
-                    result.append(CollectionInfo(
+            if rows:  # non-empty DB result → use it
+                result = [
+                    CollectionInfo(
                         collection_id=row["collection_id"],
                         document_count=len(row.get("file_names") or []),
                         created_at=row.get("created_at", ""),
                         file_names=row.get("file_names") or [],
-                    ))
+                    )
+                    for row in rows
+                ]
                 logger.info("Listed %d collections from Supabase DB", len(result))
+                return result
+
+            # DB empty → scan S3 to find orphaned collections
+            s3_ids = supabase_storage.list_collection_ids_from_s3()
+            if s3_ids:
+                logger.info("DB empty; found %d collections via S3 scan — auto-registering", len(s3_ids))
+                result = []
+                for cid in s3_ids:
+                    # Auto-register so next call hits DB
+                    supabase_storage.register_collection(cid, [], 0)
+                    result.append(CollectionInfo(
+                        collection_id=cid,
+                        document_count=0,
+                        created_at="",
+                        file_names=[],
+                    ))
                 return result
 
         # ── Local disk fallback ────────────────────────────────────────────
