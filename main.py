@@ -82,12 +82,14 @@ from router.collections import router as collections_router
 from router.hybrid import router as hybrid_router
 from router.chat import router as chat_router
 from router.sessions import router as sessions_router
+from router.auth import router as auth_router
 
-app.include_router(upload_router, prefix="/api/v1")       # PDF upload
-app.include_router(collections_router, prefix="/api/v1")  # PDF collections management
-app.include_router(hybrid_router, prefix="/api/v1")       # Main hybrid search (PDF + DB + Chat)
-app.include_router(chat_router, prefix="/api/v1")         # Chat upload & collections
-app.include_router(sessions_router, prefix="/api/v1")     # Chat session history
+app.include_router(auth_router, prefix="/api/v1")           # Auth & RBAC
+app.include_router(upload_router, prefix="/api/v1")         # PDF upload
+app.include_router(collections_router, prefix="/api/v1")    # PDF collections
+app.include_router(hybrid_router, prefix="/api/v1")         # Hybrid search
+app.include_router(chat_router, prefix="/api/v1")           # Chat collections
+app.include_router(sessions_router, prefix="/api/v1")       # Chat session history
 
 
 @app.get("/")

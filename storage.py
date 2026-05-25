@@ -117,6 +117,20 @@ def ensure_schema():
                 );
                 CREATE INDEX IF NOT EXISTS idx_chat_messages_session
                     ON chat_messages (session_id, created_at ASC);
+
+                CREATE TABLE IF NOT EXISTS users (
+                    id            BIGSERIAL    PRIMARY KEY,
+                    user_id       TEXT         NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
+                    email         TEXT         NOT NULL UNIQUE,
+                    password_hash TEXT         NOT NULL,
+                    role          TEXT         NOT NULL DEFAULT 'user'
+                                  CHECK (role IN ('user', 'admin')),
+                    is_active     BOOLEAN      NOT NULL DEFAULT true,
+                    created_at    TIMESTAMPTZ  NOT NULL DEFAULT now(),
+                    updated_at    TIMESTAMPTZ  NOT NULL DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS idx_users_email   ON users (email);
+                CREATE INDEX IF NOT EXISTS idx_users_user_id ON users (user_id);
             """)
         conn.close()
         logger.info("Schema ensured: pdf_collections, chat_collections, chat_sessions, chat_messages.")
