@@ -51,7 +51,12 @@ def ensure_schema():
     logger.info("ensure_schema: connecting to DB to create tables...")
     try:
         import psycopg2
-        conn = psycopg2.connect(database_url, sslmode="require")
+        # Embed sslmode in URL to avoid kwarg conflict with pooler DSN
+        _url = database_url
+        if "sslmode=" not in _url:
+            _sep = "&" if "?" in _url else "?"
+            _url = _url + _sep + "sslmode=require"
+        conn = psycopg2.connect(_url, connect_timeout=10)
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute("""
@@ -91,7 +96,6 @@ def ensure_schema():
                     id               BIGSERIAL PRIMARY KEY,
                     session_id       TEXT        NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
                     title            TEXT        NOT NULL DEFAULT '',
-                    messages         JSONB       NOT NULL DEFAULT '[]',
                     pdf_collections  TEXT[]      NOT NULL DEFAULT '{}',
                     chat_collections TEXT[]      NOT NULL DEFAULT '{}',
                     created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -101,9 +105,21 @@ def ensure_schema():
                     ON chat_sessions (session_id);
                 CREATE INDEX IF NOT EXISTS idx_chat_sessions_updated
                     ON chat_sessions (updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS chat_messages (
+                    id          BIGSERIAL   PRIMARY KEY,
+                    message_id  TEXT        NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
+                    session_id  TEXT        NOT NULL REFERENCES chat_sessions(session_id) ON DELETE CASCADE,
+                    role        TEXT        NOT NULL,
+                    content     TEXT        NOT NULL DEFAULT '',
+                    model_used  TEXT,
+                    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS idx_chat_messages_session
+                    ON chat_messages (session_id, created_at ASC);
             """)
         conn.close()
-        logger.info("pdf_collections + chat_collections schema ensured.")
+        logger.info("Schema ensured: pdf_collections, chat_collections, chat_sessions, chat_messages.")
     except Exception as e:
         logger.warning("Auto-migration skipped (disk fallback): %s", e)
     _migration_done = True
