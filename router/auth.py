@@ -256,8 +256,8 @@ async def register(body: RegisterRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("auth register error: %s", e)
-        raise HTTPException(status_code=500, detail="Registration failed")
+        logger.error("auth register error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Registration failed: {e}")
 
 
 @router.post("/auth/login", response_model=TokenResponse)
@@ -280,8 +280,8 @@ async def login(body: LoginRequest):
             row = cur.fetchone()
         conn.close()
     except Exception as e:
-        logger.error("auth login db error: %s", e)
-        raise HTTPException(status_code=500, detail="Login failed")
+        logger.error("auth login db error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Login failed: {e}")
 
     if not row or not pwd_ctx.verify(body.password, row["password_hash"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
