@@ -55,7 +55,11 @@ def _jose():
 
 def _passlib():
     from passlib.context import CryptContext
-    return CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__truncate_error=False)
+    return CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+def _hash_password(pwd_ctx, password: str) -> str:
+    """Hash password, truncating to 72 bytes (bcrypt hard limit)."""
+    return pwd_ctx.hash(password.encode()[:72].decode("utf-8", errors="ignore"))
 
 
 # ---------------------------------------------------------------------------
@@ -244,7 +248,7 @@ async def register(body: RegisterRequest):
             role = "admin" if count == 0 else body.role
 
             user_id = str(uuid.uuid4())
-            hashed  = pwd_ctx.hash(body.password)
+            hashed  = _hash_password(pwd_ctx, body.password)
 
             cur.execute("""
                 INSERT INTO users (user_id, email, password_hash, role)
@@ -331,7 +335,7 @@ async def change_password(
             row = cur.fetchone()
             if not row or not pwd_ctx.verify(body.current_password, row["password_hash"]):
                 raise HTTPException(status_code=401, detail="Current password is incorrect")
-            new_hash = pwd_ctx.hash(body.new_password)
+            new_hash = _hash_password(pwd_ctx, body.new_password)
             cur.execute(
                 "UPDATE users SET password_hash = %s, updated_at = now() WHERE user_id = %s",
                 (new_hash, user.user_id)
@@ -361,7 +365,7 @@ async def admin_reset_password(
             row = cur.fetchone()
             if not row:
                 raise HTTPException(status_code=404, detail="User not found")
-            new_hash = pwd_ctx.hash(body.new_password)
+            new_hash = _hash_password(pwd_ctx, body.new_password)
             cur.execute(
                 "UPDATE users SET password_hash = %s, updated_at = now() WHERE email = %s",
                 (new_hash, body.email)
