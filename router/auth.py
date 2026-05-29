@@ -91,6 +91,14 @@ class UserRecord(BaseModel):
     role: str
     is_active: bool
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+class AdminResetRequest(BaseModel):
+    email: str
+    new_password: str
+
 
 # ---------------------------------------------------------------------------
 # DB helpers
@@ -302,3 +310,66 @@ async def login(body: LoginRequest):
 async def me(user: UserRecord = Depends(get_current_user)):
     """Return the currently authenticated user."""
     return user
+
+
+@router.post("/auth/change-password", status_code=200)
+async def change_password(
+    body: ChangePasswordRequest,
+    user: UserRecord = Depends(get_current_user),
+):
+    """Change the current user's password (requires valid token)."""
+    pwd_ctx = _passlib()
+    conn = _get_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT password_hash FROM users WHERE user_id = %s",
+                (user.user_id,)
+            )
+            row = cur.fetchone()
+            if not row or not pwd_ctx.verify(body.current_password, row["password_hash"]):
+                raise HTTPException(status_code=401, detail="Current password is incorrect")
+            new_hash = pwd_ctx.hash(body.new_password)
+            cur.execute(
+                "UPDATE users SET password_hash = %s, updated_at = now() WHERE user_id = %s",
+                (new_hash, user.user_id)
+            )
+        conn.close()
+        return {"message": "Password updated successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("change_password error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to change password: {e}")
+
+
+@router.post("/auth/admin/reset-password", status_code=200)
+async def admin_reset_password(
+    body: AdminResetRequest,
+    _: UserRecord = Depends(require_role("admin")),
+):
+    """Admin-only: reset any user's password by email."""
+    pwd_ctx = _passlib()
+    conn = _get_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT user_id FROM users WHERE email = %s", (body.email,))
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="User not found")
+            new_hash = pwd_ctx.hash(body.new_password)
+            cur.execute(
+                "UPDATE users SET password_hash = %s, updated_at = now() WHERE email = %s",
+                (new_hash, body.email)
+            )
+        conn.close()
+        return {"message": f"Password reset for {body.email}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("admin_reset_password error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to reset password: {e}")
