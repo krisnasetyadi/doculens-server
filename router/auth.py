@@ -55,7 +55,7 @@ def _jose():
 
 def _passlib():
     from passlib.context import CryptContext
-    return CryptContext(schemes=["bcrypt"], deprecated="auto")
+    return CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__truncate_error=False)
 
 
 # ---------------------------------------------------------------------------
