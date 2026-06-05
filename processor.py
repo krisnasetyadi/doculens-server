@@ -2181,8 +2181,8 @@ INSTRUKSI PENTING:
 - Jawab HANYA berdasarkan informasi di dokumen di atas
 - Jika informasi tidak ada dalam dokumen, katakan: "Informasi ini tidak ditemukan dalam dokumen yang diunggah."
 - JANGAN gunakan pengetahuan umum atau informasi dari luar dokumen
-- Struktur penjelasan dengan baik menggunakan poin-poin
-- Jawab dalam Bahasa Indonesia
+- Gunakan bullet points atau daftar poin-poin HANYA jika dokumen asli menyebutkan daftar terpisah atau beberapa item yang terdaftar secara terpisah. Jika dokumen asli berisi narasi atau teks aslinya berupa penjelasan paragraf mengalir terus-menerus (seperti paragraf utuh tunggal), pertahankan sebagai paragraf mengalir/narasi utuh apa adanya tanpa dibuat menjadi poin-poin terpisah.
+- Jawab dengan jelas dalam Bahasa Indonesia
 
 JAWABAN:"""
 
