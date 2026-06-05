@@ -62,6 +62,9 @@ class SessionSummary(BaseModel):
 # DB helpers
 # ---------------------------------------------------------------------------
 
+_tables_ensured = False
+
+
 def _get_conn():
     """Return a psycopg2 RealDictCursor connection or None if unavailable."""
     database_url = os.getenv("DATABASE_URL")
@@ -85,6 +88,9 @@ def _get_conn():
 
 def _ensure_tables(conn):
     """Create chat_sessions + chat_messages tables if they do not exist."""
+    global _tables_ensured
+    if _tables_ensured:
+        return
     try:
         with conn.cursor() as cur:
             cur.execute("""
@@ -114,6 +120,8 @@ def _ensure_tables(conn):
                 CREATE INDEX IF NOT EXISTS idx_chat_messages_session
                     ON chat_messages (session_id, created_at ASC);
             """)
+        _tables_ensured = True
+        logger.info("sessions: Schema ensured successfully.")
     except Exception as e:
         logger.warning("sessions: ensure tables failed: %s", e)
 

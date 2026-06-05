@@ -1,6 +1,6 @@
 # models.py
 from pydantic import BaseModel
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Union
 from enum import Enum
 from datetime import datetime
 
@@ -53,7 +53,7 @@ class QAResponse(BaseModel):
 class CollectionInfo(BaseModel):
     collection_id: str
     document_count: int
-    created_at: str
+    created_at: Union[str, datetime]
     file_names: List[str]
 
 class DatabaseResult(BaseModel):
