@@ -2205,7 +2205,7 @@ JAWABAN:"""
         if len(answer.split()) < 5:
             if results:
                 best_result = results[0]
-                return f"Informasi dari {best_result['source']}:\n{best_result['content'][:200]}"
+                return f"Informasi dari {best_result['source']}:\n{best_result['content']}"
         
         return answer
 
@@ -2220,10 +2220,10 @@ JAWABAN:"""
         elif result['type'] == 'pdf':
             snippet = self._extract_relevant_snippet(result['content'], question)
             if not snippet:
-                snippet = result['content'][:500] + "..."
+                snippet = result['content']
             return f"Informasi dari dokumen {source} (relevansi: {confidence:.0%}):\n\n{snippet}"
         else:
-            return f"Dari {source}:\n\n{result['content'][:500]}..."
+            return f"Dari {source}:\n\n{result['content']}"
     
     def _extract_relevant_snippet(self, content: str, question: str) -> str:
         """Extract most relevant part of content based on question keywords"""
@@ -2244,8 +2244,8 @@ JAWABAN:"""
                         if name in sent:
                             return sent.strip()[:300]
         
-        # Default max length for snippets
-        max_len = 250
+        # Default max length for snippets (increased to prevent truncation)
+        max_len = 3000
         
         # For chat content, extract lines with keywords
         if '[' in content and ']' in content:  # Chat format detection
@@ -2259,7 +2259,7 @@ JAWABAN:"""
             
             if best_lines:
                 best_lines.sort(reverse=True, key=lambda x: x[0])
-                return '\n'.join([line for _, line in best_lines[:3]])
+                return '\n'.join([line for _, line in best_lines[:15]])
         
         # Split content into sentences
         sentences = content.split('.')
@@ -2281,8 +2281,8 @@ JAWABAN:"""
             start_idx = content.find(best_sentence)
             if start_idx >= 0:
                 # Get some context before and after
-                context_start = max(0, start_idx - 100)
-                context_end = min(len(content), start_idx + len(best_sentence) + 100)
+                context_start = max(0, start_idx - 300)
+                context_end = min(len(content), start_idx + len(best_sentence) + 1500)
                 snippet = content[context_start:context_end].strip()
                 if len(snippet) > max_len:
                     snippet = snippet[:max_len] + "..."
@@ -2310,7 +2310,7 @@ JAWABAN:"""
         if 'nomor' in question_lower or 'telepon' in question_lower or 'hp' in question_lower or 'kontak' in question_lower:
             if phones:
                 phone_list = ", ".join(set(phones))
-                return f"Berdasarkan {source}:\n\n{phone_list}\n\nKontak lengkap: {content[:200]}..."
+                return f"Berdasarkan {source}:\n\n{phone_list}\n\nKontak lengkap:\n{content}"
         
         if 'email' in question_lower:
             if emails:
@@ -2444,7 +2444,6 @@ JAWABAN:"""
             if relevant_snippet:
                 return f"Berdasarkan {source} (halaman {page}):\n\n{relevant_snippet}"
             else:
-                content = self.truncate_context(content, max_tokens=150)
                 return f"Berdasarkan {source} (halaman {page}):\n\n{content}"
         
         # Priority 3: Chat results
@@ -2452,8 +2451,7 @@ JAWABAN:"""
             best_chat = chat_docs[0]
             source = best_chat.metadata.get('source', 'chat')
             platform = best_chat.metadata.get('platform', 'unknown')
-            content = self.truncate_context(best_chat.page_content, max_tokens=200)
-            return f"Berdasarkan percakapan dari {source} ({platform}):\n\n{content}"
+            return f"Berdasarkan percakapan dari {source} ({platform}):\n\n{best_chat.page_content}"
         
         return "Maaf, sistem tidak dapat menghasilkan jawaban yang valid. Silakan coba pertanyaan yang lebih spesifik."
     
