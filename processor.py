@@ -326,7 +326,28 @@ class PDFQAProcessor:
                 unique_results[content_hash] = (doc, score)
 
         sorted_results = sorted(unique_results.values(), key=lambda x: x[1], reverse=True)
-        final_results = [doc for doc, score in sorted_results[:config.total_k_results]]
+        
+        import re
+        processed_results = []
+        for doc, score in sorted_results:
+            original_content = doc.page_content
+            # Backfill page metadata from [PAGE x] if page is missing/empty/generic
+            if "page" not in doc.metadata or doc.metadata["page"] in ["?", "Unknown", None]:
+                match = re.search(r'\[PAGE\s+(\d+)\]', original_content)
+                if match:
+                    doc.metadata["page"] = match.group(1)
+            
+            # Clean any [PAGE x] markers from content text
+            cleaned_content = re.sub(r'\[PAGE\s+\d+\]', '', original_content).strip()
+            
+            # Skip if the chunk has no useful content remaining
+            if not cleaned_content or len(cleaned_content) < 10:
+                continue
+                
+            doc.page_content = cleaned_content
+            processed_results.append(doc)
+            
+        final_results = processed_results[:config.total_k_results]
         
         logger.info(f"🎯 Final results after deduplication: {len(final_results)}")
         return final_results
@@ -2002,7 +2023,9 @@ Answer:"""
             processing_steps.append("Person query detected - prioritized chat/DB results")
         
         # Check if confidence is too low and no chat/db results - use direct extraction
-        if merged_results and merged_results[0]['confidence'] < 0.25:
+        # Use a dynamic threshold: lower for smarter models like Gemini to leverage generative reasoning
+        threshold = 0.12 if 'gemini' in model_id.lower() else 0.18
+        if merged_results and merged_results[0]['confidence'] < threshold:
             if merged_results[0]['type'] == 'pdf' and not any(r['type'] in ['chat', 'database'] for r in merged_results[:3]):
                 logger.warning(f"Low confidence ({merged_results[0]['confidence']:.2%}), using direct extraction")
                 return self._extract_direct_answer(merged_results[0], question), model_id, {
@@ -2187,7 +2210,7 @@ JAWABAN:"""
         return answer
 
     def _format_result_as_answer(self, result: Dict, question: str) -> str:
-        """Format single result as answer"""
+        """Format single result as answer using context-aware snippet extraction"""
         source = result['source']
         confidence = result['confidence']
         
@@ -2195,9 +2218,12 @@ JAWABAN:"""
             # Format database record
             return f"Berdasarkan data dari {source} (akurasi: {confidence:.0%}):\n\n{result['content']}"
         elif result['type'] == 'pdf':
-            return f"Informasi dari dokumen {source} (relevansi: {confidence:.0%}):\n\n{result['content'][:300]}..."
+            snippet = self._extract_relevant_snippet(result['content'], question)
+            if not snippet:
+                snippet = result['content'][:500] + "..."
+            return f"Informasi dari dokumen {source} (relevansi: {confidence:.0%}):\n\n{snippet}"
         else:
-            return f"Dari {source}:\n\n{result['content'][:300]}..."
+            return f"Dari {source}:\n\n{result['content'][:500]}..."
     
     def _extract_relevant_snippet(self, content: str, question: str) -> str:
         """Extract most relevant part of content based on question keywords"""

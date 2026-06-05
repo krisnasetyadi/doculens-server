@@ -11,39 +11,44 @@ logger = logging.getLogger(__name__)
 
 
 def extract_text_from_pdf(pdf_path):
-    """Extract text from PDF with page information"""
+    """Extract page-by-page clean text and page numbers from PDF"""
+    pages_data = []
     try:
-        full_text = ""
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages, 1):
                 page_text = page.extract_text()
                 if page_text:
                     # Clean text
                     page_text = re.sub(r'\s+', ' ', page_text).strip()
-                    # Add page information
-                    full_text += f"{page_text}\n[PAGE {page_num}]\n\n"
-        return full_text if full_text.strip() else None
+                    if page_text:
+                        pages_data.append({
+                            "text": page_text,
+                            "page": page_num
+                        })
+        return pages_data if pages_data else None
     except Exception as e:
         logger.error(f"Failed to extract text from {pdf_path}: {str(e)}")
         return None
 
 
 def process_pdfs(pdf_paths, collection_id):
-    """Process PDFs with improved text splitting"""
+    """Process PDFs with improved page-level text splitting"""
     documents = []
 
     for pdf_path in pdf_paths:
-        text = extract_text_from_pdf(pdf_path)
-        if text:
-            doc = Document(
-                page_content=text,
-                metadata={
-                    "source": os.path.basename(pdf_path),
-                    "file_path": pdf_path,
-                    "collection_id": collection_id
-                }
-            )
-            documents.append(doc)
+        pages_data = extract_text_from_pdf(pdf_path)
+        if pages_data:
+            for page_entry in pages_data:
+                doc = Document(
+                    page_content=page_entry["text"],
+                    metadata={
+                        "source": os.path.basename(pdf_path),
+                        "file_path": pdf_path,
+                        "collection_id": collection_id,
+                        "page": str(page_entry["page"])
+                    }
+                )
+                documents.append(doc)
 
     if not documents:
         logger.error("No text could be extracted from any PDF")
