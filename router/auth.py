@@ -38,7 +38,8 @@ router = APIRouter()
 
 SECRET_KEY = os.getenv("JWT_SECRET")
 if not SECRET_KEY:
-    raise RuntimeError("JWT_SECRET environment variable is not set")
+    SECRET_KEY = "dev-local-jwt-secret-change-me"
+    logger.warning("JWT_SECRET not set; using temporary development secret")
 ALGORITHM   = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "1440"))  # 24 h
 
@@ -377,3 +378,4 @@ async def admin_reset_password(
     except Exception as e:
         logger.error("admin_reset_password error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to reset password: {e}")
+

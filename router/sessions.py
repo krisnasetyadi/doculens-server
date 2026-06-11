@@ -62,9 +62,6 @@ class SessionSummary(BaseModel):
 # DB helpers
 # ---------------------------------------------------------------------------
 
-_tables_ensured = False
-
-
 def _get_conn():
     """Return a psycopg2 RealDictCursor connection or None if unavailable."""
     database_url = os.getenv("DATABASE_URL")
@@ -84,6 +81,9 @@ def _get_conn():
     except Exception as e:
         logger.warning("sessions: DB connection failed: %s", e)
         return None
+
+
+_tables_ensured = False
 
 
 def _ensure_tables(conn):

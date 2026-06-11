@@ -40,6 +40,38 @@ class UploadResponse(BaseModel):
     collection_id: str
     file_count: int
     status: str
+    file_names: Optional[List[str]] = None
+    title: Optional[str] = None
+
+
+class UploadFromUrlRequest(BaseModel):
+    url: str
+    title: Optional[str] = None
+
+
+class UploadFromUrlsRequest(BaseModel):
+    urls: List[str]
+    title: Optional[str] = None
+
+
+class DriveFolderRequest(BaseModel):
+    url: str
+    recursive: Optional[bool] = True
+    max_depth: Optional[int] = 5
+
+
+class DriveFolderItem(BaseModel):
+    id: str
+    name: str
+    url: str
+    item_type: str
+
+
+class DriveFolderItemsResponse(BaseModel):
+    folder_id: str
+    files: List[DriveFolderItem]
+    folders: List[DriveFolderItem]
+    count: int
 
 
 class QAResponse(BaseModel):
@@ -55,6 +87,7 @@ class CollectionInfo(BaseModel):
     document_count: int
     created_at: Union[str, datetime]
     file_names: List[str]
+    title: Optional[str] = None
 
 class DatabaseResult(BaseModel):
     table: str
@@ -189,31 +222,17 @@ class ChatSearchResult(BaseModel):
     relevance_score: float
     context_messages: Optional[List[ChatMessage]] = None  # Surrounding messages for context
 
-# models.py - Enhanced response model with comprehensive metadata
+# models.py - tambahkan enhanced response model
 class EnhancedHybridResponse(BaseModel):
-    """Enhanced hybrid query response with detailed metadata and conflict detection"""
     answer: str
-    
-    # Comprehensive metadata about answer generation
-    answer_metadata: Dict[str, Any]  # Contains: confidence_score, primary_intent, sources_used,
-                                      # search_strategy, conflicts_detected, exact_matches,
-                                      # boost_applied, ranking_algorithm, processing_steps,
-                                      # total_results_processed, conflict_details, model_used
-    
-    # Source information
-    pdf_sources: List[str]  # Simple list (backward compatible)
-    pdf_sources_detailed: Optional[List[PdfSourceInfo]] = None  # Detailed with URLs and previews
-    db_results: Dict[str, Any]  # Database query results by table
-    chat_results: Optional[List[Dict[str, Any]]] = None  # Chat log search results
-    
-    # Processing info
+    answer_metadata: Dict[str, Any]
+    pdf_sources: List[str]
+    pdf_sources_detailed: Optional[List[PdfSourceInfo]] = None
+    db_results: Dict[str, Any]
+    chat_results: Optional[List[Dict[str, Any]]] = None
     processing_time: float
-    search_analysis: Dict[str, Any]  # Query intent and search strategy analysis
-    merged_results_preview: Optional[List[Dict[str, Any]]] = None  # Top merged results
-    
-    # Conflict detection and resolution
-    conflicts: Optional[List[Dict[str, Any]]] = None  # Detected conflicts with resolution recommendations
-    
-    # Model identification
-    model_used: str  # LLM model identifier (e.g., "huggingface/flan-t5-base")
+    search_analysis: Dict[str, Any]
+    merged_results_preview: Optional[List[Dict[str, Any]]] = None
+    conflicts: Optional[List[Dict[str, Any]]] = None
+    model_used: str
     confidence_score: float  # Overall confidence 0-1

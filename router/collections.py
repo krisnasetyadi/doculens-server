@@ -30,6 +30,7 @@ async def list_collections():
                         document_count=len(row.get("file_names") or []),
                         created_at=row.get("created_at", ""),
                         file_names=row.get("file_names") or [],
+                        title=row.get("title") or None,
                     )
                     for row in rows
                 ]
@@ -51,6 +52,7 @@ async def list_collections():
                         document_count=len(fnames),
                         created_at=col.get("created_at", ""),
                         file_names=fnames,
+                        title=col.get("title") or None,
                     ))
                 return result
 
@@ -79,6 +81,7 @@ async def list_collections():
                         document_count=len(file_names) or 1,
                         created_at=created_at,
                         file_names=file_names,
+                        title=None,
                     ))
 
         logger.info("Listed %d collections from local disk", len(collections))

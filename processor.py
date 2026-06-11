@@ -486,17 +486,31 @@ Answer:"""
         return collections
 
     def get_all_chat_collections(self):
-        """Return list of available chat collection IDs (Supabase DB first, disk fallback)"""
+        """Return list of available chat collection IDs (Supabase DB → S3 scan → local disk)."""
+        # ── Supabase DB first ─────────────────────────────────────────────────
         try:
             import storage as supabase_storage
             if supabase_storage.has_database():
                 rows = supabase_storage.list_chat_collections()
                 if rows:
-                    return [r["collection_id"] for r in rows]
+                    ids = [r["collection_id"] for r in rows]
+                    logger.info("get_all_chat_collections: %d from Supabase DB", len(ids))
+                    return ids
         except Exception as e:
-            logger.warning(f"Supabase list_chat_collections failed: {e}")
+            logger.warning("Supabase list_chat_collections failed: %s", e)
 
-        # Disk fallback
+        # ── S3 bucket scan fallback ───────────────────────────────────────────
+        try:
+            import storage as supabase_storage
+            if supabase_storage.is_enabled():
+                ids = supabase_storage.list_chat_collection_ids_from_s3()
+                if ids:
+                    logger.info("get_all_chat_collections: %d from S3 scan", len(ids))
+                    return ids
+        except Exception as e:
+            logger.warning("S3 chat collection scan failed: %s", e)
+
+        # ── Local disk fallback ───────────────────────────────────────────────
         collections = []
         if not os.path.exists(config.chat_index_folder):
             return collections
@@ -505,6 +519,7 @@ Answer:"""
             if (os.path.isdir(entry_path) and
                     os.path.exists(os.path.join(entry_path, "index.faiss"))):
                 collections.append(entry)
+        logger.info("get_all_chat_collections: %d from local disk", len(collections))
         return collections
 
     def get_chat_vector_store(self, collection_id: str):
@@ -2178,7 +2193,7 @@ DOKUMEN YANG TERSEDIA:
 PERTANYAAN: {question}
 
 INSTRUKSI PENTING:
-- Jawab HANYA berdasarkan informasi di dokumen di atas
+- Jawab HANYA berdasarkan informasi di dokumen yang sudah tersedia.
 - Jika informasi tidak ada dalam dokumen, katakan: "Informasi ini tidak ditemukan dalam dokumen yang diunggah."
 - JANGAN gunakan pengetahuan umum atau informasi dari luar dokumen
 - Gunakan bullet points atau daftar poin-poin HANYA jika dokumen asli menyebutkan daftar terpisah atau beberapa item yang terdaftar secara terpisah. Jika dokumen asli berisi narasi atau teks aslinya berupa penjelasan paragraf mengalir terus-menerus (seperti paragraf utuh tunggal), pertahankan sebagai paragraf mengalir/narasi utuh apa adanya tanpa dibuat menjadi poin-poin terpisah.
@@ -2189,10 +2204,12 @@ JAWABAN:"""
     def _validate_and_clean_answer(self, answer: str, question: str, results: List[Dict]) -> str:
         """Validate dan clean LLM answer"""
         
-        # Check for common LLM failure patterns
+        # Check for common LLM failure patterns including prompt echo from small models
         failure_patterns = [
             "maaf,", "tidak tahu", "tidak menemukan", "no information",
-            "based on the context", "context:", "question:", "answer:"
+            "based on the context", "context:", "question:", "answer:",
+            "- hanya berdasar", "jangan gunakan", "instruksi penting",
+            "jawab hanya berdasarkan", "informasi tidak ditemukan dalam dokumen yang diunggah"
         ]
         
         if any(pattern in answer.lower() for pattern in failure_patterns):

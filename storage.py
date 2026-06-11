@@ -23,6 +23,7 @@ import json
 import logging
 import os
 from typing import Any, Dict, List, Optional
+from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,24 @@ _CHAT_INDICES_BUCKET = "chat-indices"
 _migration_done = False
 
 
+def _database_url() -> Optional[str]:
+    url = os.getenv("DATABASE_URL") or getattr(config, "database_url", None)
+    if not url:
+        return None
+    if "sslmode=" not in url:
+        separator = "&" if "?" in url else "?"
+        url = f"{url}{separator}sslmode=require"
+    return url
+
+
+def _s3_settings() -> tuple[Optional[str], Optional[str], Optional[str], str]:
+    access_key = os.getenv("SUPABASE_S3_ACCESS_KEY_ID") or getattr(config, "supabase_s3_access_key_id", None)
+    secret_key = os.getenv("SUPABASE_S3_SECRET_KEY") or getattr(config, "supabase_s3_secret_key", None)
+    endpoint = os.getenv("SUPABASE_S3_ENDPOINT") or getattr(config, "supabase_s3_endpoint", None)
+    region = os.getenv("SUPABASE_S3_REGION") or getattr(config, "supabase_s3_region", "ap-southeast-1")
+    return access_key, secret_key, endpoint, region
+
+
 # ---------------------------------------------------------------------------
 # Auto-migration
 # ---------------------------------------------------------------------------
@@ -43,7 +62,7 @@ def ensure_schema():
     global _migration_done
     if _migration_done:
         return
-    database_url = os.getenv("DATABASE_URL")
+    database_url = _database_url()
     if not database_url:
         logger.warning("ensure_schema: DATABASE_URL not set — skipping auto-migration")
         _migration_done = True
@@ -52,23 +71,22 @@ def ensure_schema():
     try:
         import psycopg2
         # Embed sslmode in URL to avoid kwarg conflict with pooler DSN
-        _url = database_url
-        if "sslmode=" not in _url:
-            _sep = "&" if "?" in _url else "?"
-            _url = _url + _sep + "sslmode=require"
-        conn = psycopg2.connect(_url, connect_timeout=10)
+        conn = psycopg2.connect(database_url, connect_timeout=10)
         conn.autocommit = True
         with conn.cursor() as cur:
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS pdf_collections (
                     id            BIGSERIAL PRIMARY KEY,
                     collection_id TEXT        NOT NULL UNIQUE,
+                    title         TEXT        NOT NULL DEFAULT '',
                     file_names    TEXT[]      NOT NULL DEFAULT '{}',
                     chunk_count   INTEGER     NOT NULL DEFAULT 0,
                     storage_paths TEXT[]      NOT NULL DEFAULT '{}',
                     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
+                ALTER TABLE pdf_collections
+                    ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '';
                 CREATE INDEX IF NOT EXISTS idx_pdf_collections_cid
                     ON pdf_collections (collection_id);
                 CREATE INDEX IF NOT EXISTS idx_pdf_collections_created
@@ -145,10 +163,7 @@ def ensure_schema():
 
 def _s3_client():
     """Return a boto3 S3 client pointed at Supabase Storage, or None."""
-    access_key = os.getenv("SUPABASE_S3_ACCESS_KEY_ID")
-    secret_key = os.getenv("SUPABASE_S3_SECRET_KEY")
-    endpoint   = os.getenv("SUPABASE_S3_ENDPOINT")
-    region     = os.getenv("SUPABASE_S3_REGION", "ap-southeast-1")
+    access_key, secret_key, endpoint, region = _s3_settings()
     if not (access_key and secret_key and endpoint):
         return None
     try:
@@ -172,11 +187,8 @@ def _s3_client():
 
 def is_enabled() -> bool:
     """True if S3 credentials are present."""
-    return bool(
-        os.getenv("SUPABASE_S3_ACCESS_KEY_ID")
-        and os.getenv("SUPABASE_S3_SECRET_KEY")
-        and os.getenv("SUPABASE_S3_ENDPOINT")
-    )
+    access_key, secret_key, endpoint, _ = _s3_settings()
+    return bool(access_key and secret_key and endpoint)
 
 
 def list_collection_ids_from_s3() -> List[str]:
@@ -256,7 +268,7 @@ def list_chat_collection_ids_from_s3() -> List[str]:
 
 
 def has_database() -> bool:
-    return bool(os.getenv("DATABASE_URL"))
+    return bool(_database_url())
 
 
 # ---------------------------------------------------------------------------
@@ -264,14 +276,13 @@ def has_database() -> bool:
 # ---------------------------------------------------------------------------
 
 def _db_conn():
-    url = os.getenv("DATABASE_URL")
+    url = _database_url()
     if not url:
         return None
     try:
         import psycopg2
         from psycopg2.extras import RealDictCursor
-        conn = psycopg2.connect(url, sslmode="require",
-                                cursor_factory=RealDictCursor)
+        conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
         conn.autocommit = True
         return conn
     except Exception as e:
@@ -432,6 +443,7 @@ def register_collection(
     collection_id: str,
     file_names: List[str],
     chunk_count: int,
+    title: Optional[str] = None,
     storage_paths: Optional[List[str]] = None,
 ) -> bool:
     ensure_schema()
@@ -444,14 +456,15 @@ def register_collection(
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO pdf_collections
-                    (collection_id, file_names, chunk_count, storage_paths)
-                VALUES (%s, %s, %s, %s)
+                    (collection_id, title, file_names, chunk_count, storage_paths)
+                VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (collection_id) DO UPDATE SET
+                    title         = EXCLUDED.title,
                     file_names    = EXCLUDED.file_names,
                     chunk_count   = EXCLUDED.chunk_count,
                     storage_paths = EXCLUDED.storage_paths,
                     updated_at    = now()
-            """, (collection_id, file_names, chunk_count, storage_paths or []))
+            """, (collection_id, title or "", file_names, chunk_count, storage_paths or []))
         conn.close()
         logger.info("Registered PDF collection: %s", collection_id)
         return True
@@ -501,7 +514,7 @@ def list_collections() -> List[Dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT collection_id, file_names, chunk_count, storage_paths, created_at, updated_at
+                SELECT collection_id, title, file_names, chunk_count, storage_paths, created_at, updated_at
                 FROM pdf_collections ORDER BY created_at DESC
             """)
             rows = cur.fetchall()
@@ -520,7 +533,7 @@ def get_collection(collection_id: str) -> Optional[Dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT collection_id, file_names, chunk_count, storage_paths, created_at, updated_at
+                SELECT collection_id, title, file_names, chunk_count, storage_paths, created_at, updated_at
                 FROM pdf_collections WHERE collection_id = %s
             """, (collection_id,))
             row = cur.fetchone()
