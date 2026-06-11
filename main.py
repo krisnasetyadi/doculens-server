@@ -84,6 +84,7 @@ from router.chat import router as chat_router
 from router.sessions import router as sessions_router
 from router.auth import router as auth_router
 from router.agnostic import router as agnostic_router
+from router.public_links import router as public_links_router
 
 app.include_router(auth_router, prefix="/api/v1")           # Auth & RBAC
 app.include_router(upload_router, prefix="/api/v1")         # PDF upload
@@ -92,6 +93,7 @@ app.include_router(hybrid_router, prefix="/api/v1")         # Hybrid search
 app.include_router(chat_router, prefix="/api/v1")           # Chat collections
 app.include_router(sessions_router, prefix="/api/v1")       # Chat session history
 app.include_router(agnostic_router, prefix="/api/v1")       # Agnostic queries
+app.include_router(public_links_router, prefix="/api/v1")   # Public link sources
 
 
 @app.get("/")

@@ -74,6 +74,40 @@ class DriveFolderItemsResponse(BaseModel):
     count: int
 
 
+class CreatePublicLinkRequest(BaseModel):
+    title: Optional[str] = None
+    url: str
+    item_urls: Optional[List[str]] = None
+
+
+class SetPublicLinkActiveRequest(BaseModel):
+    link_id: str
+    active: bool
+
+
+class PublicLinkItem(BaseModel):
+    id: str
+    name: str
+    url: str
+    item_type: str
+
+
+class PublicLinkSource(BaseModel):
+    link_id: str
+    workspace_id: Optional[str] = None
+    title: str
+    url: str
+    status: str
+    item_count: int
+    created_at: Union[str, datetime]
+    items: List[PublicLinkItem] = []
+
+
+class PublicLinksResponse(BaseModel):
+    links: List[PublicLinkSource]
+    count: int
+
+
 class QAResponse(BaseModel):
     answer: str
     sources: List[str]  # Now includes collection IDs
@@ -116,10 +150,13 @@ class HybridQueryRequest(BaseModel):
     # Collection Selection (Optional - if not provided, searches all)
     pdf_collection_ids: Optional[List[str]] = None  # Specific PDF collections to search
     chat_collection_ids: Optional[List[str]] = None  # Specific chat collections to search
+    public_link_ids: Optional[List[str]] = None  # Specific Public Link sources to search
     
     include_pdf_results: bool = True
     include_db_results: bool = True
     include_chat_results: bool = True  # NEW: Search in chat logs?
+    include_public_links: bool = False
+    source_mode: Optional[str] = None  # "pdf" | "chat" | "database" | "public_link" | "mixed" | "none"
     
     # LLM Selection (optional - defaults to config if not provided)
     llm_provider: Optional[str] = None  # "huggingface", "ollama", "gemini"

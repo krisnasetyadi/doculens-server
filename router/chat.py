@@ -4,7 +4,7 @@ Chat logs upload and search endpoints
 Handles WhatsApp TXT file uploads and indexing to FAISS
 """
 
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query
 import logging
 import os
 import uuid
@@ -237,6 +237,59 @@ async def list_chat_collections():
                 collections.append({"collection_id": collection_id, "status": "no_metadata"})
     
     return {"collections": collections, "count": len(collections)}
+
+
+@router.get('/chat/collection/{collection_id}/preview')
+async def preview_chat_collection(
+    collection_id: str,
+    max_chars: int = Query(default=20000, ge=500, le=200000),
+):
+    """Return plain-text preview content from an uploaded chat collection file."""
+    collection_info = None
+    if supabase_storage.has_database():
+        try:
+            collection_info = supabase_storage.get_chat_collection(collection_id)
+        except Exception as exc:
+            logger.warning(f"Preview metadata lookup failed for {collection_id}: {exc}")
+
+    upload_dir = os.path.join(config.chat_upload_folder, collection_id)
+    if not os.path.isdir(upload_dir):
+        raise HTTPException(status_code=404, detail="Chat collection file not found")
+
+    preferred_name = None
+    if isinstance(collection_info, dict):
+        preferred_name = collection_info.get("file_name")
+
+    candidate_paths: List[str] = []
+    if preferred_name:
+        candidate_paths.append(os.path.join(upload_dir, preferred_name))
+
+    for entry in sorted(os.listdir(upload_dir)):
+        full_path = os.path.join(upload_dir, entry)
+        if os.path.isfile(full_path):
+            candidate_paths.append(full_path)
+
+    file_path = next((path for path in candidate_paths if os.path.isfile(path)), None)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="No chat file available for preview")
+
+    try:
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
+            content = handle.read(max_chars + 1)
+    except Exception as exc:
+        logger.error(f"Failed reading chat file preview for {collection_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to read chat file")
+
+    truncated = len(content) > max_chars
+    preview_text = content[:max_chars] if truncated else content
+
+    return {
+        "collection_id": collection_id,
+        "file_name": os.path.basename(file_path),
+        "content_preview": preview_text,
+        "truncated": truncated,
+        "max_chars": max_chars,
+    }
 
 
 @router.delete('/chat/collections/{collection_id}')
