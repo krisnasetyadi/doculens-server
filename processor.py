@@ -33,6 +33,7 @@ class PDFQAProcessor:
         self.tokenizer = None
         self.embeddings = None
         self.vector_store_cache = {}
+        self.bm25_cache = {}
         self._cache_lock = threading.RLock()
         self._initialized = False
         self._init_lock = threading.Lock()
@@ -298,16 +299,21 @@ class PDFQAProcessor:
                         )
                         logger.info(f"📄 Found {len(results_with_score)} results")
 
+                        faiss_ranked = []
                         for doc, distance in results_with_score:
                             # Convert L2 distance to similarity score (0-1 range)
-                            # Using formula: similarity = 1 / (1 + distance)
-                            # This ensures higher similarity for lower distances
                             similarity_score = 1.0 / (1.0 + float(distance))
-                            
-                            logger.debug(f"📄 Distance: {distance:.4f}, Similarity: {similarity_score:.4f}, content: {doc.page_content[:50]}...")
-                            
+                            faiss_ranked.append((doc, similarity_score))
+
+                        # Fuse with lexical BM25 ranking (RRF) so exact-term
+                        # matches are not drowned out by dense similarity.
+                        bm25, corpus_docs = self.get_bm25_index(collection_id)
+                        fused = self._rrf_fuse(
+                            expanded_query, faiss_ranked, bm25, corpus_docs, top_k=top_k
+                        )
+
+                        for doc, similarity_score in fused:
                             # Accept all results with reasonable similarity (> 0.05)
-                            # For L2 distance, similarity of 0.05 means distance of ~19
                             if similarity_score > 0.05:
                                 doc.metadata["collection_id"] = collection_id
                                 doc.metadata["similarity_score"] = similarity_score
@@ -901,18 +907,134 @@ Answer:"""
                         logger.warning("Failed loading public link item %s: %s", item_url, exc)
                         continue
 
-                    for doc in loaded_docs:
-                        doc.metadata["source"] = file_name
-                        doc.metadata["file_path"] = file_path
-                        doc.metadata["source_kind"] = "public_link"
-                        doc.metadata["public_link_id"] = link_id
-                        doc.metadata["public_link_title"] = link_title
-                        doc.metadata["public_link_url"] = source.get("url")
-                        doc.metadata["item_url"] = item_url
-                        doc.metadata["collection_id"] = f"public-link:{link_id}" if link_id else "public-link"
-                    documents.extend(loaded_docs)
+                    # Merge all pages of one file into a single Document before
+                    # splitting. Slide-deck PDFs carry only a few words per page,
+                    # so page-level chunks end up as bare headings with no body
+                    # text for the LLM to work with.
+                    merged_text = "\n\n".join(
+                        doc.page_content for doc in loaded_docs if doc.page_content.strip()
+                    )
+                    if not merged_text.strip():
+                        continue
+
+                    merged_doc = Document(
+                        page_content=merged_text,
+                        metadata={
+                            "source": file_name,
+                            "file_path": file_path,
+                            "source_kind": "public_link",
+                            "public_link_id": link_id,
+                            "public_link_title": link_title,
+                            "public_link_url": source.get("url"),
+                            "item_url": item_url,
+                            "collection_id": f"public-link:{link_id}" if link_id else "public-link",
+                        },
+                    )
+                    documents.append(merged_doc)
 
         return documents
+
+    # ── Hybrid sparse+dense retrieval helpers (BM25 + FAISS via RRF) ────────
+
+    def _bm25_tokenize(self, text: str) -> List[str]:
+        return re.findall(r"\w+", (text or "").lower())
+
+    def _build_bm25(self, docs: List[Document]):
+        """Build a BM25 index over documents; returns None when unavailable."""
+        if not docs:
+            return None
+        try:
+            from rank_bm25 import BM25Okapi
+        except ImportError:
+            logger.warning("rank_bm25 not installed; falling back to dense-only retrieval")
+            return None
+        corpus = [self._bm25_tokenize(d.page_content) for d in docs]
+        if not any(corpus):
+            return None
+        try:
+            return BM25Okapi(corpus)
+        except Exception as exc:
+            logger.warning("BM25 index build failed: %s", exc)
+            return None
+
+    def _rrf_fuse(
+        self,
+        query: str,
+        faiss_ranked: List[Tuple[Document, float]],
+        bm25,
+        corpus_docs: List[Document],
+        top_k: int,
+        rrf_k: int = 60,
+    ) -> List[Tuple[Document, float]]:
+        """Fuse FAISS and BM25 rankings with Reciprocal Rank Fusion.
+
+        Returns (doc, display_similarity) pairs ordered by fused score. The
+        display similarity stays FAISS-based so UI "% match" keeps its meaning;
+        BM25-only docs get a conservative floor value.
+        """
+        scores: Dict[int, float] = {}
+        doc_by_key: Dict[int, Tuple[Document, float]] = {}
+
+        def key_of(d: Document) -> int:
+            return hash(d.page_content[:200])
+
+        for rank, (doc, sim) in enumerate(faiss_ranked):
+            k = key_of(doc)
+            doc_by_key.setdefault(k, (doc, sim))
+            scores[k] = scores.get(k, 0.0) + 1.0 / (rrf_k + rank + 1)
+
+        bm25_top_keys: List[int] = []
+        if bm25 is not None and corpus_docs:
+            tokens = self._bm25_tokenize(query)
+            if tokens:
+                bm25_scores = bm25.get_scores(tokens)
+                order = sorted(
+                    range(len(corpus_docs)),
+                    key=lambda i: bm25_scores[i],
+                    reverse=True,
+                )
+                floor_sim = max(
+                    min((s for _, s in faiss_ranked), default=0.1), 0.1
+                )
+                for rank, idx in enumerate(order[: max(top_k * 3, 10)]):
+                    if bm25_scores[idx] <= 0:
+                        break
+                    d = corpus_docs[idx]
+                    k = key_of(d)
+                    doc_by_key.setdefault(k, (d, floor_sim))
+                    scores[k] = scores.get(k, 0.0) + 1.0 / (rrf_k + rank + 1)
+                    if rank < 2:
+                        bm25_top_keys.append(k)
+
+        fused = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+        selected = [k for k, _ in fused[:top_k]]
+
+        # Guaranteed lexical slots: plain RRF favors docs present in BOTH
+        # rankings, which can push the strongest exact-keyword match out of a
+        # small top_k. Always keep BM25's top-2 hits in the result.
+        guaranteed = [k for k in bm25_top_keys if k not in selected]
+        if guaranteed and top_k > len(guaranteed):
+            keep = [k for k in selected if k not in guaranteed]
+            selected = (keep[: top_k - len(guaranteed)] + guaranteed)[:top_k]
+
+        return [doc_by_key[k] for k in selected]
+
+    def get_bm25_index(self, collection_id: str):
+        """Lazily build and cache a BM25 index over an indexed collection's chunks."""
+        with self._cache_lock:
+            if collection_id in self.bm25_cache:
+                return self.bm25_cache[collection_id]
+            vector_store = self.vector_store_cache.get(collection_id)
+            if vector_store is None:
+                return None, []
+            try:
+                docs = list(vector_store.docstore._dict.values())
+            except Exception as exc:
+                logger.warning("BM25: could not read docstore for %s: %s", collection_id, exc)
+                return None, []
+            entry = (self._build_bm25(docs), docs)
+            self.bm25_cache[collection_id] = entry
+            return entry
 
     def search_public_links_realtime(
         self,
@@ -928,20 +1050,32 @@ Answer:"""
             logger.info("No readable realtime documents found for public links")
             return []
 
+        # Larger chunks than the global config: public-link sources are often
+        # slide decks whose per-page text is tiny, so chunks must span several
+        # pages to give the LLM usable context.
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=config.chunk_size,
-            chunk_overlap=config.chunk_overlap,
+            chunk_size=config.public_link_chunk_size,
+            chunk_overlap=config.public_link_chunk_overlap,
         )
         chunks = text_splitter.split_documents(documents)
         if not chunks:
             return []
 
         vector_store = FAISS.from_documents(chunks, self.embeddings)
-        results_with_score = vector_store.similarity_search_with_score(query, k=max(top_k, 1))
+        # Wider FAISS candidate pool than top_k so RRF fusion with BM25 has
+        # dense scores for (nearly) every lexical match it promotes.
+        k_faiss = min(len(chunks), max(top_k * 3, 10))
+        results_with_score = vector_store.similarity_search_with_score(query, k=k_faiss)
+
+        faiss_ranked: List[Tuple[Document, float]] = []
+        for doc, distance in results_with_score:
+            faiss_ranked.append((doc, 1.0 / (1.0 + float(distance))))
+
+        bm25 = self._build_bm25(chunks)
+        fused = self._rrf_fuse(query, faiss_ranked, bm25, chunks, top_k=max(top_k, 1))
 
         realtime_results: List[Document] = []
-        for doc, distance in results_with_score:
-            similarity_score = 1.0 / (1.0 + float(distance))
+        for doc, similarity_score in fused:
             if similarity_score <= 0.05:
                 continue
             doc.metadata["similarity_score"] = similarity_score
@@ -956,12 +1090,15 @@ Answer:"""
             if collection_id:
                 if collection_id in self.vector_store_cache:
                     del self.vector_store_cache[collection_id]
+                if collection_id in self.bm25_cache:
+                    del self.bm25_cache[collection_id]
                 # Also check chat cache
                 chat_key = f"chat_{collection_id}"
                 if chat_key in self.vector_store_cache:
                     del self.vector_store_cache[chat_key]
             else:
                 self.vector_store_cache.clear()
+                self.bm25_cache.clear()
 
     def initialize_database(self):
         """Initialize database connection"""
@@ -1676,10 +1813,12 @@ Answer:"""
 
         if include_public_links and public_link_weight > 0 and public_link_sources:
             logger.info(f"🌐 Searching active public links in realtime (weight: {public_link_weight})...")
+            # Wider top_k than k_per_collection: public links span many files,
+            # and the answer stage can consume up to 8 snippets.
             public_link_docs = self.search_public_links_realtime(
                 question,
                 public_link_sources=public_link_sources,
-                top_k=int(config.k_per_collection * public_link_weight),
+                top_k=max(int(config.k_per_collection * public_link_weight), 8),
             )
             for doc in public_link_docs:
                 if 'similarity_score' in doc.metadata:
@@ -2259,9 +2398,11 @@ Answer:"""
         context_parts = []
         source_breakdown = {"pdf": 0, "database": 0, "chat": 0, "public_link": 0}
         
-        # Limit to top 3 results and shorter snippets for small models
-        max_results = 3 if 'flan-t5' in model_id.lower() else 5
-        max_content_len = 150 if 'flan-t5' in model_id.lower() else 300
+        # Limit to top 3 results and shorter snippets for small models.
+        # Large-context models (Gemini) get full chunks: truncating to a few
+        # hundred chars discards the very passage retrieval worked to find.
+        max_results = 3 if 'flan-t5' in model_id.lower() else 8
+        max_content_len = 150 if 'flan-t5' in model_id.lower() else 2000
         
         for i, result in enumerate(merged_results[:max_results]):
             source_type = result['type']

@@ -92,6 +92,12 @@ class Config(BaseSettings):
     chat_chunk_size: int = Field(default=300)
     chat_chunk_overlap: int = Field(default=50)
 
+    # Public-link realtime retrieval (larger chunks: sources are often slide
+    # decks whose per-page text is tiny). Override via env:
+    # PUBLIC_LINK_CHUNK_SIZE / PUBLIC_LINK_CHUNK_OVERLAP
+    public_link_chunk_size: int = Field(default=2000)
+    public_link_chunk_overlap: int = Field(default=300)
+
     # Database Configuration
     # Option 1: Use DATABASE_URL (recommended for cloud: Neon, Supabase)
     database_url: Optional[str] = Field(default=None)
