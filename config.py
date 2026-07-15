@@ -85,7 +85,7 @@ class Config(BaseSettings):
     chunk_size: int = Field(default=500)
     chunk_overlap: int = Field(default=50)
     k_results: int = Field(default=5)
-    k_per_collection: int = Field(default=3)
+    k_per_collection: int = Field(default=5)
     total_k_results: int = Field(default=10)
     
     # Chat-specific retrieval

@@ -1007,12 +1007,31 @@ Answer:"""
                         bm25_top_keys.append(k)
 
         fused = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
-        selected = [k for k, _ in fused[:top_k]]
 
-        # Guaranteed lexical slots: plain RRF favors docs present in BOTH
+        # Per-file diversity cap: without it a couple of large documents can
+        # occupy every slot and crowd out the file that actually answers the
+        # question.
+        max_per_source = 2
+        selected: List[int] = []
+        overflow: List[int] = []
+        per_source: Dict[Any, int] = {}
+        for k, _ in fused:
+            src = doc_by_key[k][0].metadata.get("source")
+            if per_source.get(src, 0) < max_per_source:
+                selected.append(k)
+                per_source[src] = per_source.get(src, 0) + 1
+            else:
+                overflow.append(k)
+            if len(selected) >= top_k:
+                break
+        if len(selected) < top_k:
+            selected.extend(overflow[: top_k - len(selected)])
+
+        # Guaranteed lexical slot: plain RRF favors docs present in BOTH
         # rankings, which can push the strongest exact-keyword match out of a
-        # small top_k. Always keep BM25's top-2 hits in the result.
-        guaranteed = [k for k in bm25_top_keys if k not in selected]
+        # small top_k. Keep BM25's single best hit in the result (one slot
+        # only — two slots crowded out dense hits when top_k is small).
+        guaranteed = [k for k in bm25_top_keys[:1] if k not in selected]
         if guaranteed and top_k > len(guaranteed):
             keep = [k for k in selected if k not in guaranteed]
             selected = (keep[: top_k - len(guaranteed)] + guaranteed)[:top_k]
@@ -2407,19 +2426,26 @@ Answer:"""
         for i, result in enumerate(merged_results[:max_results]):
             source_type = result['type']
             source_breakdown[source_type] += 1
-            
-            # Extract most relevant part around keywords
-            content_snippet = self._extract_relevant_snippet(result['content'], question)
-            
+
+            if 'flan-t5' in model_id.lower():
+                # Small-context models need keyword-window extraction
+                content_snippet = self._extract_relevant_snippet(result['content'], question)
+            else:
+                # Large-context models (Gemini) get the retrieved chunk as-is,
+                # matching the research notebook pipeline: keyword-window
+                # extraction on messy PDF text often clips out the relevant
+                # passage that retrieval already found.
+                content_snippet = result['content']
+
             # Truncate if too long based on model
             if len(content_snippet) > max_content_len:
                 content_snippet = content_snippet[:max_content_len] + "..."
-            
+
             context_parts.append(
-                f"[{i+1}] {result['source']}: {content_snippet}"
+                f"[Sumber {i+1} — {result['source']}]:\n{content_snippet}"
             )
-        
-        context = "\n\n".join(context_parts)
+
+        context = "\n\n---\n\n".join(context_parts)
         
         # Build enhanced prompt berdasarkan intent
         if intent_analysis.get('is_aggregation'):
@@ -2504,7 +2530,9 @@ Pertanyaan: {question}
 
 INSTRUKSI PENTING:
 - Jawab HANYA berdasarkan isi dokumen di atas
-- Jika tidak ada informasi yang relevan, katakan: "Informasi ini tidak ditemukan dalam dokumen yang diunggah."
+- Jika dokumen memuat informasi yang berkaitan sebagian dengan pertanyaan, jawab sebaik mungkin dari bagian yang relevan itu dan sebutkan bahwa informasinya terbatas
+- Jika dokumen mengandung angka, tabel, atau data — ekstrak dan tampilkan langsung dalam jawaban
+- Katakan "Informasi ini tidak ditemukan dalam dokumen yang diunggah." HANYA jika tidak ada satu pun bagian dokumen yang berkaitan dengan pertanyaan
 - JANGAN gunakan pengetahuan umum atau informasi dari luar dokumen
 - Jawab ringkas dan jelas dalam Bahasa Indonesia
 
@@ -2539,7 +2567,8 @@ PERTANYAAN: {question}
 
 INSTRUKSI PENTING:
 - Jawab HANYA berdasarkan informasi di dokumen yang sudah tersedia.
-- Jika informasi tidak ada dalam dokumen, katakan: "Informasi ini tidak ditemukan dalam dokumen yang diunggah."
+- Jika dokumen memuat informasi yang berkaitan sebagian dengan pertanyaan, jawab sebaik mungkin dari bagian yang relevan itu dan sebutkan bahwa informasinya terbatas.
+- Katakan "Informasi ini tidak ditemukan dalam dokumen yang diunggah." HANYA jika tidak ada satu pun bagian dokumen yang berkaitan dengan pertanyaan.
 - JANGAN gunakan pengetahuan umum atau informasi dari luar dokumen
 - Gunakan bullet points atau daftar poin-poin HANYA jika dokumen asli menyebutkan daftar terpisah atau beberapa item yang terdaftar secara terpisah. Jika dokumen asli berisi narasi atau teks aslinya berupa penjelasan paragraf mengalir terus-menerus (seperti paragraf utuh tunggal), pertahankan sebagai paragraf mengalir/narasi utuh apa adanya tanpa dibuat menjadi poin-poin terpisah.
 - Jawab dengan jelas dalam Bahasa Indonesia
