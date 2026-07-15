@@ -2,9 +2,10 @@
 # This file is a one-off script / dev utility and is no longer needed.
 # Safe to delete after confirming no active references.
 # -------------------------------------------------------------------
+import os
 import psycopg2
 
-DB_URL = 'postgresql://neondb_owner:npg_oL9hyFqOPEB3@ep-broad-glitter-a45az27j-pooler.us-east-1.aws.neon.tech/neondb?sslmode=require'
+DB_URL = os.environ["DATABASE_URL"]
 
 conn = psycopg2.connect(DB_URL)
 cur = conn.cursor()

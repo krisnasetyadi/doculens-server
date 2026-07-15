@@ -11,7 +11,7 @@ Falls back to in-memory dict if DATABASE_URL is not set or DB is unreachable.
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-from typing import List, Optional, Dict
+from typing import List, Optional
 from datetime import datetime, timezone
 import logging
 import uuid
@@ -135,11 +135,12 @@ def _ts(val) -> str:
     return str(val)
 
 
-# ---------------------------------------------------------------------------
-# In-memory fallback (when no DATABASE_URL or DB unreachable)
-# ---------------------------------------------------------------------------
-
-_memory_store: Dict[str, dict] = {}
+def _get_required_conn():
+    conn = _get_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Session database unavailable")
+    _ensure_tables(conn)
+    return conn
 
 
 # ---------------------------------------------------------------------------
@@ -168,10 +169,9 @@ async def sessions_debug():
         except Exception as e:
             return {"storage": "postgresql_error", "error": str(e), "db_url_set": has_db_url}
     return {
-        "storage": "memory",
-        "session_count": len(_memory_store),
+        "storage": "unavailable",
         "db_url_set": has_db_url,
-        "note": "DATABASE_URL missing or unreachable - sessions lost on restart",
+        "note": "DATABASE_URL missing or unreachable - session APIs require PostgreSQL",
     }
 
 
@@ -182,241 +182,191 @@ async def upsert_session(body: UpsertSessionRequest):
     Session metadata goes into chat_sessions.
     Each message is upserted into chat_messages (by message_id).
     """
-    now = datetime.now(timezone.utc).isoformat()
     sid = body.session_id or str(uuid.uuid4())
+    conn = _get_required_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO chat_sessions
+                    (session_id, title, pdf_collections, chat_collections, created_at, updated_at)
+                VALUES (%s, %s, %s, %s, now(), now())
+                ON CONFLICT (session_id) DO UPDATE
+                    SET title            = EXCLUDED.title,
+                        pdf_collections  = EXCLUDED.pdf_collections,
+                        chat_collections = EXCLUDED.chat_collections,
+                        updated_at       = now()
+                RETURNING session_id, title, pdf_collections, chat_collections,
+                          created_at, updated_at
+            """, (
+                sid,
+                body.title,
+                body.pdf_collections or [],
+                body.chat_collections or [],
+            ))
+            session_row = cur.fetchone()
 
-    conn = _get_conn()
-    if conn:
-        _ensure_tables(conn)
-        try:
-            with conn.cursor() as cur:
-                # 1. Upsert session row
+            for m in body.messages:
                 cur.execute("""
-                    INSERT INTO chat_sessions
-                        (session_id, title, pdf_collections, chat_collections, created_at, updated_at)
-                    VALUES (%s, %s, %s, %s, now(), now())
-                    ON CONFLICT (session_id) DO UPDATE
-                        SET title            = EXCLUDED.title,
-                            pdf_collections  = EXCLUDED.pdf_collections,
-                            chat_collections = EXCLUDED.chat_collections,
-                            updated_at       = now()
-                    RETURNING session_id, title, pdf_collections, chat_collections,
-                              created_at, updated_at
+                    INSERT INTO chat_messages
+                        (message_id, session_id, role, content, model_used, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (message_id) DO UPDATE
+                        SET content    = EXCLUDED.content,
+                            model_used = EXCLUDED.model_used
                 """, (
+                    m.id,
                     sid,
-                    body.title,
-                    body.pdf_collections or [],
-                    body.chat_collections or [],
+                    m.role,
+                    m.content,
+                    m.model_used,
+                    m.created_at,
                 ))
-                session_row = cur.fetchone()
 
-                # 2. Upsert each message (idempotent on message_id)
-                for m in body.messages:
-                    cur.execute("""
-                        INSERT INTO chat_messages
-                            (message_id, session_id, role, content, model_used, created_at)
-                        VALUES (%s, %s, %s, %s, %s, %s)
-                        ON CONFLICT (message_id) DO UPDATE
-                            SET content    = EXCLUDED.content,
-                                model_used = EXCLUDED.model_used
-                    """, (
-                        m.id,
-                        sid,
-                        m.role,
-                        m.content,
-                        m.model_used,
-                        m.created_at,
-                    ))
+            cur.execute("""
+                SELECT message_id, role, content, model_used, created_at
+                FROM chat_messages
+                WHERE session_id = %s
+                ORDER BY created_at ASC, id ASC
+            """, (sid,))
+            msg_rows = cur.fetchall()
 
-                # 3. Return all messages for this session
-                cur.execute("""
-                    SELECT message_id, role, content, model_used, created_at
-                    FROM chat_messages
-                    WHERE session_id = %s
-                    ORDER BY created_at ASC, id ASC
-                """, (sid,))
-                msg_rows = cur.fetchall()
-
+        return SessionResponse(
+            session_id=session_row["session_id"],
+            title=session_row["title"],
+            created_at=_ts(session_row["created_at"]),
+            updated_at=_ts(session_row["updated_at"]),
+            messages=[
+                StoredMessage(
+                    id=r["message_id"],
+                    role=r["role"],
+                    content=r["content"],
+                    model_used=r["model_used"],
+                    created_at=_ts(r["created_at"]),
+                )
+                for r in msg_rows
+            ],
+            pdf_collections=list(session_row["pdf_collections"] or []),
+            chat_collections=list(session_row["chat_collections"] or []),
+        )
+    except Exception as e:
+        logger.error("sessions upsert DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to persist session")
+    finally:
+        try:
             conn.close()
-            return SessionResponse(
-                session_id=session_row["session_id"],
-                title=session_row["title"],
-                created_at=_ts(session_row["created_at"]),
-                updated_at=_ts(session_row["updated_at"]),
-                messages=[
-                    StoredMessage(
-                        id=r["message_id"],
-                        role=r["role"],
-                        content=r["content"],
-                        model_used=r["model_used"],
-                        created_at=_ts(r["created_at"]),
-                    )
-                    for r in msg_rows
-                ],
-                pdf_collections=list(session_row["pdf_collections"] or []),
-                chat_collections=list(session_row["chat_collections"] or []),
-            )
-        except Exception as e:
-            logger.error("sessions upsert DB error: %s", e)
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-    # Memory fallback
-    existing = _memory_store.get(sid, {})
-    record = {
-        "session_id": sid,
-        "title": body.title,
-        "messages": [m.model_dump() for m in body.messages],
-        "pdf_collections": body.pdf_collections or [],
-        "chat_collections": body.chat_collections or [],
-        "created_at": existing.get("created_at", now),
-        "updated_at": now,
-    }
-    _memory_store[sid] = record
-    return SessionResponse(**record)
+        except Exception:
+            pass
 
 
 @router.get("/sessions", response_model=List[SessionSummary])
 async def list_sessions():
     """Return all sessions ordered by most recent, with message counts."""
-    conn = _get_conn()
-    if conn:
-        _ensure_tables(conn)
-        try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT s.session_id,
-                           s.title,
-                           s.pdf_collections,
-                           s.chat_collections,
-                           s.created_at,
-                           s.updated_at,
-                           COUNT(m.id) AS message_count
-                    FROM chat_sessions s
-                    LEFT JOIN chat_messages m ON m.session_id = s.session_id
-                    GROUP BY s.session_id, s.title, s.pdf_collections,
-                             s.chat_collections, s.created_at, s.updated_at
-                    ORDER BY s.updated_at DESC
-                    LIMIT 200
-                """)
-                rows = cur.fetchall()
-            conn.close()
-            return [
-                SessionSummary(
-                    session_id=r["session_id"],
-                    title=r["title"],
-                    message_count=int(r["message_count"] or 0),
-                    created_at=_ts(r["created_at"]),
-                    updated_at=_ts(r["updated_at"]),
-                    pdf_collections=list(r["pdf_collections"] or []),
-                    chat_collections=list(r["chat_collections"] or []),
-                )
-                for r in rows
-            ]
-        except Exception as e:
-            logger.error("sessions list DB error: %s", e)
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-    # Memory fallback
-    return sorted(
-        [
+    conn = _get_required_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT s.session_id,
+                       s.title,
+                       s.pdf_collections,
+                       s.chat_collections,
+                       s.created_at,
+                       s.updated_at,
+                       COUNT(m.id) AS message_count
+                FROM chat_sessions s
+                LEFT JOIN chat_messages m ON m.session_id = s.session_id
+                GROUP BY s.session_id, s.title, s.pdf_collections,
+                         s.chat_collections, s.created_at, s.updated_at
+                ORDER BY s.updated_at DESC
+                LIMIT 200
+            """)
+            rows = cur.fetchall()
+        return [
             SessionSummary(
-                session_id=v["session_id"],
-                title=v["title"],
-                message_count=len(v["messages"]),
-                created_at=v["created_at"],
-                updated_at=v["updated_at"],
-                pdf_collections=v["pdf_collections"],
-                chat_collections=v["chat_collections"],
+                session_id=r["session_id"],
+                title=r["title"],
+                message_count=int(r["message_count"] or 0),
+                created_at=_ts(r["created_at"]),
+                updated_at=_ts(r["updated_at"]),
+                pdf_collections=list(r["pdf_collections"] or []),
+                chat_collections=list(r["chat_collections"] or []),
             )
-            for v in _memory_store.values()
-        ],
-        key=lambda s: s.updated_at,
-        reverse=True,
-    )
+            for r in rows
+        ]
+    except Exception as e:
+        logger.error("sessions list DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to list sessions")
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 @router.get("/sessions/{session_id}", response_model=SessionResponse)
 async def get_session(session_id: str):
     """Return full session including all messages from chat_messages table."""
-    conn = _get_conn()
-    if conn:
-        _ensure_tables(conn)
+    conn = _get_required_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT session_id, title, pdf_collections, chat_collections,
+                       created_at, updated_at
+                FROM chat_sessions WHERE session_id = %s
+            """, (session_id,))
+            session_row = cur.fetchone()
+            if not session_row:
+                raise HTTPException(status_code=404, detail="Session not found")
+
+            cur.execute("""
+                SELECT message_id, role, content, model_used, created_at
+                FROM chat_messages
+                WHERE session_id = %s
+                ORDER BY created_at ASC, id ASC
+            """, (session_id,))
+            msg_rows = cur.fetchall()
+        return SessionResponse(
+            session_id=session_row["session_id"],
+            title=session_row["title"],
+            created_at=_ts(session_row["created_at"]),
+            updated_at=_ts(session_row["updated_at"]),
+            messages=[
+                StoredMessage(
+                    id=r["message_id"],
+                    role=r["role"],
+                    content=r["content"],
+                    model_used=r["model_used"],
+                    created_at=_ts(r["created_at"]),
+                )
+                for r in msg_rows
+            ],
+            pdf_collections=list(session_row["pdf_collections"] or []),
+            chat_collections=list(session_row["chat_collections"] or []),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("sessions get DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to load session")
+    finally:
         try:
-            with conn.cursor() as cur:
-                cur.execute("""
-                    SELECT session_id, title, pdf_collections, chat_collections,
-                           created_at, updated_at
-                    FROM chat_sessions WHERE session_id = %s
-                """, (session_id,))
-                session_row = cur.fetchone()
-                if not session_row:
-                    conn.close()
-                    raise HTTPException(status_code=404, detail="Session not found")
-
-                cur.execute("""
-                    SELECT message_id, role, content, model_used, created_at
-                    FROM chat_messages
-                    WHERE session_id = %s
-                    ORDER BY created_at ASC, id ASC
-                """, (session_id,))
-                msg_rows = cur.fetchall()
             conn.close()
-            return SessionResponse(
-                session_id=session_row["session_id"],
-                title=session_row["title"],
-                created_at=_ts(session_row["created_at"]),
-                updated_at=_ts(session_row["updated_at"]),
-                messages=[
-                    StoredMessage(
-                        id=r["message_id"],
-                        role=r["role"],
-                        content=r["content"],
-                        model_used=r["model_used"],
-                        created_at=_ts(r["created_at"]),
-                    )
-                    for r in msg_rows
-                ],
-                pdf_collections=list(session_row["pdf_collections"] or []),
-                chat_collections=list(session_row["chat_collections"] or []),
-            )
-        except HTTPException:
-            raise
-        except Exception as e:
-            logger.error("sessions get DB error: %s", e)
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-    # Memory fallback
-    record = _memory_store.get(session_id)
-    if not record:
-        raise HTTPException(status_code=404, detail="Session not found")
-    return SessionResponse(**record)
+        except Exception:
+            pass
 
 
 @router.delete("/sessions/{session_id}")
 async def delete_session(session_id: str):
     """Delete a session. Messages are cascade-deleted automatically."""
-    conn = _get_conn()
-    if conn:
-        _ensure_tables(conn)
+    conn = _get_required_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM chat_sessions WHERE session_id = %s", (session_id,))
+        return {"status": "deleted", "session_id": session_id}
+    except Exception as e:
+        logger.error("sessions delete DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to delete session")
+    finally:
         try:
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM chat_sessions WHERE session_id = %s", (session_id,))
             conn.close()
-        except Exception as e:
-            logger.error("sessions delete DB error: %s", e)
-            try:
-                conn.close()
-            except Exception:
-                pass
-
-    _memory_store.pop(session_id, None)
-    return {"status": "deleted", "session_id": session_id}
+        except Exception:
+            pass

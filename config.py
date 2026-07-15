@@ -27,7 +27,7 @@ def parse_database_url(url: str) -> dict:
 
 class LLMProvider(str, Enum):
     """Supported LLM providers (FREE only)"""
-    HUGGINGFACE = "huggingface"  # Local, free, default
+    HUGGINGFACE = "huggingface"  # Local, free
     GEMINI = "gemini"            # Cloud, free tier (60 req/min)
 
 
@@ -59,6 +59,14 @@ class Config(BaseSettings):
     # Gemini settings (cloud - free tier)
     gemini_api_key: Optional[str] = Field(default=None)
     gemini_model: str = Field(default="gemini-2.5-flash")
+
+    @property
+    def default_llm_provider(self) -> LLMProvider:
+        return LLMProvider.GEMINI
+
+    @property
+    def default_llm_model(self) -> str:
+        return "gemini-2.5-flash"
     
     # Common LLM settings
     embedding_model: str = Field(default="sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2")

@@ -2,13 +2,10 @@
 # This file is a one-off script / dev utility and is no longer needed.
 # Safe to delete after confirming no active references.
 # -------------------------------------------------------------------
+import os
 import psycopg2
 
-conn = psycopg2.connect(
-    "postgresql://neondb_owner:npg_oL9hyFqOPEB3"
-    "@ep-broad-glitter-a45az27j-pooler.us-east-1.aws.neon.tech"
-    "/neondb?sslmode=require"
-)
+conn = psycopg2.connect(os.environ["DATABASE_URL"])
 cur = conn.cursor()
 
 cur.execute("SELECT ticker, company_name, report_period, net_profit_usd_k FROM company_watchlist")

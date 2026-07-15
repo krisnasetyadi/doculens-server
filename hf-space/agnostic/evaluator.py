@@ -292,7 +292,7 @@ class Evaluator:
                 s = self.score(result, ground_truth=gt)
                 rows.append({
                     "No":                   i,
-                    "Question":             q[:55] + ("..." if len(q) > 55 else ""),
+                    "Question":             q,
                     "Retrieval Relevance":  round(s.retrieval_relevance,  3),
                     "Answer Faithfulness":  round(s.answer_faithfulness,  3),
                     "Answer Completeness":  round(s.answer_completeness,  3),
@@ -317,7 +317,7 @@ class Evaluator:
             except Exception as e:
                 print(f"   Error: {e}")
                 rows.append({
-                    "No": i, "Question": q[:55],
+                    "No": i, "Question": q,
                     "Retrieval Relevance": 0, "Answer Faithfulness": 0,
                     "Answer Completeness": 0, "ROUGE-L": 0, "BLEU-1": 0,
                     "Precision@K": 0, "MRR": 0, "Context Coverage": 0,

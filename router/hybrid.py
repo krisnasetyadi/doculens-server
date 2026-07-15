@@ -3,11 +3,12 @@ import logging
 import asyncio
 import os
 from datetime import datetime
-from typing import List, Optional
+from typing import Any, List, Optional
 
 from processor import processor
 from config import config, AVAILABLE_MODELS, LLMProvider
 from models import EnhancedHybridResponse, HybridQueryRequest, HybridResponse, QueryRequest, SearchType, PdfSourceInfo
+from router.public_links import resolve_active_public_link_sources
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -17,8 +18,8 @@ logger = logging.getLogger(__name__)
 async def get_available_models():
     """Get list of available LLM models (all FREE)"""
     return {
-        "default_provider": config.llm_provider.value,
-        "default_model": config.model_name,
+        "default_provider": config.default_llm_provider.value,
+        "default_model": config.default_llm_model,
         "available_models": {provider.value: models for provider, models in AVAILABLE_MODELS.items()},
         "usage_hint": "Send 'llm_provider' and 'llm_model' in your query request to switch models"
     }
@@ -87,7 +88,7 @@ async def hybrid_query(request: HybridQueryRequest, req: Request):
     Hybrid query across PDF documents, database, and chat logs.
     
     Optional LLM selection:
-    - llm_provider: "huggingface" | "gemini" (default: huggingface)
+    - llm_provider: "huggingface" | "gemini" (default: gemini)
     - llm_model: specific model name (see /api/v1/models/available)
     """
     start_time = datetime.now()
@@ -136,34 +137,40 @@ async def hybrid_query(request: HybridQueryRequest, req: Request):
                 logger.warning("⚠️ No chat collections available")
 
         # Check what to search
-        should_search_pdfs = request.include_pdf_results and bool(pdf_collection_ids)
-        should_search_db = request.include_db_results
-        should_search_chat = request.include_chat_results and bool(chat_collection_ids)
+        should_search_pdfs = bool(request.include_pdf_results) and bool(pdf_collection_ids)
+        should_search_db = bool(request.include_db_results)
+        should_search_chat = bool(request.include_chat_results) and bool(chat_collection_ids)
+        public_link_sources = []
+        if bool(request.include_public_links):
+            public_link_sources = await resolve_active_public_link_sources(request.public_link_ids)
+        should_search_public_links = bool(request.include_public_links) and bool(public_link_sources)
 
-        logger.info(f"🔍 Search flags - PDF: {should_search_pdfs} ({len(pdf_collection_ids) if pdf_collection_ids else 0} collections), DB: {should_search_db}, Chat: {should_search_chat} ({len(chat_collection_ids) if chat_collection_ids else 0} collections)")
+        logger.info(f"🔍 Search flags - PDF: {should_search_pdfs} ({len(pdf_collection_ids) if pdf_collection_ids else 0} collections), DB: {should_search_db}, Chat: {should_search_chat} ({len(chat_collection_ids) if chat_collection_ids else 0} collections), PublicLink: {should_search_public_links} ({len(public_link_sources)})")
+
+        answer_text: str
+        model_used_text: str
 
         # No sources at all → answer as app assistant (no RAG needed)
-        if not should_search_pdfs and not should_search_db and not should_search_chat:
-            answer = await asyncio.to_thread(
+        if not should_search_pdfs and not should_search_db and not should_search_chat and not should_search_public_links:
+            no_sources_answer_result: Any = await asyncio.to_thread(
                 processor.generate_hybrid_answer,
                 {"pdf_documents": [], "db_results": [], "chat_documents": []},
                 request.question,
                 request.llm_provider,
                 request.llm_model,
             )
-            if isinstance(answer, tuple):
-                answer = answer[0]
+            answer_text = no_sources_answer_result[0] if isinstance(no_sources_answer_result, tuple) else str(no_sources_answer_result)
             processing_time = (datetime.now() - start_time).total_seconds()
             return HybridResponse(
-                answer=answer,
-                sources=[],
-                processing_time=processing_time,
-                model_used=request.llm_model or config.model_name,
+                answer=answer_text,
                 pdf_sources=[],
                 pdf_sources_detailed=[],
-                db_results=[],
-                chat_sources=[],
-                metadata={"mode": "app_assistant", "no_sources": True},
+                db_results={},
+                chat_results=None,
+                processing_time=processing_time,
+                search_terms=[],
+                target_tables=[],
+                model_used=request.llm_model or config.default_llm_model,
             )
 
         # Perform hybrid search with collection selection
@@ -174,11 +181,13 @@ async def hybrid_query(request: HybridQueryRequest, req: Request):
             should_search_chat,
             should_search_pdfs,
             should_search_db,
-            chat_collection_ids  # Pass chat collections
+            chat_collection_ids,
+            should_search_public_links,
+            public_link_sources,
         )
 
         # Generate answer with optional LLM selection
-        answer_result = await asyncio.to_thread(
+        answer_result: Any = await asyncio.to_thread(
             processor.generate_hybrid_answer, 
             hybrid_results, 
             request.question,
@@ -188,12 +197,12 @@ async def hybrid_query(request: HybridQueryRequest, req: Request):
         
         # Unpack result: now returns (answer, model_used, metadata)
         if isinstance(answer_result, tuple) and len(answer_result) == 3:
-            answer, model_used, _ = answer_result  # Ignore metadata for backward compatibility
+            answer_text, model_used_text, _ = answer_result  # Ignore metadata for backward compatibility
         elif isinstance(answer_result, tuple) and len(answer_result) == 2:
-            answer, model_used = answer_result  # Old format support
+            answer_text, model_used_text = answer_result  # Old format support
         else:
-            answer = str(answer_result)
-            model_used = request.llm_model or config.model_name
+            answer_text = str(answer_result)
+            model_used_text = request.llm_model or config.default_llm_model
 
         # Prepare response
         processing_time = (datetime.now() - start_time).total_seconds()
@@ -236,6 +245,23 @@ async def hybrid_query(request: HybridQueryRequest, req: Request):
                 search_text=search_text
             ))
 
+        for doc in hybrid_results.get('public_link_documents', []):
+            file_name = doc.metadata.get('source', 'Unknown')
+            link_title = doc.metadata.get('public_link_title', 'Public Link')
+            source_info = f"{link_title} / {file_name}"
+            pdf_sources.append(source_info)
+            item_url = doc.metadata.get('item_url')
+            pdf_sources_detailed.append(PdfSourceInfo(
+                file_name=source_info,
+                collection_id=doc.metadata.get('collection_id', 'public-link'),
+                page=doc.metadata.get('page'),
+                relevance_score=doc.metadata.get('similarity_score', 0),
+                content_preview=doc.page_content[:200] + "..." if len(doc.page_content) > 200 else doc.page_content,
+                file_url=item_url,
+                page_url=item_url,
+                search_text=' '.join(doc.page_content.strip().split()[:15]),
+            ))
+
         # Extract chat results
         chat_results = []
         chat_docs = hybrid_results.get('chat_documents', [])
@@ -250,10 +276,10 @@ async def hybrid_query(request: HybridQueryRequest, req: Request):
 
         # Log search results
         target_tables = hybrid_results.get('target_tables', [])
-        logger.info(f"✅ Search completed - Model: {model_used}, PDFs: {len(pdf_sources)}, DB: {len(hybrid_results.get('database_results', {}))}, Chats: {len(chat_results)}")
+        logger.info(f"✅ Search completed - Model: {model_used_text}, PDFs/PublicLinks: {len(pdf_sources)}, DB: {len(hybrid_results.get('database_results', {}))}, Chats: {len(chat_results)}")
 
         return HybridResponse(
-            answer=answer,
+            answer=answer_text,
             pdf_sources=pdf_sources,
             pdf_sources_detailed=pdf_sources_detailed if pdf_sources_detailed else None,
             db_results=hybrid_results.get('database_results', {}),
@@ -261,7 +287,7 @@ async def hybrid_query(request: HybridQueryRequest, req: Request):
             processing_time=processing_time,
             search_terms=hybrid_results.get('search_terms', []),
             target_tables=target_tables,
-            model_used=model_used
+            model_used=model_used_text
         )
     
     except HTTPException:
@@ -353,7 +379,9 @@ async def enhanced_hybrid_query(request: HybridQueryRequest, req: Request):
             request.include_chat_results,
             request.include_pdf_results,
             request.include_db_results,
-            request.chat_collection_ids
+            request.chat_collection_ids,
+            request.include_public_links,
+            await resolve_active_public_link_sources(request.public_link_ids) if request.include_public_links else []
         )
         
         # Generate answer with comprehensive metadata
@@ -371,7 +399,7 @@ async def enhanced_hybrid_query(request: HybridQueryRequest, req: Request):
         else:
             # Fallback if format unexpected
             answer = str(answer_result)
-            model_used = request.llm_model or config.model_name
+            model_used = request.llm_model or config.default_llm_model
             answer_metadata = {
                 "confidence_score": 0,
                 "primary_intent": "unknown",

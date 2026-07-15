@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, status
 from urllib.parse import parse_qs, unquote, urlparse
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Set
 from datetime import datetime, timezone
 import logging
 import os
@@ -418,6 +418,111 @@ def _as_public_link_source(payload: Dict[str, Any]) -> PublicLinkSource:
     )
 
 
+async def _resolve_runtime_items(
+    url: str,
+    *,
+    max_depth: int = 5,
+    seen_urls: Optional[Set[str]] = None,
+) -> List[Dict[str, str]]:
+    seen_urls = seen_urls or set()
+    if url in seen_urls:
+        return []
+    seen_urls.add(url)
+
+    folder_id = _extract_google_drive_folder_id(url)
+    if folder_id:
+        if max_depth <= 0:
+            return []
+
+        try:
+            files, folders = await _fetch_drive_folder_page(folder_id)
+        except Exception as exc:
+            logger.warning("public_links: runtime folder expansion failed for %s: %s", url, exc)
+            return []
+
+        resolved: List[Dict[str, str]] = []
+        for entry in files:
+            name = entry.get("name", "")
+            item_url = entry.get("url", "")
+            lowered = name.lower()
+            if _is_probably_pdf(item_url, name) or lowered.endswith((".txt", ".md", ".log")):
+                resolved.append(
+                    {
+                        "name": name or _name_from_url(item_url),
+                        "url": item_url,
+                        "item_type": "file",
+                    }
+                )
+
+        for folder in folders:
+            resolved.extend(
+                await _resolve_runtime_items(
+                    folder["url"],
+                    max_depth=max_depth - 1,
+                    seen_urls=seen_urls,
+                )
+            )
+
+        return resolved
+
+    return [
+        {
+            "name": _name_from_url(url),
+            "url": url,
+            "item_type": "file",
+        }
+    ]
+
+
+async def resolve_active_public_link_sources(
+    link_ids: Optional[List[str]] = None,
+) -> List[Dict[str, Any]]:
+    conn = _get_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
+    _ensure_tables(conn)
+    selected_ids = set(link_ids or [])
+
+    try:
+        with conn.cursor() as cur:
+            raw_links = _fetch_links(cur, _public_links_user_id())
+    finally:
+        conn.close()
+
+    active_links = [
+        link for link in raw_links
+        if link.get("status") == "active" and (not selected_ids or link.get("link_id") in selected_ids)
+    ]
+
+    resolved_links: List[Dict[str, Any]] = []
+    for link in active_links:
+        live_items = await _resolve_runtime_items(link["url"])
+        fallback_items = link.get("items", [])
+        dedup: Dict[str, Dict[str, str]] = {}
+
+        for item in (live_items or fallback_items):
+            item_url = item.get("url")
+            if not item_url:
+                continue
+            dedup[item_url] = {
+                "id": item.get("id") or str(uuid.uuid4()),
+                "name": item.get("name") or _name_from_url(item_url),
+                "url": item_url,
+                "item_type": item.get("item_type", "file"),
+            }
+
+        resolved_links.append(
+            {
+                **link,
+                "items": list(dedup.values()),
+                "item_count": len(dedup),
+            }
+        )
+
+    return resolved_links
+
+
 @router.get("/public-links", response_model=PublicLinksResponse)
 async def list_public_links():
     conn = _get_conn()
@@ -471,7 +576,7 @@ async def create_public_link(
             cur.execute(
                 """
                 INSERT INTO public_links (link_id, user_id, workspace_id, title, url, status)
-                VALUES (%s, %s, %s, %s, %s, 'inactive')
+                VALUES (%s, %s, %s, %s, %s, 'active')
                 RETURNING link_id, workspace_id, title, url, status, created_at
                 """,
                 (link_id, _public_links_user_id(), None, title, body.url),
