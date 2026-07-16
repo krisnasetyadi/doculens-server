@@ -161,6 +161,12 @@ class AnswerGenerator:
             "and support for multiple AI models (Gemini 2.5-flash, etc.)."
         )
 
+        OFF_TOPIC_REDIRECT = (
+            "I'm built to answer questions about your documents, databases, and chat "
+            "logs — not general topics. Try asking something like \"summarize my PDFs\" "
+            "or \"what's in my chat logs?\" instead."
+        )
+
         META_KEYWORDS = (
             "what is", "how does", "how do i", "how to use", "what can", "what are",
             "tell me about", "explain", "help me", "guide", "tutorial", "getting started",
@@ -175,7 +181,10 @@ class AnswerGenerator:
                 f"You are the DocuLens AI assistant. {APP_DESCRIPTION}\n\n"
                 "The user has not selected any document sources yet, or their question is about the app itself.\n"
                 "Answer helpfully as an onboarding assistant. Be concise and friendly.\n"
-                "If the question is unrelated to DocuLens, politely redirect them to upload documents and ask questions about them.\n\n"
+                "If the question is a general-knowledge request unrelated to DocuLens or the user's own "
+                "data — e.g. travel/vacation recommendations, coding help, trivia, personal advice, or any "
+                "other topic not about this platform or the user's documents — do NOT answer it. Instead "
+                f"reply with exactly this redirect: \"{OFF_TOPIC_REDIRECT}\"\n\n"
                 f"USER: {question}\n\nASSISTANT:"
             )
         elif is_meta and len(context.strip()) < 200:
@@ -196,7 +205,11 @@ class AnswerGenerator:
                 "4. Only say 'Information not found in the available data sources.' if the context contains "
                 "ABSOLUTELY NO information relevant to the question.\n"
                 "5. Do not fabricate facts outside the context.\n"
-                "6. If the user asks about the app itself (what it does, how to use it), answer from your app knowledge.\n\n"
+                "6. If the user asks about the app itself (what it does, how to use it), answer from your app knowledge.\n"
+                "7. If the QUESTION is a general-knowledge request unrelated to both the CONTEXT and the "
+                "platform itself — e.g. travel/vacation recommendations, coding help, trivia, personal "
+                f"advice — do NOT attempt an answer from general knowledge. Reply with exactly this "
+                f"redirect instead: \"{OFF_TOPIC_REDIRECT}\"\n\n"
                 f"CONTEXT:\n{context}\n\n"
                 f"QUESTION: {question}\n\n"
                 "ANSWER (based on the context above):"

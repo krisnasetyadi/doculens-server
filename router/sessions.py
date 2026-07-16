@@ -147,34 +147,6 @@ def _get_required_conn():
 # Routes
 # ---------------------------------------------------------------------------
 
-@router.get("/sessions/debug/status")
-async def sessions_debug():
-    """Check if sessions DB is reachable."""
-    has_db_url = bool(os.getenv("DATABASE_URL"))
-    conn = _get_conn()
-    if conn:
-        try:
-            with conn.cursor() as cur:
-                cur.execute("SELECT COUNT(*) AS cnt FROM chat_sessions")
-                row = cur.fetchone()
-                cur.execute("SELECT COUNT(*) AS msg_cnt FROM chat_messages")
-                msg_row = cur.fetchone()
-            conn.close()
-            return {
-                "storage": "postgresql",
-                "session_count": row["cnt"],
-                "message_count": msg_row["msg_cnt"],
-                "db_url_set": True,
-            }
-        except Exception as e:
-            return {"storage": "postgresql_error", "error": str(e), "db_url_set": has_db_url}
-    return {
-        "storage": "unavailable",
-        "db_url_set": has_db_url,
-        "note": "DATABASE_URL missing or unreachable - session APIs require PostgreSQL",
-    }
-
-
 @router.post("/sessions", response_model=SessionResponse)
 async def upsert_session(body: UpsertSessionRequest):
     """

@@ -625,42 +625,6 @@ async def create_public_link(
         conn.close()
 
 
-@router.post("/public-link/{link_id}/refresh-items", response_model=PublicLinkSource)
-async def refresh_public_link_items(link_id: str):
-    conn = _get_conn()
-    if not conn:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-
-    _ensure_tables(conn)
-
-    try:
-        with conn.cursor() as cur:
-            detail = _fetch_link_detail(cur, link_id, _public_links_user_id())
-            if not detail:
-                raise HTTPException(status_code=404, detail="Public link not found")
-
-            extracted_items = await _extract_items_from_source(detail["url"])
-            dedup: Dict[str, Dict[str, str]] = {}
-            for item in extracted_items:
-                _validate_url(item["url"])
-                dedup[item["url"]] = item
-
-            _replace_items(cur, link_id, list(dedup.values()))
-            updated = _fetch_link_detail(cur, link_id, _public_links_user_id())
-
-        if not updated:
-            raise HTTPException(status_code=404, detail="Public link not found")
-
-        return _as_public_link_source(updated)
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.error("public_links: refresh failed for %s: %s", link_id, exc)
-        raise HTTPException(status_code=500, detail="Failed to refresh link items")
-    finally:
-        conn.close()
-
-
 @router.post("/public-link/activate")
 async def set_public_link_active(
     body: SetPublicLinkActiveRequest,

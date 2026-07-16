@@ -26,6 +26,23 @@ from database import db_manager
 
 logger = logging.getLogger(__name__)
 
+# Off-topic scope guard: shown verbatim when a question is unrelated to both
+# the retrieved context and the platform itself (e.g. vacation recommendations,
+# coding help, trivia). Kept out of the failure_patterns list in
+# _validate_and_clean_answer() on purpose — must not overlap those substrings
+# or this canned reply gets silently replaced by a forced document answer.
+OFF_TOPIC_REDIRECT_ID = (
+    "Saya dirancang untuk menjawab pertanyaan seputar dokumen, database, dan "
+    "chat log Anda — bukan topik umum. Coba tanyakan misalnya "
+    "\"ringkas dokumen saya\" atau \"apa isi chat log saya?\""
+)
+OFF_TOPIC_INSTRUCTION_ID = (
+    f"- Jika PERTANYAAN adalah permintaan pengetahuan umum yang tidak berkaitan "
+    f"dengan dokumen di atas maupun dengan platform ini (misalnya rekomendasi "
+    f"liburan, bantuan coding, trivia, atau saran pribadi), JANGAN mencoba "
+    f"menjawabnya. Balas persis dengan: \"{OFF_TOPIC_REDIRECT_ID}\""
+)
+
 
 class PDFQAProcessor:
     def __init__(self):
@@ -2706,6 +2723,7 @@ Answer:"""
     3. Jika ada perbedaan data, sebutkan perbedaan tersebut
     4. Sertakan satuan jika relevan (Rp, unit, orang, dll)
     5. Berikan jawaban dalam Bahasa Indonesia
+    {OFF_TOPIC_INSTRUCTION_ID}
 
     JAWABAN:"""
 
@@ -2725,6 +2743,7 @@ INSTRUKSI PENTING:
 - Jika dokumen mengandung angka, tabel, atau data — ekstrak dan tampilkan langsung dalam jawaban
 - Katakan "Informasi ini tidak ditemukan dalam dokumen yang diunggah." HANYA jika tidak ada satu pun bagian dokumen yang berkaitan dengan pertanyaan
 - JANGAN gunakan pengetahuan umum atau informasi dari luar dokumen
+{OFF_TOPIC_INSTRUCTION_ID}
 - Jawab ringkas dan jelas dalam Bahasa Indonesia
 
 Jawaban:"""
@@ -2744,6 +2763,7 @@ INSTRUKSI:
 3. Gunakan format tabel atau bullet points jika sesuai
 4. Berikan kesimpulan singkat
 5. Jawab dalam Bahasa Indonesia
+{OFF_TOPIC_INSTRUCTION_ID}
 
 JAWABAN:"""
 
@@ -2762,6 +2782,7 @@ INSTRUKSI PENTING:
 - Katakan "Informasi ini tidak ditemukan dalam dokumen yang diunggah." HANYA jika tidak ada satu pun bagian dokumen yang berkaitan dengan pertanyaan.
 - JANGAN gunakan pengetahuan umum atau informasi dari luar dokumen
 - Gunakan bullet points atau daftar poin-poin HANYA jika dokumen asli menyebutkan daftar terpisah atau beberapa item yang terdaftar secara terpisah. Jika dokumen asli berisi narasi atau teks aslinya berupa penjelasan paragraf mengalir terus-menerus (seperti paragraf utuh tunggal), pertahankan sebagai paragraf mengalir/narasi utuh apa adanya tanpa dibuat menjadi poin-poin terpisah.
+{OFF_TOPIC_INSTRUCTION_ID}
 - Jawab dengan jelas dalam Bahasa Indonesia
 
 JAWABAN:"""
