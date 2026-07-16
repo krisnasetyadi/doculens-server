@@ -20,7 +20,7 @@ _Submitted 10-07-2026 Received - Published -_
 
 _Retrieval-Augmented Generation; Question Answering; Multi-Source;_ FAISS; Knowledge Transfer; 
 
-_Key personnel turnover creates knowledge gaps in document-based service organizations, where information is dispersed across technical specifications, operational databases, and informal team discussions. This study develops a multi-source Retrieval-Augmented Generation (RAG)based Question Answering (QA) system that automatically identifies and handles heterogeneous sources through a single source parameter. The system uses the Adapter Pattern through FolderSourceAdapter for unstructured documents (PDF/TXT) and PostgreSQLAdapter for relational tables. It converts all sources into a unified RawDocument representation, splits them into chunks, builds an in-memory FAISS vector index, retrieves relevant context, and generates grounded answers using Gemini 2.5 Flash. Evaluation uses eight metrics and three composite scores: Knowledge Transfer Effectiveness (KTE), Multi-Source Retrieval Score (MSRS), and Answer Quality Index (AQI). Experiments were conducted using 25 Indonesian questions on the BOND_SYS dataset, consisting of specification documents (L1), an 8-table PostgreSQL database (L2), and 908 developer discussion messages (L3). Results show Precision@K = 1.000 and MRR = 1.000 across all scenarios, indicating consistent retrieval performance. The highest Overall score is achieved by the full hybrid scenario (L1+L2+L3) with 0.373, while Scenario C records the highest MSRS (0.825). Scenario E uses five manually curated ground-truth answers and obtains ROUGE-L = 0.181 and BLEU-1 = 0.196. Ablation results show that the Overall score remains similar for Chat-only (0.237), PDF-only (0.214), and PDF+DB (0.234), but increases to 0.373 when all three layers are combined. These findings demonstrate that integrating formal documents, structured data, and tacit discussion logs improves question answering across heterogeneous organizational knowledge sources, making the approach suitable for knowledge transfer, helpdesk, and employee onboarding._ 
+_Key personnel turnover creates knowledge gaps in document-based service organizations, where information is distributed across technical specifications, operational databases, and team discussions. This study develops a multi-source Retrieval-Augmented Generation (RAG)based Question Answering (QA) system that automatically integrates heterogeneous knowledge sources through a unified source parameter. Using the Adapter Pattern, the system converts PDF/TXT documents and PostgreSQL tables into a common representation, builds a FAISS vector index, retrieves relevant context, and generates grounded answers with Gemini 2.5 Flash. Evaluation employs eight metrics and three composite scores: Knowledge Transfer Effectiveness (KTE), Multi-Source Retrieval Score (MSRS), and Answer Quality Index (AQI). Experiments were conducted on the BOND_SYS dataset using 25 Indonesian questions covering specification documents, an 8-table PostgreSQL database, and 908 developer discussion messages. Results show perfect retrieval performance (Precision@K = 1.000; MRR = 1.000) across all scenarios. The full hybrid configuration achieves the highest Overall score (0.373), while Scenario C records the highest MSRS (0.825). Scenario E obtains ROUGE-L = 0.181 and BLEU-1 = 0.196 using five manually curated reference answers. Two baseline comparisons further support this contribution: a zero-shot LLM without retrieval correctly answered only 8% of questions, while a BM25 keyword-search baseline, competitive on single-source scenarios, was outperformed on cross-referencing tasks, underscoring the added value of dense multi-source retrieval. The findings demonstrate that integrating formal documents, structured databases, and discussion logs enhances knowledge transfer and question answering for organizational support and employee onboarding._ 
 
  1 
 
@@ -46,11 +46,11 @@ _**Agnostic Multi-Source Retrieval-Augmented Generation for Documents and Databa
 
 particularly dangerous in service contexts demanding accuracy and traceability. A clear gap therefore exists: no solution is yet capable of answering factual questions accurately and promptly from heterogeneous sources already present within an organization, where “promptly” means users do not have to wait extended periods to reach a conclusion, without requiring different technical configurations for each source type. Two specific limitations define this gap: first, existing RAG systems are designed for a single source type and cannot transparently handle heterogeneous data; second conventional pre-indexed systems do not reflect real-time content changes without manual re-indexing. 
 
-The Retrieval-Augmented Generation (RAG) approach introduced by Lewis et al. (2020) opens an opportunity to address these limitations by combining retrieval from external sources with LLM generation capabilities, enabling the system to provide factual, grounded answers based on actual documents. Izacard and Grave (2021) extend this approach for passage retrieval in open domains settings dense effectiveness was demonstrated by Karpukhin et al. (2020); integration of RAG with knowledge graphs for multi-hop reasoning was demonstrated by Yasunaga et al. (2021); while FAISS has evolved as a scalable vector search infrastructure from Johnson et al. (2019) to the current library architecture described by Douze et al. (2024), and Reimers and Gurevych (2019) provided multilingual semantic representations through SentenceBERT. However, existing RAG implementations are generally single-source and require different configurations for each data source type, thereby increasing the technical burden for organizations with heterogeneous data ecosystems. Evaluating RAG-based QA systems requires a dual perspective: retrieval quality using Precision@K and MRR (Voorhees 1999), generation quality using ROUGE-L (Lin 2004) and BLEU-1 (Papineni et al. 2002), and RAG-specific dimensions proposed by Es et al. (2023), namely faithfulness and answer relevance. 
+The Retrieval-Augmented Generation (RAG) approach introduced by Lewis et al. (2020) opens an opportunity to address these limitations by combining retrieval from external sources with LLM generation capabilities, enabling the system to provide factual, grounded answers based on actual documents. This foundation was subsequently strengthened by dense and generative passage retrieval methods (Karpukhin et al. 2020; Izacard and Grave 2021), knowledge-graph-augmented multi-hop reasoning (Yasunaga et al. 2021), scalable vector search infrastructure (Johnson et al. 2019; Douze et al. 2024), and multilingual semantic representation models (Reimers and Gurevych 2019). However, these classical RAG implementations are generally single-source and require different configurations for each data source type, thereby increasing the technical burden for organizations with heterogeneous data ecosystems.
 
-These limitations motivate the present study. This study develops a RAG-based QA system that is agnostic to data sources, capable of handling unstructured documents (PDF, TXT) and relational databases (PostgreSQL) in a unified manner through a single configuration interface (Adapter Pattern), thereby providing a knowledge transfer infrastructure that can be directly implemented in document-based service organizations. The contributions of this study lie in three dimensions: 
+Gao et al. (2024) and Sharma (2025) document a shift in the field toward handling this heterogeneity and adaptivity directly, rather than only improving retrieval within a single source type. Cheng et al. (2025) similarly survey knowledge-oriented RAG spanning unstructured text, semi-structured, and structured (graph) knowledge. At the architectural level, two concurrent systems illustrate this shift: HetaRAG (Yan et al. 2025) orchestrates retrieval across heterogeneous data stores by unifying vector indices, knowledge graphs, full-text engines, and structured databases, while HyPA-RAG (Kalra et al. 2025) introduces query-complexity-aware adaptive parameter selection to balance retrieval cost and accuracy in high-stakes document QA. These systems confirm that multi-source and heterogeneous retrieval is an active research frontier. However, they generally rely on multiple specialized stores, such as a vector database, a graph database, and a full-text index, maintained in parallel, which increases infrastructure and maintenance complexity. This study addresses that same heterogeneity through a single Adapter Pattern interface instead of multiple parallel stores. Evaluating RAG-based QA systems requires a dual perspective: retrieval quality using Precision@K and MRR (Voorhees 1999), generation quality using ROUGE-L (Lin 2004) and BLEU-1 (Papineni et al. 2002), and RAG-specific dimensions proposed by Es et al. (2023), namely faithfulness and answer relevance. 
 
-In summary, the contributions of this paper are summarized as follows : 
+These limitations motivate the present study. This study develops a RAG-based QA system that is agnostic to data sources, capable of handling unstructured documents (PDF, TXT) and relational databases (PostgreSQL) in a unified manner through a single configuration interface (Adapter Pattern), thereby providing a knowledge transfer infrastructure that can be directly implemented in document-based service organizations. The contributions of this study are summarized as follows: 
 
 1. Propose an integrated source-agnostic RAG architecture model that is layered-based and  works under various source configurations and  real-time conditions. 
 
@@ -58,7 +58,7 @@ In summary, the contributions of this paper are summarized as follows :
 
 3. Evaluate the model using metrics composite evaluation metrics purpose-build for multi-source RAG in organizational knowledge transfer contexts: Knowledge Transfer Effectiveness (KTE), Multi-Source Retrieval Score (MSRS), and Answer Quality Index (AQI) 
 
-## **METHODS** 
+## **RESEARCH METHODS** 
 
 ## **Data Sources and Preprocessing** 
 
@@ -361,6 +361,43 @@ The ablation results show a clear contribution from combining all three knowledg
 
 These findings indicate that conversational knowledge contained in team discussion logs provides information that is not fully represented in formal documentation or structured databases. The improvement is particularly evident for operational and historical questions requiring contextual knowledge, including quotation issues, offering digit decisions, ETL incident investigations, allocation workflows and feature implementation status. Therefore, the result suggests that the effectiveness of the proposed system is derived not only from the multi-adapter architecture but also from the integration of complementary knowledge layers within the corpus. 
 
+## **Baseline Comparison: RAG vs. Zero-shot LLM** 
+
+To provide an additional empirical comparison point beyond the qualitative comparison in Table 11, a zero-shot LLM baseline (Gemini 2.5-flash answering the same 25 questions without any retrieval step) was evaluated using the identical 8-metric framework. This closed-book-versus-retrieval-augmented comparison design follows the precedent set by Lewis et al. (2020), who evaluate RAG against a parametric-knowledge-only baseline to isolate the contribution of retrieval itself. Because this baseline retrieves no chunks, Retrieval Relevance, Precision@K, MRR, Context Coverage, and Answer Faithfulness are structurally zero by construction (they are defined as functions of retrieved chunks) rather than measured outcomes; the informative comparison points are Answer Completeness across all 25 questions and, for the 5 ground-truth Hybrid questions (E1-E5), ROUGE-L and BLEU-1 against `GROUND_TRUTH_HYBRID`. 
+
+**Table 7. Baseline (zero-shot, no retrieval) vs. best multi-source scenario** 
+
+|**_Metric_**|**_Baseline: Zero-shot (No RAG)_**|**_Scenario E: Hybrid (L1+L2+L3)_**|
+|---|---|---|
+|Answer Completeness (n=25)|0.134|0.779|
+|ROUGE-L (5 ground-truth questions)|0.048|0.181|
+|BLEU-1 (5 ground-truth questions)|0.007|0.196|
+|Overall (n=25)|0.029|0.373|
+|KTE (n=25)|0.067|0.453|
+
+The zero-shot baseline scored far below Scenario E on every comparable dimension. Most strikingly, 23 of the 25 questions (92%), including all 5 ground-truth Hybrid questions, elicited the model's built-in refusal response ("Information not found in the available data sources") rather than a fabricated answer; the only two questions the model attempted to answer from parametric knowledge alone were generic, domain-independent business questions (RFQ approval roles, broadcast notification mechanisms), not questions tied to BOND_SYS-specific facts, identifiers, or team decisions. This confirms two points relevant to the study's contribution: (1) the organization-specific knowledge captured through the FolderSourceAdapter, PostgreSQLAdapter, and chat logs is not recoverable from the LLM's pretrained knowledge alone, so retrieval grounding is doing genuine work rather than being redundant with what a modern LLM already "knows"; and (2) the low Answer Faithfulness/refusal behaviour is a desirable property under this study's prompt design (Section "System Architecture") rather than a failure, since it shows the model prefers declining to answer over hallucinating specific organizational facts when no context is supplied, consistent with the conservative behaviour already noted in Pattern 1 of the Error Analysis. 
+
+## **Comparison with Traditional Keyword Search (BM25)** 
+
+While Table 7 establishes that retrieval grounding is necessary relative to no retrieval at all, it does not address whether the dense, semantic retrieval mechanism (FAISS) used by this system is itself necessary relative to a traditional, non-semantic retrieval mechanism. To test this directly, a second baseline replaces FAISS with BM25 (Robertson and Zaragoza 2009), a classical term-frequency keyword-matching retriever, while keeping the generator (Gemini 2.5-flash), the prompt template, and the `Evaluator` identical to Scenario A-E; only the retrieval mechanism differs. This dense-versus-sparse retrieval comparison design follows the precedent set by Karpukhin et al. (2020), whose Dense Passage Retrieval (DPR) study evaluates dense retrieval directly against BM25 to isolate the contribution of the retrieval mechanism itself. This baseline was run across the same five scenarios and 25 questions used throughout the study, directly testing the claim already made in the Introduction that "traditional knowledge management (KM) solutions such as internal wikis and static knowledge bases are unable to answer dynamic questions that require real-time cross-source inference." Because BM25 scores are not on the same scale as FAISS cosine similarity, Precision@K and MRR for this baseline use a BM25-native definition (a chunk counts as a match if its BM25 score is greater than zero, that is, it shares at least one keyword with the query) rather than the cosine-similarity threshold used elsewhere; the primary comparison is instead based on answer-quality metrics, which depend only on the retrieved context and the generated answer and are therefore retriever-agnostic. 
+
+**Table 8. BM25 keyword-search retrieval vs. FAISS semantic retrieval, per scenario** 
+
+|**_Scenario_**|**_Retriever_**|**_Answer Completeness_**|**_ROUGE-L_**|**_BLEU-1_**|**_Overall_**|**_KTE_**|**_Retrieval Relevance_**|
+|---|---|---|---|---|---|---|---|
+|A: Chat (L3)|FAISS (this study)|0.853|0.026|0.000|0.285|0.464|0.473|
+|A: Chat (L3)|BM25|0.880|0.041|0.000|0.283|0.492|0.391|
+|B: PDF (L1)|FAISS (this study)|0.675|0.046|0.000|0.284|0.395|0.580|
+|B: PDF (L1)|BM25|0.833|0.093|0.001|0.326|0.530|0.474|
+|C: PostgreSQL (L2)|FAISS (this study)|0.581|0.022|0.000|0.221|0.312|0.460|
+|C: PostgreSQL (L2)|BM25|0.642|0.025|0.000|0.225|0.355|0.392|
+|D: PDF+DB (L1+L2)|FAISS (this study)|0.661|0.041|0.000|0.279|0.389|0.576|
+|D: PDF+DB (L1+L2)|BM25|0.658|0.031|0.000|0.239|0.375|0.415|
+|E: Hybrid (L1+L2+L3)|FAISS (this study)|0.779|0.181|0.196|0.373|0.453|0.582|
+|E: Hybrid (L1+L2+L3)|BM25|0.708|0.284|0.254|0.366|0.410|0.472|
+
+The results are mixed rather than a uniform win for either retriever, and this pattern is itself informative. On Retrieval Relevance, the cosine-similarity-based measure of semantic alignment between the query and the retrieved chunks, FAISS is higher than BM25 in every scenario (e.g., 0.582 vs. 0.472 for Scenario E), which is expected since FAISS explicitly optimizes for this measure while BM25 optimizes for lexical overlap instead. However, this consistent semantic-relevance advantage does not translate into a consistent advantage in downstream answer quality: BM25 achieves a higher Overall score in Scenario B (0.326 vs. 0.284) and a higher ROUGE-L and BLEU-1 in Scenario E (0.284 vs. 0.181 and 0.254 vs. 0.196, respectively), while FAISS's clearest and largest advantage appears in Scenario D, PDF+DB cross-referencing (Overall 0.279 vs. 0.239), the scenario that most directly exercises the multi-source, cross-referencing capability this study is designed around. A plausible explanation is that the BOND_SYS corpus is dense with exact technical terminology (column names, board codes, module identifiers) that a query frequently repeats verbatim, a condition under which classical term-matching retrieval is known to remain competitive with dense retrieval (Robertson and Zaragoza 2009); the advantage of semantic retrieval becomes most visible precisely when the required evidence is dispersed across structurally dissimilar sources and cannot be located by keyword overlap alone, as in Scenario D. This adds nuance to, rather than overturns, the Introduction's claim about traditional KM and keyword-based search: BM25 is a substantially more capable baseline than the complete absence of retrieval evaluated in Table 7, but it is not adequate on its own for the cross-referencing task that motivates this study's multi-source architecture — and it is precisely on that task that dense retrieval demonstrates its clearest empirical value. 
+
  13 
 
 **eISSN 3063-802X & pISSN 3063-8011** _**Agnostic Multi-Source Retrieval-Augmented Generation for Documents and Database Question Answering**_ **(Adi, et al.)** GsJURNAL RAGAMJURACANPENGABDIAN - PENELITIAN 
@@ -371,9 +408,9 @@ To complement aggregate quantitative metrics, this subsection presents one runni
 
 **Figure 2.** Running-interface example (Scenario A): prompt and response are shown in original Indonesian. 
 
-Table 8 summarises five prompt-level examples from Scenario A (Chat Only). Prompt and result texts are presented in Indonesian (original), while performance metrics are reported in English. 
+Table 9 summarises five prompt-level examples from Scenario A (Chat Only). Prompt and result texts are presented in Indonesian (original), while performance metrics are reported in English. 
 
-**Table 8. Prompt-level results (scenario A: chat only)** 
+**Table 9. Prompt-level results (scenario A: chat only)** 
 
 |**_No._**|**_Prompting_**|**_Result_**|**_Performance_**|
 |---|---|---|---|
@@ -421,7 +458,7 @@ _**Agnostic Multi-Source Retrieval-Augmented Generation for Documents and Databa
 
 ## **5. Cross-Scenario Prompt Level Highlights** 
 
-To provide granular insight beyond scenario-level means, Table 9 presents representative promptlevel results from Scenarios B-E, selecting the highest-scoring and lowest-scoring question per scenario to illustrate performance variance. Several observations emerge from the prompt-level analysis: 
+To provide granular insight beyond scenario-level means, Table 10 presents representative promptlevel results from Scenarios B-E, selecting the highest-scoring and lowest-scoring question per scenario to illustrate performance variance. Several observations emerge from the prompt-level analysis: 
 
  16 
 
@@ -429,7 +466,7 @@ To provide granular insight beyond scenario-level means, Table 9 presents repres
 
 _**Agnostic Multi-Source Retrieval-Augmented Generation for Documents and Database Question Answering**_ **(Adi, et al.)** 
 
-**Table 9. Selected prompt-level results across scenarios (best and worst per scenario)** 
+**Table 10. Selected prompt-level results across scenarios (best and worst per scenario)** 
 
 |**_Scenario_**|**_No._**|**_Prompt_**|**_RR_**|**_Faith_**|**_Comp_**|**_KTE_**|**_Overall_**|
 |---|---|---|---|---|---|---|---|
@@ -513,6 +550,23 @@ Agnostic Multi-Source Retrieval-Augmented Generation for Documents and<br>Databa
 
 **Figure 3d.** Radar chart of multi-dimensional profiles across five scenarios 
 
+## **7. Comparison with Existing Multi-Source and Adaptive RAG Approaches** 
+
+To position the contribution of this study relative to prior and concurrent work, Table 11 compares the proposed agnostic multi-source architecture with classical RAG (Lewis et al. 2020) and two recent (2025) heterogeneous/adaptive RAG systems identified in the literature: HetaRAG (Yan et al. 2025), which orchestrates retrieval across heterogeneous data stores, and HyPA-RAG (Kalra et al. 2025), a hybrid parameter-adaptive RAG system for high-stakes document QA. 
+
+**Table 11. Qualitative comparison with existing RAG/QA approaches** 
+
+|**_Aspect_**|**_This Study_**|**_Classical RAG (Lewis et al. 2020)_**|**_HetaRAG (Yan et al. 2025)_**|**_HyPA-RAG (Kalra et al. 2025)_**|
+|---|---|---|---|---|
+|Source types|Unstructured documents (PDF/TXT) and relational database (PostgreSQL), unified via a single source parameter|Single unstructured text corpus|Vector index, knowledge graph, full-text engine, and structured database, orchestrated in parallel|Primarily unstructured legal/policy documents|
+|Indexing strategy|Real-time, in-memory FAISS index built per invocation, with session-level caching|Pre-indexed, static corpus|Multiple persistent specialized stores (vector, graph, full-text, SQL)|Pre-indexed, static corpus|
+|Source extensibility|Adapter Pattern (FolderSourceAdapter, PostgreSQLAdapter, MultiSourceAdapter); new sources added via two methods without modifying the core pipeline|Not source-agnostic; retrieval pipeline is tied to the corpus format|Extensible but requires provisioning and maintaining an additional specialized store per data type|Not source-agnostic; tuned for a single document domain|
+|Adaptivity mechanism|Uniform pipeline across sources; adaptivity is achieved by combining layers (L1/L2/L3) rather than per-query parameter tuning|None|Cross-store orchestration logic per query|Query-complexity classifier that adapts retrieval parameters (e.g., top-K) per query|
+|Evaluation approach|8 metrics plus 3 purpose-built composite scores (KTE, MSRS, AQI) across 5 progressive multi-source scenarios and an ablation study|Standard QA benchmarks (e.g., Natural Questions, TriviaQA)|Domain benchmark evaluation of end-to-end retrieval-generation accuracy|Legal/policy QA accuracy and retrieval-cost trade-off metrics|
+|Application domain|Organizational knowledge transfer in a document-based financial service platform|Open-domain QA|General heterogeneous enterprise knowledge|AI legal and policy applications|
+
+Relative to classical single-source RAG, this study contributes an explicit source-agnostic abstraction (SourceDetector + SourceFactory + Adapter Pattern) and a composite evaluation framework tailored to knowledge transfer rather than open-domain QA accuracy alone. Compared with HetaRAG, which achieves heterogeneity by orchestrating multiple persistent specialized stores, this study achieves a comparable multi-source capability with a single lightweight in-memory FAISS index rebuilt at query time, trading multi-hop cross-store reasoning for lower infrastructure overhead and always-current content. Compared with HyPA-RAG, which adapts retrieval parameters per query within a single document domain, this study instead adapts at the source-configuration level — that is, in terms of which adapters are active. The ablation study (Table 6) then provides direct empirical evidence, rather than only architectural description, of how much each additional source layer contributes to answer quality: the Overall score rises from 0.214-0.237 for single layers to 0.373 once all three layers are combined. Taken together, these comparisons indicate that this study's specific niche, a lightweight, real-time, adapter-based agnostic RAG evaluated with knowledge-transfer-oriented composite metrics, is not directly covered by existing heterogeneous or adaptive RAG systems in the literature. 
+
 ## **Result Limitation** 
 
 The retrieval component uses paraphrase multilingual-MiniLM-L12-v2 (50+ languages), ensuring no language bias at the retrieval layer; retrieval weights are entirely determined by semantic similarity, not source type metadata. For single-entity questions, Context Coverage tends to be low because top-K chunks concentrate on a single document; this accurately reflects the corpus structure rather than a system bias. Content hash-based deduplication is implemented to prevent a single file from being counted as multiple distinct sources. 
@@ -545,9 +599,9 @@ The system directly addresses the challenge identified in the introduction. A ne
 
 ## **2. Implication for System Extensibility** 
 
-The Adapter Pattern architecture opens a path for extending to new source types. MongoDB, SharePoint and Google Drive API can each be integrated by implementing two methods, load() and describe(), without modifying the core pipeline. This aligns with the Open/Close Principle in software design (Martin 2017). The real-time vs. pre-indexed trade-off should be considered according to use case, as summarised in Table 7. 
+The Adapter Pattern architecture opens a path for extending to new source types. MongoDB, SharePoint and Google Drive API can each be integrated by implementing two methods, load() and describe(), without modifying the core pipeline. This aligns with the Open/Close Principle in software design (Martin 2017). The real-time vs. pre-indexed trade-off should be considered according to use case, as summarised in Table 12. 
 
-## **Table 7. Trade-off Comparison: Real-Time vs. Pre-Indexed Indexing** 
+## **Table 12. Trade-off Comparison: Real-Time vs. Pre-Indexed Indexing** 
 
  23 
 
@@ -598,7 +652,7 @@ This study successfully develops an agnostic multi-source RAG system fulfilling 
 
 6. Knowledge transfer effectiveness measured: KTE per scenario: A = 0.464 (tacit to operational), B = 0.395 (explicit to actionable), C = 0.312 (explicit to structured), D = 0.389 (explicit to cross-referenced), E = 0.453 (cross-paradigm). Scenario A achieves the highest KTE (0.464), followed by E (0.453) and B (0.395), demonstrating that conversational knowledge sources and multi-source integration consistently produce effective knowledge transfer. 
 
-The principal contributions of this study are: (i) an Adapter Pattern design that separates concern among data sources, text processing, retrieval, and generation; (ii) a five-scenario evaluation design with a three-layer real operational corpus; and (iii) a partial ground truth framework that enables reference-based validation on priority scenarios without requiring complete ground truth across all scenarios. 
+The principal contributions of this study are: (i) an Adapter Pattern design that separates concern among data sources, text processing, retrieval, and generation; (ii) a five-scenario evaluation design with a three-layer real operational corpus; (iii) a partial ground truth framework that enables reference-based validation on priority scenarios without requiring complete ground truth across all scenarios; and (iv) a positioning of this contribution relative to existing multi-source and adaptive RAG systems (Table 11) and to traditional retrieval, supported empirically by two baselines. A zero-shot LLM baseline (Table 7) failed to answer 92% of the evaluation questions from parametric knowledge alone (Overall = 0.029 vs. 0.373 for Scenario E), confirming that the reported gains are attributable to the retrieval-grounded architecture rather than to the underlying LLM's pretrained knowledge. A BM25 keyword-search baseline (Table 8) was competitive with dense semantic retrieval on single-source scenarios but was clearly outperformed on the cross-referencing Scenario D (Overall 0.279 vs. 0.239), indicating that dense retrieval's empirical value is concentrated in exactly the multi-source, cross-referencing capability this study is designed to provide, rather than being uniformly superior across all retrieval conditions. 
 
 For future research, the following directions are recommended: (1) extending ground truth to all 25 questions for stronger comparative validation; (2) hybrid search (FAISS + BM25) to improve retrieval on queries with domain-specific tokens; (3) fine-tuning the embedding model on organization-specific domain 
 
@@ -620,6 +674,8 @@ documents; and (4) comparison with commercial vector database-based RAG systems 
 
 - Carbonell J, Goldstein J (1998) The use of MMR, diversity-based reranking for reordering documents and producing summaries. In: Proceedings of the 21st Annual Annual I nternational ACM SIGIR Conference on Research and Development in Information Retrieval, pp 335-336. https://doi.org/10.1145/290941.291025 
 
+- Cheng M, Luo Y, Ouyang J, Liu Q, Liu H, Li L, Yu S, Zhang B, Cao J, Ma J, Wang D, Chen E (2025) A survey on knowledge-oriented retrieval-augmented generation. arXiv:2503.10677. https://doi.org/10.48550/arXiv.2503.10677 
+
 - Es s, James J, Espinosa-Anke L, Schockaert S (2023) RAGAS: automated evaluation of retrieval augmented generation. arXiv:2309.15217. https://doi.org/10.48550/arXiv.2309.15217 
 
 - Douze M, Guzhva A, Deng C, Johnson J, Szilvasy G, Mazare PE, Lomeli M, Joulin A, Jegou H (2024) The FAISS library. arXiv:2401.08281. https://doi.org/10.48550/arXiv.2401.08281 
@@ -636,6 +692,8 @@ documents; and (4) comparison with commercial vector database-based RAG systems 
 
 - Izacard G, Grave E (2021) Leveraging passage retrieval with generative models for open domain question answering. In: Proceedings of the 16th Conference of the European Chapter of the Association for Computational Linguistics, pp 874-880. https://doi.org/10.18653/v1/2021.eacl-main.74 
 
+- Kalra R, Wu Z, Gulley A, Hilliard A, Guan X, Koshiyama A, Treleaven PC (2025) HyPA-RAG: a hybrid parameter adaptive retrieval-augmented generation system for AI legal and policy applications. In: Proceedings of the 2025 Conference of the Nations of the Americas Chapter of the Association for Computational Linguistics: Industry Track, pp 1036-1054. https://doi.org/10.18653/v1/2025.naacl-industry.79 
+
  26 
 
 **eISSN 3063-802X & pISSN 3063-8011** 
@@ -646,7 +704,7 @@ Ji Z, Lee N, Frieske R, Yu T, Su D, Xu Y, Ishil E, Bang YJ, Mandotto A, Fung P (
 
 - Johnson J, Douze M, Jegou H (2019) Billion-scale similarity search with GPUs. IEEE trans Big Data 7 (3):535-547. https://doi.org/10.1109/TBDATA.2019.2921572 
 
-- Kapurkhin V, Oguz B, Min S, Lewis P, Wu L, Edunov S, Chen D, Yih W (2020) Dense passage retrieval for open-domain question answering. In: Proceedings of EMNLP 2020, pp 6769-6781. https://doi.org/10.18653/v1/2020.emnlp-main.550 
+- Karpukhin V, Oguz B, Min S, Lewis P, Wu L, Edunov S, Chen D, Yih W (2020) Dense passage retrieval for open-domain question answering. In: Proceedings of EMNLP 2020, pp 6769-6781. https://doi.org/10.18653/v1/2020.emnlp-main.550 
 
 - Lewis P, Perez E, Piktus A, Petroni F, Karpukhin V, Goyal N, Kiela D (2020) Retrieval-Augmented generation for knowledge-intensive NLP tasks. In: Advances in Neural Information Processing Systems 33, pp 9459-9474. https://doi.org/10.48550/arXiv.2005.11401 
 
@@ -666,11 +724,15 @@ Nonaka I, Takeuchi H (1995) the knowledge-creating company. Oxford University Pr
 
 - Reimers N, Gurevych I (2019) Sentence-BERT: sentence embeddings using Siamese BERT-networks. IN: Proceedings of the 2019 Conference on Empirical Methods in Natural Language Processing. https://doi.org/10.18653/v1/D19-1410 
 
-- Ren H, Shi H, Zhao W, Zhao J, Zhao Y (2023) Self-RAG: learning to retrieve, generate, and critique through self-reflection. arXiv:2307.11019. https://doi.org/10.48550/arXiv.2307.11019 
+- Asai A, Wu Z, Wang Y, Sil A, Hajishirzi H (2023) Self-RAG: learning to retrieve, generate, and critique through self-reflection. arXiv:2310.11511. https://doi.org/10.48550/arXiv.2310.11511 
+
+- Sharma C (2025) Retrieval-augmented generation: a comprehensive survey of architectures, enhancements, and robustness frontiers. arXiv:2506.00054. https://doi.org/10.48550/arXiv.2506.00054 
 
 - Shi P, Li X, Han X, Chang B, Sui Z (2023) REPLUG: retrieval-augmented black-box language models. arXic:2301.12652. https://doi.org/10.48550/arXiv.2301.12652 . 
 
 - Voorhees EM (1999) The TREC-8 question answering track report. In: Proceedings of the 8th Text retrieval Conference (TREC-8), pp 77-82. https://trec.nist.gov/pubs/trec8/papers/qa_report.pdf . 
+
+- Yan G, Zhang Y, Cai P, Wang D, Mao S, Zhang H, Zhang Y, Zhang H, Cai X, Shi B (2025) HetaRAG: hybrid deep retrieval-augmented generation across heterogeneous data stores. arXiv:2509.21336. https://doi.org/10.48550/arXiv.2509.21336 
 
 - Yasunaga M, Ren H, Bosselut A, Liang P, Leskovec J (2021) QA-GNN: reasoning with language models and knowledge graphs for question answering. In: Proceedings of the 2021 Conference of the North American Chapter of the association for Computational Linguistics, pp 535-545. https://doi.org/10.18653/v1/2021.naacl-main.45 
 
