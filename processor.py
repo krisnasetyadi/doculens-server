@@ -1735,10 +1735,126 @@ Answer:"""
     #         "combined_results": combined_results  # Hasil gabungan yang sudah di-ranking
     #     }
     
+    # ── External (user-connected) database retrieval ────────────────────────
+    # This is intentionally separate from self.db_manager / query_structured_data
+    # above: that path is a single hardcoded connection used for THIS app's own
+    # data. This path opens a fresh connection per active connection the user
+    # set up in Sources > Database, schema-agnostic (no ALLOWED_TABLES
+    # whitelist) — mirrors PostgreSQLAdapter's "all tables" mode from the
+    # research notebook.
+
+    def _serialize_table_rows(self, table_name: str, columns: List[Dict[str, Any]], rows: List[Dict[str, Any]]) -> str:
+        col_names = [c["name"] for c in columns]
+        lines = [f"Tabel: {table_name}", f"Kolom: {', '.join(col_names)}", ""]
+        for row in rows:
+            parts = [f"{k}: {row.get(k)}" for k in col_names]
+            lines.append(" | ".join(parts))
+        return "\n".join(lines)
+
+    def _load_external_db_documents(self, db_connections: List[Dict[str, Any]]) -> List[Document]:
+        from router.database_connections import open_external_connection, list_tables_with_columns
+
+        documents: List[Document] = []
+
+        for conn_info in db_connections:
+            connection_id = conn_info.get("connection_id", "")
+            label = conn_info.get("label") or connection_id or "Database"
+            url = conn_info.get("url", "")
+            if not url:
+                continue
+
+            try:
+                ext_conn = open_external_connection(url)
+            except Exception as exc:
+                logger.warning("External DB connect failed for %s: %s", label, exc)
+                continue
+
+            try:
+                tables = list_tables_with_columns(ext_conn, max_tables=config.external_db_max_tables)
+                for table in tables:
+                    table_name = table["name"]
+                    columns = table.get("columns") or []
+                    if not columns:
+                        continue
+                    safe_name = '"' + table_name.replace('"', '""') + '"'
+                    try:
+                        with ext_conn.cursor() as cur:
+                            cur.execute(
+                                f"SELECT * FROM {safe_name} LIMIT %s",
+                                (config.external_db_max_rows_per_table,),
+                            )
+                            rows = cur.fetchall() or []
+                    except Exception as exc:
+                        logger.warning("External DB table read failed (%s.%s): %s", label, table_name, exc)
+                        continue
+
+                    if not rows:
+                        continue
+
+                    text = self._serialize_table_rows(table_name, columns, rows)
+                    documents.append(Document(
+                        page_content=text,
+                        metadata={
+                            "source": table_name,
+                            "source_kind": "external_db",
+                            "external_db_connection_id": connection_id,
+                            "external_db_label": label,
+                            "collection_id": f"external-db:{connection_id}" if connection_id else "external-db",
+                            "row_count": len(rows),
+                        },
+                    ))
+            finally:
+                ext_conn.close()
+
+        return documents
+
+    def search_external_db_realtime(
+        self,
+        query: str,
+        db_connections: Optional[List[Dict[str, Any]]] = None,
+        top_k: int = 5,
+    ) -> List[Document]:
+        if not db_connections:
+            return []
+
+        documents = self._load_external_db_documents(db_connections)
+        if not documents:
+            logger.info("No readable tables found for active database connections")
+            return []
+
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=config.external_db_chunk_size,
+            chunk_overlap=config.external_db_chunk_overlap,
+        )
+        chunks = text_splitter.split_documents(documents)
+        if not chunks:
+            return []
+
+        vector_store = FAISS.from_documents(chunks, self.embeddings)
+        k_faiss = min(len(chunks), max(top_k * 3, 10))
+        results_with_score = vector_store.similarity_search_with_score(query, k=k_faiss)
+
+        faiss_ranked: List[Tuple[Document, float]] = []
+        for doc, distance in results_with_score:
+            faiss_ranked.append((doc, 1.0 / (1.0 + float(distance))))
+
+        bm25 = self._build_bm25(chunks)
+        fused = self._rrf_fuse(query, faiss_ranked, bm25, chunks, top_k=max(top_k, 1))
+
+        realtime_results: List[Document] = []
+        for doc, similarity_score in fused:
+            if similarity_score <= 0.05:
+                continue
+            doc.metadata["similarity_score"] = similarity_score
+            doc.metadata.setdefault("source_kind", "external_db")
+            realtime_results.append(doc)
+
+        return realtime_results[: config.total_k_results]
+
     # processor.py - perbaiki hybrid_search
     def hybrid_search(
-        self, 
-        question: str, 
+        self,
+        question: str,
         collection_ids: Optional[List[str]] = None,
         include_chat: bool = True,
         include_pdf: bool = True,
@@ -1746,6 +1862,8 @@ Answer:"""
         chat_collection_ids: Optional[List[str]] = None,
         include_public_links: bool = False,
         public_link_sources: Optional[List[Dict[str, Any]]] = None,
+        include_external_db: bool = False,
+        external_db_connections: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Enhanced hybrid search dengan context-aware aggregation"""
         
@@ -1785,7 +1903,8 @@ Answer:"""
             pdf_weight = 0.6
             chat_weight = 0.5
         public_link_weight = pdf_weight
-        
+        external_db_weight = db_weight
+
         results: Dict[str, Any] = {}
         
         # Step 3: Parallel search dengan weights
@@ -1818,11 +1937,14 @@ Answer:"""
         if include_chat and chat_weight > 0:
             logger.info(f"💬 Searching chat (weight: {chat_weight})...")
             file_filter = self.extract_file_reference(question)
+            # Floor of 6: chat chunks are tiny (chat_chunk_size=300), so a
+            # weighted k of 1-2 chunks gives the LLM almost no conversation
+            # context to work with.
             chat_docs = self.search_across_chat_collections(
                 question,
                 collection_ids=chat_collection_ids,
                 file_filter=file_filter,
-                top_k=int(config.k_per_collection * chat_weight)
+                top_k=max(int(config.k_per_collection * chat_weight), 6)
             )
             # Apply weight to scores
             for doc in chat_docs:
@@ -1843,10 +1965,22 @@ Answer:"""
                 if 'similarity_score' in doc.metadata:
                     doc.metadata['similarity_score'] *= public_link_weight
             results['public_link_documents'] = public_link_docs
-        
+
+        if include_external_db and external_db_weight > 0 and external_db_connections:
+            logger.info(f"🗄️ Searching active external database connections in realtime (weight: {external_db_weight})...")
+            external_db_docs = self.search_external_db_realtime(
+                question,
+                db_connections=external_db_connections,
+                top_k=max(int(config.k_per_collection * external_db_weight), 8),
+            )
+            for doc in external_db_docs:
+                if 'similarity_score' in doc.metadata:
+                    doc.metadata['similarity_score'] *= external_db_weight
+            results['external_db_documents'] = external_db_docs
+
         # Step 4: Cross-source deduplication and ranking
         all_results = self.merge_and_rank_results(results, intent_analysis)
-        
+
         return {
             **results,
             "search_analysis": {
@@ -1857,6 +1991,7 @@ Answer:"""
                     "db": db_weight if include_db else 0,
                     "chat": chat_weight if include_chat else 0,
                     "public_link": public_link_weight if include_public_links else 0,
+                    "external_db": external_db_weight if include_external_db else 0,
                 }
             },
             "search_terms": search_terms,
@@ -1921,7 +2056,18 @@ Answer:"""
                     'source': f"Public Link: {doc.metadata.get('public_link_title', doc.metadata.get('source', 'Unknown'))}",
                     'confidence': doc.metadata.get('similarity_score', 0) * 0.85,
                 })
-        
+
+        if 'external_db_documents' in results:
+            for doc in results['external_db_documents']:
+                merged.append({
+                    'type': 'external_db',
+                    'content': doc.page_content,
+                    'score': doc.metadata.get('similarity_score', 0),
+                    'metadata': doc.metadata,
+                    'source': f"DB: {doc.metadata.get('external_db_label', 'Database')} / {doc.metadata.get('source', 'Unknown')}",
+                    'confidence': doc.metadata.get('similarity_score', 0) * 0.9,  # DB confidence factor
+                })
+
         # Sort by confidence score
         merged.sort(key=lambda x: x['confidence'], reverse=True)
         
@@ -1929,7 +2075,7 @@ Answer:"""
         if intent_analysis['is_aggregation']:
             # Boost database results for aggregation
             for item in merged:
-                if item['type'] == 'database':
+                if item['type'] in ('database', 'external_db'):
                     item['confidence'] *= 1.5
         elif intent_analysis['is_explanation']:
             # Boost PDF results for explanation
@@ -2415,7 +2561,7 @@ Answer:"""
         
         # Prepare context dengan prioritization - SHORTER for small models
         context_parts = []
-        source_breakdown = {"pdf": 0, "database": 0, "chat": 0, "public_link": 0}
+        source_breakdown = {"pdf": 0, "database": 0, "chat": 0, "public_link": 0, "external_db": 0}
         
         # Limit to top 3 results and shorter snippets for small models.
         # Large-context models (Gemini) get full chunks: truncating to a few
@@ -2448,7 +2594,18 @@ Answer:"""
         context = "\n\n---\n\n".join(context_parts)
         
         # Build enhanced prompt berdasarkan intent
-        if intent_analysis.get('is_aggregation'):
+        # Aggregation prompt demands numeric computation and treats "database"
+        # as the source of truth — that's only correct when the request
+        # explicitly scoped the search to database alone (source of truth =
+        # what the user selected). If nothing/multiple sources were selected,
+        # or the selection wasn't database-only, fall through to the general
+        # prompt so words like "jumlah desimal" in a document/chat question
+        # don't force a numeric-only answer style.
+        source_weights = hybrid_results.get('search_analysis', {}).get('source_weights', {})
+        selected_sources = {k for k, w in source_weights.items() if w and w > 0}
+        db_is_sole_source = selected_sources in ({'db'}, {'external_db'})
+        has_db_results = source_breakdown.get('database', 0) + source_breakdown.get('external_db', 0) > 0
+        if intent_analysis.get('is_aggregation') and db_is_sole_source and has_db_results:
             prompt = self._build_aggregation_prompt(context, question, conflicts)
         elif intent_analysis.get('is_comparison'):
             prompt = self._build_comparison_prompt(context, question, conflicts)

@@ -253,12 +253,22 @@ async def preview_chat_collection(
             logger.warning(f"Preview metadata lookup failed for {collection_id}: {exc}")
 
     upload_dir = os.path.join(config.chat_upload_folder, collection_id)
-    if not os.path.isdir(upload_dir):
-        raise HTTPException(status_code=404, detail="Chat collection file not found")
 
     preferred_name = None
     if isinstance(collection_info, dict):
         preferred_name = collection_info.get("file_name")
+
+    # Ephemeral disk (e.g. HF Space restart): restore the raw file from the
+    # Supabase bucket before giving up.
+    if (not os.path.isdir(upload_dir) or not os.listdir(upload_dir)) and preferred_name:
+        try:
+            if supabase_storage.is_enabled():
+                supabase_storage.download_chat_file(collection_id, preferred_name, upload_dir)
+        except Exception as exc:
+            logger.warning(f"Chat file restore from bucket failed for {collection_id}: {exc}")
+
+    if not os.path.isdir(upload_dir):
+        raise HTTPException(status_code=404, detail="Chat collection file not found")
 
     candidate_paths: List[str] = []
     if preferred_name:

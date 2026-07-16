@@ -20,6 +20,7 @@ from pydantic import BaseModel, Field
 from config import config
 from processor import processor
 from router.public_links import resolve_active_public_link_sources
+from router.database_connections import resolve_active_database_connections
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["agnostic"])
@@ -37,17 +38,23 @@ class AgnosticQueryRequest(BaseModel):
     source: Optional[str] = Field(None)
 
     include_pdf_results:  Optional[bool] = True
+    # Legacy: queries THIS app's own fixed database (app management data, not
+    # a user-connected source). Kept for backward compatibility only.
     include_db_results:   Optional[bool] = False
     include_chat_results: Optional[bool] = False
     include_public_links: Optional[bool] = False
+    # Queries the user's own external database connection(s) set up in
+    # Sources > Database — the actual "database as a knowledge source" path.
+    include_external_db:  Optional[bool] = False
     llm_provider:         Optional[str]  = None
     llm_model:            Optional[str]  = None
     source_mode:          Optional[str]  = None
 
     # Optional collection selectors (defaults to "all")
-    pdf_collection_ids:  Optional[List[str]] = None
-    chat_collection_ids: Optional[List[str]] = None
-    public_link_ids:     Optional[List[str]] = None
+    pdf_collection_ids:      Optional[List[str]] = None
+    chat_collection_ids:     Optional[List[str]] = None
+    public_link_ids:         Optional[List[str]] = None
+    external_db_connection_ids: Optional[List[str]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -83,6 +90,17 @@ class AgnosticQueryResponse(BaseModel):
 # Endpoint
 # ---------------------------------------------------------------------------
 
+def _describe_source_type(has_public_links: bool, has_external_db: bool) -> str:
+    extras = []
+    if has_public_links:
+        extras.append("Realtime Public Links")
+    if has_external_db:
+        extras.append("Realtime Database Connections")
+    if not extras:
+        return "Indexed Collections"
+    return "Indexed Collections + " + " + ".join(extras)
+
+
 @router.post("/agnostic/query", response_model=AgnosticQueryResponse)
 async def agnostic_query(req: AgnosticQueryRequest, request: Request):
     start_time = datetime.now()
@@ -108,6 +126,11 @@ async def agnostic_query(req: AgnosticQueryRequest, request: Request):
             public_link_sources = await resolve_active_public_link_sources(req.public_link_ids)
         should_search_public_links = bool(req.include_public_links) and bool(public_link_sources)
 
+        external_db_connections: List[Dict[str, Any]] = []
+        if bool(req.include_external_db):
+            external_db_connections = await resolve_active_database_connections(req.external_db_connection_ids)
+        should_search_external_db = bool(req.include_external_db) and bool(external_db_connections)
+
         # Run hybrid search against pre-built FAISS indexes
         hybrid_results = await asyncio.to_thread(
             processor.hybrid_search,
@@ -119,6 +142,8 @@ async def agnostic_query(req: AgnosticQueryRequest, request: Request):
             chat_collection_ids or [],
             should_search_public_links,
             public_link_sources,
+            should_search_external_db,
+            external_db_connections,
         )
 
         # Generate answer
@@ -185,6 +210,19 @@ async def agnostic_query(req: AgnosticQueryRequest, request: Request):
                 search_text=' '.join(content_text.split()[:15]),
             ))
 
+        for doc in hybrid_results.get("external_db_documents", []):
+            meta = getattr(doc, "metadata", {})
+            table_name = meta.get("source", "Unknown")
+            label = meta.get("external_db_label", "Database")
+            display_name = f"{label} / {table_name}"
+            pdf_sources.append(display_name)
+            pdf_sources_detailed.append(PdfSourceDetail(
+                file_name=display_name,
+                collection_id=meta.get("collection_id", "external-db"),
+                relevance_score=meta.get("similarity_score", 0.0),
+                content_preview=(doc.page_content[:300] if hasattr(doc, "page_content") else ""),
+            ))
+
         chat_results = []
         for doc in hybrid_results.get("chat_documents", []):
             meta = getattr(doc, "metadata", {})
@@ -208,7 +246,7 @@ async def agnostic_query(req: AgnosticQueryRequest, request: Request):
             processing_time=elapsed,
             search_terms=hybrid_results.get("search_terms", [req.question]),
             target_tables=hybrid_results.get("target_tables", []),
-            source_type=("Indexed Collections + Realtime Public Links" if should_search_public_links else "Indexed Collections"),
+            source_type=_describe_source_type(should_search_public_links, should_search_external_db),
             retrieved_count=len(pdf_sources) + len(chat_results),
         )
 

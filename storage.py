@@ -389,6 +389,29 @@ def upload_chat_file(collection_id: str, file_path: str, filename: str) -> Optio
         return None
 
 
+def download_chat_file(collection_id: str, filename: str, dest_dir: str) -> bool:
+    """Download a raw chat TXT file from the chat-uploads bucket into dest_dir.
+
+    Needed on ephemeral filesystems (e.g. HF Spaces): the local copy vanishes
+    on restart while the uploaded file lives on in the bucket.
+    """
+    s3 = _s3_client()
+    if not s3:
+        return False
+    os.makedirs(dest_dir, exist_ok=True)
+    key = f"{collection_id}/{filename}"
+    dest = os.path.join(dest_dir, filename)
+    if os.path.exists(dest):
+        return True
+    try:
+        s3.download_file(_CHAT_UPLOADS_BUCKET, key, dest)
+        logger.info("Downloaded chat file: %s", key)
+        return True
+    except Exception as e:
+        logger.warning("Chat file download failed (%s): %s", key, e)
+        return False
+
+
 def upload_chat_index(collection_id: str, index_dir: str) -> bool:
     """Upload index.faiss + index.pkl + metadata.json to the chat-indices bucket."""
     s3 = _s3_client()

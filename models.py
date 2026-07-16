@@ -108,6 +108,45 @@ class PublicLinksResponse(BaseModel):
     count: int
 
 
+class CreateDatabaseConnectionRequest(BaseModel):
+    label: Optional[str] = None
+    url: str
+
+
+class SetDatabaseConnectionActiveRequest(BaseModel):
+    connection_id: str
+    active: bool
+
+
+class DbColumnInfo(BaseModel):
+    name: str
+    type: str
+    nullable: bool = True
+    primary_key: bool = False
+
+
+class DbTableInfo(BaseModel):
+    name: str
+    row_count: Optional[int] = None
+    columns: List[DbColumnInfo] = []
+
+
+class DatabaseConnectionSource(BaseModel):
+    connection_id: str
+    workspace_id: Optional[str] = None
+    label: str
+    url: str
+    status: str
+    table_count: int
+    created_at: Union[str, datetime]
+    tables: List[DbTableInfo] = []
+
+
+class DatabaseConnectionsResponse(BaseModel):
+    connections: List[DatabaseConnectionSource]
+    count: int
+
+
 class QAResponse(BaseModel):
     answer: str
     sources: List[str]  # Now includes collection IDs

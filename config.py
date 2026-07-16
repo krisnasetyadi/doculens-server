@@ -98,6 +98,14 @@ class Config(BaseSettings):
     public_link_chunk_size: int = Field(default=2000)
     public_link_chunk_overlap: int = Field(default=300)
 
+    # External database connections (user-connected, realtime — schema-agnostic,
+    # NOT the app's own DATABASE_URL). Caps keep a single query from scanning
+    # an unbounded external database.
+    external_db_chunk_size: int = Field(default=2000)
+    external_db_chunk_overlap: int = Field(default=300)
+    external_db_max_tables: int = Field(default=20)
+    external_db_max_rows_per_table: int = Field(default=200)
+
     # Database Configuration
     # Option 1: Use DATABASE_URL (recommended for cloud: Neon, Supabase)
     database_url: Optional[str] = Field(default=None)
