@@ -1744,11 +1744,25 @@ Answer:"""
     # research notebook.
 
     def _serialize_table_rows(self, table_name: str, columns: List[Dict[str, Any]], rows: List[Dict[str, Any]]) -> str:
+        # Markdown table, not "col: value | col: value" prose lines. LLMs are
+        # heavily trained on markdown tables and parse/attend to them far
+        # more reliably than ad-hoc key-value dumps — verified empirically:
+        # the pipe-delimited format put the exact right row in context and
+        # the model still answered "not found".
         col_names = [c["name"] for c in columns]
-        lines = [f"Tabel: {table_name}", f"Kolom: {', '.join(col_names)}", ""]
+
+        def cell(value: Any) -> str:
+            text = "" if value is None else str(value)
+            return text.replace("|", "\\|").replace("\n", " ")
+
+        lines = [
+            f"Tabel: {table_name}",
+            "",
+            "| " + " | ".join(col_names) + " |",
+            "|" + "|".join(["---"] * len(col_names)) + "|",
+        ]
         for row in rows:
-            parts = [f"{k}: {row.get(k)}" for k in col_names]
-            lines.append(" | ".join(parts))
+            lines.append("| " + " | ".join(cell(row.get(k)) for k in col_names) + " |")
         return "\n".join(lines)
 
     def _load_external_db_documents(self, db_connections: List[Dict[str, Any]]) -> List[Document]:
@@ -2516,7 +2530,10 @@ Answer:"""
         
         # Check if we have chat or DB results with good info - prioritize them over PDF
         question_lower = question.lower()
-        is_person_query = any(kw in question_lower for kw in ['siapa', 'who', 'handle', 'yang', 'contact'])
+        # NOTE: "yang" was removed from this list — it's one of the most
+        # common words in Indonesian (relative pronoun "that/which"), so it
+        # matched most questions and mis-triggered person-query handling below.
+        is_person_query = any(kw in question_lower for kw in ['siapa', 'who', 'handle', 'contact'])
         
         # Track exact matches and boost application
         exact_matches = []
@@ -2537,11 +2554,14 @@ Answer:"""
         
         # For person queries, prioritize chat and DB results
         if is_person_query and merged_results:
-            # Reorder results to prioritize chat and db
+            # Reorder to prioritize chat/db, but keep every other type
+            # (pdf, public_link, external_db, ...) instead of dropping them —
+            # a plain equality filter here silently discarded any type it
+            # didn't know about.
             chat_results = [r for r in merged_results if r['type'] == 'chat']
-            db_results = [r for r in merged_results if r['type'] == 'database']
-            pdf_results = [r for r in merged_results if r['type'] == 'pdf']
-            merged_results = chat_results + db_results + pdf_results
+            db_results = [r for r in merged_results if r['type'] in ('database', 'external_db')]
+            other_results = [r for r in merged_results if r['type'] not in ('chat', 'database', 'external_db')]
+            merged_results = chat_results + db_results + other_results
             boost_applied["person_query"] = 1.8  # Person query boost multiplier
             processing_steps.append("Person query detected - prioritized chat/DB results")
         
@@ -2566,14 +2586,20 @@ Answer:"""
         # Limit to top 3 results and shorter snippets for small models.
         # Large-context models (Gemini) get full chunks: truncating to a few
         # hundred chars discards the very passage retrieval worked to find.
-        max_results = 3 if 'flan-t5' in model_id.lower() else 8
-        max_content_len = 150 if 'flan-t5' in model_id.lower() else 2000
-        
+        is_small_model = 'flan-t5' in model_id.lower()
+        max_results = 3 if is_small_model else 8
+        base_max_content_len = 150 if is_small_model else 2000
+        # Tabular sources need a bigger allowance than prose: a table chunk
+        # (now sized to hold a whole small table, see external_db_chunk_size)
+        # must not be re-truncated here, or the same "only some rows survive"
+        # problem the bigger chunk size was meant to fix just reappears.
+        structured_max_content_len = 150 if is_small_model else 6000
+
         for i, result in enumerate(merged_results[:max_results]):
             source_type = result['type']
             source_breakdown[source_type] += 1
 
-            if 'flan-t5' in model_id.lower():
+            if is_small_model:
                 # Small-context models need keyword-window extraction
                 content_snippet = self._extract_relevant_snippet(result['content'], question)
             else:
@@ -2583,6 +2609,11 @@ Answer:"""
                 # passage that retrieval already found.
                 content_snippet = result['content']
 
+            max_content_len = (
+                structured_max_content_len
+                if source_type in ('database', 'external_db')
+                else base_max_content_len
+            )
             # Truncate if too long based on model
             if len(content_snippet) > max_content_len:
                 content_snippet = content_snippet[:max_content_len] + "..."

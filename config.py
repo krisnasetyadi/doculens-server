@@ -101,8 +101,14 @@ class Config(BaseSettings):
     # External database connections (user-connected, realtime — schema-agnostic,
     # NOT the app's own DATABASE_URL). Caps keep a single query from scanning
     # an unbounded external database.
-    external_db_chunk_size: int = Field(default=2000)
-    external_db_chunk_overlap: int = Field(default=300)
+    # Large enough that small/medium reference tables (the common case —
+    # lookup tables, config tables) land in a SINGLE chunk instead of being
+    # split mid-table. Splitting scatters related rows (e.g. every
+    # fraction_type/fraction_digit combination) across competing chunks, so
+    # only a lucky subset survives top-k retrieval and the LLM sees a
+    # partial, misleading slice of the table.
+    external_db_chunk_size: int = Field(default=6000)
+    external_db_chunk_overlap: int = Field(default=500)
     external_db_max_tables: int = Field(default=20)
     external_db_max_rows_per_table: int = Field(default=200)
 
