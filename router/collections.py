@@ -1,7 +1,7 @@
 # router/collections.py
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
-from models import CollectionInfo
+from models import CollectionInfo, SetPdfCollectionActiveRequest
 from config import config
 from processor import processor
 import storage as supabase_storage
@@ -31,6 +31,7 @@ async def list_collections():
                         created_at=row.get("created_at", ""),
                         file_names=row.get("file_names") or [],
                         title=row.get("title") or None,
+                        status=row.get("status") or "active",
                     )
                     for row in rows
                 ]
@@ -90,6 +91,17 @@ async def list_collections():
     except Exception as e:
         logger.error("Failed to list collections: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/pdf-collection/activate")
+async def set_pdf_collection_active(body: SetPdfCollectionActiveRequest):
+    """Toggle a PDF collection's active status (used as a knowledge source)."""
+    if not supabase_storage.is_enabled() and not supabase_storage.has_database():
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    updated = supabase_storage.set_collection_status(body.collection_id, body.active)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return {"status": "success", "collection_id": body.collection_id, "active": body.active}
 
 
 @router.delete("/collection/{collection_id}")

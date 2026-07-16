@@ -14,7 +14,7 @@ from typing import Optional, List
 
 import storage as supabase_storage
 from config import config
-from models import ChatUploadResponse, ChatPlatform, ChatCollection
+from models import ChatUploadResponse, ChatPlatform, ChatCollection, SetChatCollectionActiveRequest
 from chat_parser import ChatParser
 from processor import processor
 
@@ -300,6 +300,17 @@ async def preview_chat_collection(
         "truncated": truncated,
         "max_chars": max_chars,
     }
+
+
+@router.post('/chat-collection/activate')
+async def set_chat_collection_active(body: SetChatCollectionActiveRequest):
+    """Toggle a chat collection's active status (used as a knowledge source)."""
+    if not supabase_storage.is_enabled() and not supabase_storage.has_database():
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    updated = supabase_storage.set_chat_collection_status(body.collection_id, body.active)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Chat collection not found")
+    return {"status": "success", "collection_id": body.collection_id, "active": body.active}
 
 
 @router.delete('/chat/collections/{collection_id}')

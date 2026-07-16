@@ -161,6 +161,12 @@ class CollectionInfo(BaseModel):
     created_at: Union[str, datetime]
     file_names: List[str]
     title: Optional[str] = None
+    status: str = "active"
+
+
+class SetPdfCollectionActiveRequest(BaseModel):
+    collection_id: str
+    active: bool
 
 class DatabaseResult(BaseModel):
     table: str
@@ -279,6 +285,12 @@ class ChatCollection(BaseModel):
     date_range: Optional[Dict[str, str]] = None  # {"start": ..., "end": ...}
     participants: List[str]
     created_at: datetime
+    status: str = "active"
+
+
+class SetChatCollectionActiveRequest(BaseModel):
+    collection_id: str
+    active: bool
 
 
 class ChatUploadResponse(BaseModel):

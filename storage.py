@@ -82,11 +82,15 @@ def ensure_schema():
                     file_names    TEXT[]      NOT NULL DEFAULT '{}',
                     chunk_count   INTEGER     NOT NULL DEFAULT 0,
                     storage_paths TEXT[]      NOT NULL DEFAULT '{}',
+                    status        TEXT        NOT NULL DEFAULT 'active'
+                                  CHECK (status IN ('active', 'inactive')),
                     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
                 ALTER TABLE pdf_collections
                     ADD COLUMN IF NOT EXISTS title TEXT NOT NULL DEFAULT '';
+                ALTER TABLE pdf_collections
+                    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
                 CREATE INDEX IF NOT EXISTS idx_pdf_collections_cid
                     ON pdf_collections (collection_id);
                 CREATE INDEX IF NOT EXISTS idx_pdf_collections_created
@@ -102,9 +106,13 @@ def ensure_schema():
                     date_range      JSONB,
                     keywords        TEXT[]      NOT NULL DEFAULT '{}',
                     storage_paths   TEXT[]      NOT NULL DEFAULT '{}',
+                    status          TEXT        NOT NULL DEFAULT 'active'
+                                    CHECK (status IN ('active', 'inactive')),
                     created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
+                ALTER TABLE chat_collections
+                    ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'active';
                 CREATE INDEX IF NOT EXISTS idx_chat_collections_cid
                     ON chat_collections (collection_id);
                 CREATE INDEX IF NOT EXISTS idx_chat_collections_created
@@ -537,7 +545,7 @@ def list_collections() -> List[Dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT collection_id, title, file_names, chunk_count, storage_paths, created_at, updated_at
+                SELECT collection_id, title, file_names, chunk_count, storage_paths, status, created_at, updated_at
                 FROM pdf_collections ORDER BY created_at DESC
             """)
             rows = cur.fetchall()
@@ -556,7 +564,7 @@ def get_collection(collection_id: str) -> Optional[Dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT collection_id, title, file_names, chunk_count, storage_paths, created_at, updated_at
+                SELECT collection_id, title, file_names, chunk_count, storage_paths, status, created_at, updated_at
                 FROM pdf_collections WHERE collection_id = %s
             """, (collection_id,))
             row = cur.fetchone()
@@ -565,6 +573,25 @@ def get_collection(collection_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.warning("get_collection failed for %s: %s", collection_id, e)
         return None
+
+
+def set_collection_status(collection_id: str, active: bool) -> bool:
+    ensure_schema()
+    conn = _db_conn()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE pdf_collections SET status = %s, updated_at = now() WHERE collection_id = %s",
+                ("active" if active else "inactive", collection_id),
+            )
+            updated = cur.rowcount > 0
+        conn.close()
+        return updated
+    except Exception as e:
+        logger.warning("set_collection_status failed for %s: %s", collection_id, e)
+        return False
 
 
 # ---------------------------------------------------------------------------
@@ -625,7 +652,7 @@ def list_chat_collections() -> List[Dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT collection_id, file_name, platform, message_count,
-                       participants, date_range, keywords, storage_paths,
+                       participants, date_range, keywords, storage_paths, status,
                        created_at, updated_at
                 FROM chat_collections ORDER BY created_at DESC
             """)
@@ -646,7 +673,7 @@ def get_chat_collection(collection_id: str) -> Optional[Dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute("""
                 SELECT collection_id, file_name, platform, message_count,
-                       participants, date_range, keywords, storage_paths,
+                       participants, date_range, keywords, storage_paths, status,
                        created_at, updated_at
                 FROM chat_collections WHERE collection_id = %s
             """, (collection_id,))
@@ -656,6 +683,25 @@ def get_chat_collection(collection_id: str) -> Optional[Dict[str, Any]]:
     except Exception as e:
         logger.warning("get_chat_collection failed for %s: %s", collection_id, e)
         return None
+
+
+def set_chat_collection_status(collection_id: str, active: bool) -> bool:
+    ensure_schema()
+    conn = _db_conn()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE chat_collections SET status = %s, updated_at = now() WHERE collection_id = %s",
+                ("active" if active else "inactive", collection_id),
+            )
+            updated = cur.rowcount > 0
+        conn.close()
+        return updated
+    except Exception as e:
+        logger.warning("set_chat_collection_status failed for %s: %s", collection_id, e)
+        return False
 
 
 def delete_chat_collection_from_db(collection_id: str) -> bool:

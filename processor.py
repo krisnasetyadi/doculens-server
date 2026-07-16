@@ -469,8 +469,11 @@ Answer:"""
             if supabase_storage.has_database():
                 rows = supabase_storage.list_collections()
                 if rows:
-                    ids = [r["collection_id"] for r in rows]
-                    logger.info("get_all_collections: %d from Supabase DB", len(ids))
+                    # Only collections the user has left active are used as a
+                    # default source — same "active" concept as public links
+                    # and external DB connections.
+                    ids = [r["collection_id"] for r in rows if r.get("status", "active") == "active"]
+                    logger.info("get_all_collections: %d active of %d from Supabase DB", len(ids), len(rows))
                     return ids
         except Exception as e:
             logger.warning("Supabase list_collections failed: %s", e)
@@ -506,8 +509,8 @@ Answer:"""
             if supabase_storage.has_database():
                 rows = supabase_storage.list_chat_collections()
                 if rows:
-                    ids = [r["collection_id"] for r in rows]
-                    logger.info("get_all_chat_collections: %d from Supabase DB", len(ids))
+                    ids = [r["collection_id"] for r in rows if r.get("status", "active") == "active"]
+                    logger.info("get_all_chat_collections: %d active of %d from Supabase DB", len(ids), len(rows))
                     return ids
         except Exception as e:
             logger.warning("Supabase list_chat_collections failed: %s", e)
