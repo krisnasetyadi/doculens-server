@@ -232,6 +232,15 @@ class RateLimitStatus(BaseModel):
     reset_at: Optional[Union[str, datetime]] = None
 
 
+# MS-247 "Efficient Mode" — aggregate stats for the Settings mini-dashboard.
+class EfficientModeStats(BaseModel):
+    queries_tested: int
+    avg_reduction_pct: float
+    total_raw_tokens_est: int
+    total_final_tokens_est: int
+    total_tokens_saved_est: int
+
+
 # "Request more tokens" (MS-248 follow-up) — in-app only (polled, not real
 # push). A member who hit their admin-assigned cap can ask for more; the
 # admin sees pending ones in the Billing tab, raises the cap themselves via

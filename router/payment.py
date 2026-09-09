@@ -49,6 +49,7 @@ from models import (
     UpdateMemberAllocationRequest,
     UpdateMemberAllocationResponse,
     RateLimitStatus,
+    EfficientModeStats,
     CreateTokenRequestRequest,
     TokenRequestRecord,
     TokenRequestResponse,
@@ -193,6 +194,13 @@ def _ensure_usage_tables(conn) -> None:
                     ON token_usage (admin_user_id, created_at);
                 CREATE INDEX IF NOT EXISTS idx_token_usage_user_created
                     ON token_usage (user_id, created_at);
+
+                -- MS-247 "Efficient Mode" — nullable/defaulted so existing
+                -- rows and every caller that doesn't pass these stay
+                -- unaffected.
+                ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS efficient_mode BOOLEAN NOT NULL DEFAULT false;
+                ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS raw_tokens_est INTEGER;
+                ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS final_tokens_est INTEGER;
 
                 CREATE TABLE IF NOT EXISTS token_allocations (
                     id               BIGSERIAL   PRIMARY KEY,
@@ -595,13 +603,31 @@ def enforce_member_allocation(user: UserRecord) -> None:
         )
 
 
-def log_token_usage(user_id: str, tokens: int) -> None:
+def log_token_usage(
+    user_id: str,
+    tokens: int,
+    efficient_mode: bool = False,
+    raw_tokens_est: Optional[int] = None,
+    final_tokens_est: Optional[int] = None,
+) -> None:
     """Best-effort: append one row to the consumption ledger for a query
     that just ran. Called from router/agnostic.py right after a live LLM
     answer is generated. Never raises — a metering hiccup must not break a
     chat response that already succeeded; callers should still wrap this in
-    their own try/except as a second line of defense."""
-    if tokens <= 0:
+    their own try/except as a second line of defense.
+
+    The efficient_mode/*_tokens_est args are MS-247 additions — optional,
+    default to the pre-MS-247 no-op values, purely additive to this row.
+
+    Local/free models (e.g. HuggingFace flan-t5) always report tokens=0
+    (no API cost to bill), which used to skip this row entirely — but
+    that also silently skipped the new efficient_mode/*_tokens_est
+    columns, so a user testing Efficient Mode on a local model got a
+    correct live popup with nothing ever landing in the aggregate
+    dashboard. `efficient_mode=True` keeps the row-worth-writing check
+    alive even at tokens=0, purely to preserve that reporting; it still
+    inserts tokens=0 (no invented cost)."""
+    if tokens <= 0 and not efficient_mode:
         return
     conn = _get_app_conn()
     if not conn:
@@ -617,8 +643,12 @@ def log_token_usage(user_id: str, tokens: int) -> None:
             admin_user_id = row["created_by"] or user_id
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO token_usage (user_id, admin_user_id, tokens) VALUES (%s, %s, %s)",
-                (user_id, admin_user_id, tokens),
+                """
+                INSERT INTO token_usage
+                    (user_id, admin_user_id, tokens, efficient_mode, raw_tokens_est, final_tokens_est)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                """,
+                (user_id, admin_user_id, tokens, efficient_mode, raw_tokens_est, final_tokens_est),
             )
     except Exception as exc:
         logger.warning("payment: log_token_usage failed for user %s: %s", user_id, exc)
@@ -1039,6 +1069,52 @@ async def get_my_rate_limit(user: UserRecord = Depends(get_current_user)):
         return _get_rate_limit_status(conn, user.user_id)
     finally:
         conn.close()
+
+
+@router.get("/payments/efficient-mode/stats", response_model=EfficientModeStats)
+async def get_my_efficient_mode_stats(user: UserRecord = Depends(get_current_user)):
+    """MS-247 "Efficient Mode" mini-dashboard (Settings > Efficient Mode).
+    Scoped to this user's own queries only (not the whole workspace) —
+    this is a personal "did toggling it on actually help" comparison, not
+    a billing figure, so it doesn't need admin/workspace aggregation like
+    the rest of this file's usage endpoints."""
+    conn = _get_app_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        # Inside the try (unlike some sibling handlers in this file) so a
+        # DDL failure in here — permissions, a concurrent migration, a
+        # lock timeout — still reaches the finally below instead of
+        # leaking this connection.
+        _ensure_usage_tables(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT
+                    COUNT(*) AS queries_tested,
+                    COALESCE(SUM(raw_tokens_est), 0) AS total_raw,
+                    COALESCE(SUM(final_tokens_est), 0) AS total_final
+                FROM token_usage
+                WHERE user_id = %s AND efficient_mode = true AND raw_tokens_est IS NOT NULL
+                """,
+                (user.user_id,),
+            )
+            row = cur.fetchone()
+    finally:
+        conn.close()
+
+    queries_tested = int(row["queries_tested"] or 0)
+    total_raw = int(row["total_raw"] or 0)
+    total_final = int(row["total_final"] or 0)
+    return EfficientModeStats(
+        queries_tested=queries_tested,
+        avg_reduction_pct=(
+            round(100 * (1 - total_final / total_raw), 1) if total_raw > 0 else 0.0
+        ),
+        total_raw_tokens_est=total_raw,
+        total_final_tokens_est=total_final,
+        total_tokens_saved_est=max(0, total_raw - total_final),
+    )
 
 
 @router.post("/payments/subscription/request-more", response_model=TokenRequestResponse)

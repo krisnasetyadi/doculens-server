@@ -90,6 +90,11 @@ class AgnosticQueryRequest(BaseModel):
     llm_model:            Optional[str]  = None
     source_mode:          Optional[str]  = None
 
+    # MS-247: opt-in context-compression experiment ("Efficient Mode" /
+    # caveman-inspired). Defaults to False so every existing caller is
+    # byte-for-byte unaffected — see efficient_mode/compressor.py.
+    efficient_mode:       Optional[bool] = False
+
     # Optional collection selectors (defaults to "all")
     pdf_collection_ids:      Optional[List[str]] = None
     chat_collection_ids:     Optional[List[str]] = None
@@ -124,6 +129,12 @@ class AgnosticQueryResponse(BaseModel):
     target_tables:        List[str]
     source_type:          str = "Indexed Collections"
     retrieved_count:      int = 0
+    # MS-247: populated only when efficient_mode was requested and the
+    # answer actually went through the LLM branch (absent for the
+    # system/meta-help/no-source short-circuits above, and for the
+    # low-confidence direct-extraction branch, none of which build a
+    # prompt/context to measure).
+    efficiency:           Optional[Dict[str, Any]] = None
 
 
 # ---------------------------------------------------------------------------
@@ -367,6 +378,7 @@ async def _run_metered_query(
         req.llm_model,
         memory_payload,
         skill_instruction,
+        bool(req.efficient_mode),
     )
 
     if isinstance(answer_result, tuple) and len(answer_result) >= 2:
@@ -385,10 +397,24 @@ async def _run_metered_query(
     # so a blocking call here would stall every other coroutine waiting on
     # that same lock (including this same user's next request), not just
     # this one.
+    efficiency = answer_metadata.get("efficiency")
+    efficient_mode_on = bool(efficiency and efficiency.get("enabled"))
     try:
         tokens_consumed = answer_metadata.get("total_tokens", 0)
-        if tokens_consumed:
-            await asyncio.to_thread(log_token_usage, user.user_id, tokens_consumed)
+        # Local/free models (e.g. HuggingFace) always report 0 tokens —
+        # still worth a row when Efficient Mode was on, so the dashboard
+        # (GET /payments/efficient-mode/stats) isn't silently blind to
+        # that whole usage class. log_token_usage's own tokens<=0 guard
+        # is relaxed the same way for this same reason.
+        if tokens_consumed or efficient_mode_on:
+            await asyncio.to_thread(
+                log_token_usage,
+                user.user_id,
+                tokens_consumed,
+                efficient_mode_on,
+                efficiency.get("raw_tokens_est") if efficiency else None,
+                efficiency.get("final_tokens_est") if efficiency else None,
+            )
     except Exception:
         logger.warning("agnostic_query: failed to log token usage", exc_info=True)
 
@@ -479,4 +505,5 @@ async def _run_metered_query(
         target_tables=hybrid_results.get("target_tables", []),
         source_type=_describe_source_type(should_search_public_links, should_search_external_db),
         retrieved_count=len(pdf_sources) + len(chat_results),
+        efficiency=efficiency,
     )
