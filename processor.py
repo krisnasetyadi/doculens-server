@@ -25,6 +25,8 @@ from urllib.parse import parse_qs, unquote, urlparse
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from models import SearchType, DatabaseResult, SourceInfo
 from database import db_manager
+from efficient_mode.compressor import ContextPart, compress_context, compress_memory
+from efficient_mode.token_estimate import estimate_tokens
 
 logger = logging.getLogger(__name__)
 
@@ -2662,6 +2664,7 @@ Answer:"""
         llm_provider: Optional[str] = None,
         llm_model: Optional[str] = None,
         memory: Optional[List[Dict[str, str]]] = None,
+        efficient_mode: bool = False,
     ) -> Tuple[str, str, Dict[str, Any]]:
         """Enhanced hybrid answer generation dengan conflict resolution and comprehensive metadata"""
         
@@ -2729,6 +2732,12 @@ Answer:"""
         
         # Prepare context dengan prioritization - SHORTER for small models
         context_parts = []
+        # MS-247 "Efficient Mode" — built alongside context_parts (same
+        # loop, same data, no extra retrieval work) so the compressor
+        # below has each chunk's header/body/confidence without needing
+        # to re-derive them from the already-flattened strings. Unused
+        # unless efficient_mode is on.
+        context_records: List[ContextPart] = []
         source_breakdown = {"pdf": 0, "database": 0, "chat": 0, "public_link": 0, "external_db": 0}
         
         # Limit to top 3 results and shorter snippets for small models.
@@ -2766,12 +2775,48 @@ Answer:"""
             if len(content_snippet) > max_content_len:
                 content_snippet = content_snippet[:max_content_len] + "..."
 
-            context_parts.append(
-                f"[Sumber {i+1} — {result['source']}]:\n{content_snippet}"
+            header = f"[Sumber {i+1} — {result['source']}]:"
+            context_parts.append(f"{header}\n{content_snippet}")
+            context_records.append(
+                ContextPart(header=header, body=content_snippet, confidence=result.get('confidence', 0) or 0)
             )
 
         context = "\n\n---\n\n".join(context_parts)
-        
+
+        # MS-247 "Efficient Mode" — opt-in, isolated compression pass over
+        # the assembled RAG context (see efficient_mode/compressor.py).
+        # Guarded entirely behind `efficient_mode` — including the
+        # estimate_tokens() calls — so a caller that never opts in gets no
+        # extra work done and no `efficiency` key at all in the metadata
+        # (see the answer_metadata assembly below), not just an unused
+        # no-op value. That matters beyond CPU cost: answer_metadata gets
+        # persisted (router/agnostic.py -> log_token_usage), so leaving
+        # this unconditional would write a raw/final-tokens row for every
+        # query in the app, not just the ones actually testing the toggle.
+        efficiency_meta: Optional[Dict[str, Any]] = None
+        if efficient_mode:
+            raw_tokens_est = estimate_tokens(context)
+            compressed_context, compression_stats = compress_context(context_records, question)
+            final_tokens_est = estimate_tokens(compressed_context)
+            reduction_pct = (
+                round(100 * (1 - final_tokens_est / raw_tokens_est), 1)
+                if raw_tokens_est
+                else 0.0
+            )
+            efficiency_meta = {
+                "enabled": True,
+                "raw_chars": len(context),
+                "final_chars": len(compressed_context),
+                "raw_tokens_est": raw_tokens_est,
+                "final_tokens_est": final_tokens_est,
+                "reduction_pct": reduction_pct,
+                "parts_before": compression_stats.parts_before,
+                "parts_after": compression_stats.parts_after,
+                "deduplicated_chunks": compression_stats.deduplicated,
+                "sections_pruned": compression_stats.sections_pruned,
+            }
+            context = compressed_context
+
         # Build enhanced prompt berdasarkan intent
         # Aggregation prompt demands numeric computation and treats "database"
         # as the source of truth — that's only correct when the request
@@ -2819,15 +2864,54 @@ Answer:"""
         # context in. Caller (router/agnostic.py) has already clamped
         # `memory` to the last 5 chats — this only formats it.
         if memory:
+            # MS-247 "Efficient Mode" — cleans/dedups memory turns (see
+            # compress_memory's own docstring for why this is narrower
+            # than compress_context's BM25-relevance pruning: dropping a
+            # turn for scoring "irrelevant" against a vague follow-up
+            # question is exactly the wrong call here). Folded into the
+            # SAME efficiency_meta the context compression above already
+            # built, so the popup reports one combined before/after
+            # number rather than two separate ones.
+            memory_for_prompt = memory
+            if efficient_mode and efficiency_meta is not None:
+                raw_memory_text = " ".join(str(t.get('content', '')) for t in memory)
+                memory_for_prompt, memory_stats = compress_memory(memory)
+                final_memory_text = " ".join(str(t.get('content', '')) for t in memory_for_prompt)
+                raw_memory_tokens_est = estimate_tokens(raw_memory_text)
+                final_memory_tokens_est = estimate_tokens(final_memory_text)
+                efficiency_meta["raw_chars"] += len(raw_memory_text)
+                efficiency_meta["final_chars"] += len(final_memory_text)
+                efficiency_meta["raw_tokens_est"] += raw_memory_tokens_est
+                efficiency_meta["final_tokens_est"] += final_memory_tokens_est
+                efficiency_meta["memory_turns_deduplicated"] = memory_stats.deduplicated
+                total_raw = efficiency_meta["raw_tokens_est"]
+                efficiency_meta["reduction_pct"] = (
+                    round(100 * (1 - efficiency_meta["final_tokens_est"] / total_raw), 1)
+                    if total_raw
+                    else 0.0
+                )
+
             history_lines = [
                 f"{'User' if turn.get('role') == 'user' else 'Asisten'}: {turn.get('content', '')}"
-                for turn in memory
+                for turn in memory_for_prompt
             ]
             history_block = (
                 "RIWAYAT PERCAKAPAN (untuk memahami rujukan seperti \"itu\"/\"yang tadi\"):\n"
                 + "\n".join(history_lines)
             )
             prompt = f"{history_block}\n\n{prompt}"
+
+        # MS-247 "Efficient Mode" — the actual, final prompt text this
+        # request sends to the LLM, so a developer testing the toggle can
+        # see exactly what survived compression (or didn't) instead of
+        # only the char/token counts in the response. Only logged when
+        # the toggle was actually on for this request, so this doesn't
+        # add PDF/DB content to every request's logs by default.
+        if efficient_mode:
+            logger.info(
+                "MS-247 Efficient Mode — final prompt sent to LLM (%d chars):\n%s",
+                len(prompt), prompt,
+            )
 
         try:
             result = llm.invoke(prompt)
@@ -2858,8 +2942,10 @@ Answer:"""
                 "conflict_details": conflicts if conflicts else [],
                 "model_used": model_id,
                 "is_person_query": is_person_query,
-                "total_tokens": total_tokens
+                "total_tokens": total_tokens,
             }
+            if efficiency_meta:
+                answer_metadata["efficiency"] = efficiency_meta
 
             return answer, model_id, answer_metadata
             
