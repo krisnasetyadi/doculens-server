@@ -140,6 +140,25 @@ def _validate_password_length(v: str) -> str:
     return v
 
 
+EMAIL_MAX_LENGTH = 50
+NEW_MEMBER_PASSWORD_MIN_LENGTH = 8
+NEW_MEMBER_PASSWORD_MAX_LENGTH = 50
+
+
+def _validate_new_member_email(v: str) -> str:
+    if len(v) > EMAIL_MAX_LENGTH:
+        raise ValueError(f"Email must be at most {EMAIL_MAX_LENGTH} characters")
+    return v
+
+
+def _validate_new_member_password(v: str) -> str:
+    if len(v) < NEW_MEMBER_PASSWORD_MIN_LENGTH:
+        raise ValueError(f"Password must be at least {NEW_MEMBER_PASSWORD_MIN_LENGTH} characters")
+    if len(v) > NEW_MEMBER_PASSWORD_MAX_LENGTH:
+        raise ValueError(f"Password must be at most {NEW_MEMBER_PASSWORD_MAX_LENGTH} characters")
+    return _validate_password_length(v)
+
+
 NAME_MAX_LENGTH = 100
 
 
@@ -241,10 +260,15 @@ class AdminCreateUserRequest(BaseModel):
     email: EmailStr
     password: str
 
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        return _validate_new_member_email(v)
+
     @field_validator("password")
     @classmethod
     def validate_password(cls, v: str) -> str:
-        return _validate_password_length(v)
+        return _validate_new_member_password(v)
 
 
 class AdminUserStatusRequest(BaseModel):
