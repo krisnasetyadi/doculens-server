@@ -4,7 +4,12 @@ from fastapi.responses import FileResponse, RedirectResponse
 from models import CollectionInfo, SetPdfCollectionActiveRequest, MoveToFolderRequest
 from config import config
 from processor import processor
-from utils import DOCUMENT_EXTRACTORS
+from utils import (
+    DOCUMENT_EXTRACTORS,
+    CONTENT_TYPE_BY_EXT,
+    INLINE_VIEWABLE_EXTS,
+    content_disposition,
+)
 import storage as supabase_storage
 from router.auth import get_current_user, UserRecord
 import os
@@ -227,8 +232,14 @@ async def serve_pdf_file(
     user: UserRecord = Depends(get_current_user),
 ):
     """
-    Serve a PDF file.
+    Serve an uploaded document (PDF, DOCX, DOC, CSV, XLSX, TXT; the route
+    name is kept for backward compatibility with existing callers).
     Priority: Supabase signed URL redirect → local disk FileResponse.
+
+    The response always declares the file's real content type, and marks it
+    inline only for the formats a browser can actually render (see
+    INLINE_VIEWABLE_EXTS); everything else is sent as a download carrying its
+    original filename.
     """
     try:
         decoded_file_name = urllib.parse.unquote(file_name)
@@ -241,13 +252,29 @@ async def serve_pdf_file(
         if not _can_access(row, user):
             raise HTTPException(status_code=403, detail="Not allowed to access this collection")
 
+        # How this file should reach the browser. Derived up here, before the
+        # storage branches, so the signed-URL path and the local-disk path
+        # can't drift apart on content type or on inline-vs-download, which
+        # they used to, and only the disk path even checked the extension.
+        ext = os.path.splitext(decoded_file_name)[1].lower()
+        if ext not in DOCUMENT_EXTRACTORS:
+            raise HTTPException(status_code=400, detail="Unsupported file type")
+        media_type = CONTENT_TYPE_BY_EXT.get(ext, "application/octet-stream")
+        disposition_type = "inline" if ext in INLINE_VIEWABLE_EXTS else "attachment"
+
         # ── Try Supabase signed URL first ──────────────────────────────────
         if supabase_storage.is_enabled():
             signed_url = supabase_storage.get_pdf_signed_url(
-                collection_id, decoded_file_name
+                collection_id,
+                decoded_file_name,
+                content_type=media_type,
+                content_disposition=content_disposition(
+                    disposition_type, decoded_file_name
+                ),
             )
             if signed_url:
-                logger.info("Redirecting PDF via Supabase signed URL: %s/%s",
+                logger.info("Redirecting %s via Supabase signed URL (%s, %s): %s/%s",
+                            ext, media_type, disposition_type,
                             collection_id, decoded_file_name)
                 return RedirectResponse(url=signed_url)
 
@@ -274,27 +301,17 @@ async def serve_pdf_file(
                 ),
             )
 
-        ext = os.path.splitext(file_path)[1].lower()
-        if ext not in DOCUMENT_EXTRACTORS:
-            raise HTTPException(status_code=400, detail="Unsupported file type")
-
-        # Only PDF/TXT/CSV can render inline in a browser; DOC/DOCX/XLSX always
-        # download instead of showing a blank/broken inline viewer.
-        media_type, disposition = {
-            ".pdf": ("application/pdf", "inline"),
-            ".txt": ("text/plain", "inline"),
-            ".csv": ("text/csv", "inline"),
-            ".doc": ("application/msword", "attachment"),
-            ".docx": ("application/vnd.openxmlformats-officedocument.wordprocessingml.document", "attachment"),
-            ".xlsx": ("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "attachment"),
-        }.get(ext, ("application/octet-stream", "attachment"))
-
-        logger.info("Serving file from local disk: %s", file_path)
+        logger.info("Serving file from local disk (%s, %s): %s",
+                    media_type, disposition_type, file_path)
+        # content_disposition_type rather than a hand-written header: Starlette
+        # then RFC 5987-encodes the filename itself. Formatting the header by
+        # hand instead threw UnicodeEncodeError (a 500) on any name outside
+        # latin-1, since header values go out latin-1 encoded.
         return FileResponse(
             path=file_path,
             media_type=media_type,
             filename=decoded_file_name,
-            headers={"Content-Disposition": f'{disposition}; filename="{decoded_file_name}"'},
+            content_disposition_type=disposition_type,
         )
 
     except HTTPException:

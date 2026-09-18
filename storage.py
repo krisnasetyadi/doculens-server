@@ -508,16 +508,38 @@ def download_index(collection_id: str, dest_dir: str) -> bool:
     return success
 
 
-def get_pdf_signed_url(collection_id: str, filename: str, expires_in: int = 3600) -> Optional[str]:
-    """Return a pre-signed URL to download a PDF."""
+def get_pdf_signed_url(
+    collection_id: str,
+    filename: str,
+    expires_in: int = 3600,
+    content_type: Optional[str] = None,
+    content_disposition: Optional[str] = None,
+) -> Optional[str]:
+    """Return a pre-signed URL to download a document.
+
+    MS-414: `content_type`/`content_disposition` are signed into the URL as
+    the S3 response-header overrides, which take precedence over whatever the
+    object carries in its own metadata. That override is the fix, not a
+    nicety: every file uploaded before upload_pdf started deriving ContentType
+    from the extension is still tagged application/pdf in the bucket, so a CSV
+    opened through a plain signed URL reaches the browser as a PDF and lands
+    in the PDF viewer as "Failed to load PDF document". Passing them also
+    carries the inline/attachment choice onto this branch, which previously
+    had no say in it at all.
+    """
     s3 = _s3_client()
     if not s3:
         return None
     key = f"{collection_id}/{filename}"
+    params = {"Bucket": _UPLOADS_BUCKET, "Key": key}
+    if content_type:
+        params["ResponseContentType"] = content_type
+    if content_disposition:
+        params["ResponseContentDisposition"] = content_disposition
     try:
         return s3.generate_presigned_url(
             "get_object",
-            Params={"Bucket": _UPLOADS_BUCKET, "Key": key},
+            Params=params,
             ExpiresIn=expires_in,
         )
     except Exception as e:

@@ -3,6 +3,7 @@ import os
 import logging
 import re
 import subprocess
+import urllib.parse
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS # type: ignore
 from langchain_core.documents import Document
@@ -87,25 +88,43 @@ def extract_text_from_doc(doc_path):
 
 
 def extract_text_from_csv(csv_path):
-    """Extract CSV rows as readable "header: value" text — one page-like block."""
-    try:
-        import csv as csv_module
-        rows_text = []
-        with open(csv_path, "r", encoding="utf-8-sig", newline="") as f:
-            reader = csv_module.reader(f)
-            header = next(reader, None)
-            for row in reader:
-                if header and len(header) == len(row):
-                    line = ", ".join(f"{h}: {v}" for h, v in zip(header, row))
-                else:
-                    line = ", ".join(row)
-                if line.strip(", "):
-                    rows_text.append(line)
-        text = "\n".join(rows_text).strip()
-        return [{"text": text, "page": 1}] if text else None
-    except Exception as e:
-        logger.error(f"Failed to extract text from {csv_path}: {str(e)}")
-        return None
+    """Extract CSV rows as readable "header: value" text, one page-like block.
+
+    Tries the same encoding fallback list as extract_text_from_txt below
+    (utf-8-sig first so a BOM from Excel's own "CSV UTF-8" export doesn't
+    leak into the header, then plain utf-8, then cp1252/latin-1). A CSV
+    "downloaded"/"saved as" from Excel on Windows is routinely cp1252, not
+    utf-8: smart quotes, en/em dashes and similar punctuation sit at byte
+    values (e.g. 0x93, 0x94) that are not valid UTF-8 start bytes, so a
+    utf-8-only read raises UnicodeDecodeError on the first such character
+    and the whole file was rejected with "no text could be extracted",
+    even though every other row was perfectly readable.
+    """
+    import csv as csv_module
+
+    for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
+        try:
+            with open(csv_path, "r", encoding=enc, newline="") as f:
+                rows_text = []
+                reader = csv_module.reader(f)
+                header = next(reader, None)
+                for row in reader:
+                    if header and len(header) == len(row):
+                        line = ", ".join(f"{h}: {v}" for h, v in zip(header, row))
+                    else:
+                        line = ", ".join(row)
+                    if line.strip(", "):
+                        rows_text.append(line)
+            text = "\n".join(rows_text).strip()
+            return [{"text": text, "page": 1}] if text else None
+        except UnicodeDecodeError:
+            continue
+        except Exception as e:
+            logger.error(f"Failed to extract text from {csv_path}: {str(e)}")
+            return None
+
+    logger.error(f"Failed to decode CSV file {csv_path} with any supported encoding")
+    return None
 
 
 def extract_text_from_xlsx(xlsx_path):
@@ -175,6 +194,30 @@ CONTENT_TYPE_BY_EXT = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
+
+# MS-414: extensions a browser actually renders on its own in a tab or iframe.
+# Everything else in CONTENT_TYPE_BY_EXT is served as a download instead of
+# inline, because "inline" for those is an empty viewer, not a preview:
+# Chrome hands text/csv straight to the download manager (an iframe pointed at
+# one just goes blank) and has no renderer at all for the Office formats. The
+# set doubles as the source of truth the UI mirrors when it decides between
+# opening a file in a tab and downloading it.
+INLINE_VIEWABLE_EXTS = {".pdf", ".txt"}
+
+
+def content_disposition(disposition_type: str, filename: str) -> str:
+    """Build a Content-Disposition value for `filename`.
+
+    Mirrors Starlette's own FileResponse encoding (RFC 5987 `filename*` when
+    the name isn't plain ASCII) so the S3 signed-URL branch and the local-disk
+    branch hand the browser byte-identical headers. Building this by hand with
+    an f-string instead raises UnicodeEncodeError on any non-latin-1 name,
+    because Starlette encodes outgoing header values as latin-1.
+    """
+    quoted = urllib.parse.quote(filename)
+    if quoted != filename:
+        return f"{disposition_type}; filename*=utf-8''{quoted}"
+    return f'{disposition_type}; filename="{filename}"'
 
 
 def process_pdfs(pdf_paths, collection_id):
