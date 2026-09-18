@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime, timezone
 import logging
+import re
 import uuid
 import os
 
@@ -28,6 +29,13 @@ PAGE_SIZE_DEFAULT = 5
 # unbounded; past this the newest ones are the ones worth keeping (turn
 # numbers stay absolute, so the panel still labels them correctly).
 QUESTION_INDEX_LIMIT = 1000
+
+# MS-417: width of the snippet a search result carries, and how much of it sits
+# before the match. 120 matches the preview width the question index already
+# uses; the ~40-char lead keeps the matched term away from the left edge with
+# enough context after it to read. Ellipses are added outside this window.
+SNIPPET_LENGTH = 120
+SNIPPET_LEAD = 40
 
 from router.auth import get_current_user, UserRecord
 
@@ -81,6 +89,11 @@ class SessionSummary(BaseModel):
     updated_at: str
     pdf_collections: List[str]
     chat_collections: List[str]
+    # MS-417: set only when `q` matched inside a message and not in the title —
+    # a title match is shown by highlighting the title itself. Plain text, so
+    # the client can highlight by splitting on the query.
+    matched_snippet: Optional[str] = None
+    matched_message_id: Optional[str] = None
 
 class SessionQuestion(BaseModel):
     """One entry in the navigation index — a question the user asked, with
@@ -309,6 +322,74 @@ async def upsert_session(
             pass
 
 
+# MS-417: assistant answers are stored as raw markdown — the UI renders them
+# with react-markdown, so the syntax never shows. A search snippet is the one
+# place a slice of that column is displayed as plain text, so the syntax has to
+# come off first; otherwise a cut lands on things like "**Section 8**" or, since
+# the answer prompt asks for markdown tables, a row of "| --- | --- |".
+_MD_CODE_FENCE = re.compile(r"```[^\n]*\n?")
+_MD_TABLE_RULE = re.compile(r"(?m)^[ \t]*\|?[ \t:\-|]+\|[ \t:\-|]*$")
+_MD_HORIZONTAL_RULE = re.compile(r"(?m)^[ \t]*([-*_])\1{2,}[ \t]*$")
+_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_MD_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_LINE_PREFIX = re.compile(r"(?m)^[ \t]*(?:[>#]+|[-*+]|\d+\.)[ \t]+")
+_MD_INLINE_CODE = re.compile(r"`+([^`]*)`+")
+_MD_STRIKETHROUGH = re.compile(r"~~(.+?)~~")
+_MD_ASTERISK_EMPHASIS = re.compile(r"(\*{1,3})(\S(?:.*?\S)?)\1")
+# Underscores only count as emphasis at a word edge, so snake_case survives.
+_MD_UNDERSCORE_EMPHASIS = re.compile(r"(?<![A-Za-z0-9])(_{1,3})(\S(?:.*?\S)?)\1(?![A-Za-z0-9])")
+_COLLAPSIBLE_WHITESPACE = re.compile(r"\s+")
+
+
+def _plain_text(content: str) -> str:
+    """Markdown source → a single line of readable text, for snippets."""
+    text = _MD_CODE_FENCE.sub(" ", content)
+    text = _MD_TABLE_RULE.sub(" ", text)
+    text = _MD_HORIZONTAL_RULE.sub(" ", text)
+    text = _MD_IMAGE.sub(r"\1", text)
+    text = _MD_LINK.sub(r"\1", text)
+    text = _MD_LINE_PREFIX.sub("", text)
+    text = _MD_INLINE_CODE.sub(r"\1", text)
+    text = _MD_STRIKETHROUGH.sub(r"\1", text)
+    text = _MD_ASTERISK_EMPHASIS.sub(r"\2", text)
+    text = _MD_UNDERSCORE_EMPHASIS.sub(r"\2", text)
+    text = text.replace("|", " ")
+    return _COLLAPSIBLE_WHITESPACE.sub(" ", text).strip()
+
+
+def _snippet_around(content: str, query: str) -> str:
+    """A fixed-width plain-text excerpt of `content` centred on `query`.
+
+    Ends that were cut carry an ellipsis; an excerpt that reaches the start or
+    end of the message doesn't. Word boundaries are respected, but never at the
+    cost of eating into the match itself — the whole point is to show it.
+
+    Falls back to the head of the message when the query can't be found in the
+    plain text, which happens when it only ever matched markdown syntax that
+    was just stripped (searching for "##", say).
+    """
+    text = _plain_text(content)
+    if not text or len(text) <= SNIPPET_LENGTH:
+        return text
+
+    pos = text.lower().find(query.lower()) if query else -1
+    start = max(0, pos - SNIPPET_LEAD) if pos >= 0 else 0
+    end = min(len(text), start + SNIPPET_LENGTH)
+    match_end = pos + len(query) if pos >= 0 else 0
+
+    if start > 0:
+        space = text.find(" ", start)
+        if space != -1 and space < (pos if pos >= 0 else end):
+            start = space + 1
+    if end < len(text):
+        space = text.rfind(" ", start, end)
+        if space != -1 and space >= match_end:
+            end = space
+
+    excerpt = text[start:end].strip()
+    return ("…" if start > 0 else "") + excerpt + ("…" if end < len(text) else "")
+
+
 @router.get("/sessions", response_model=List[SessionSummary])
 async def list_sessions(
     q: Optional[str] = None,
@@ -323,7 +404,11 @@ async def list_sessions(
     conn = _get_required_conn()
     try:
         search_clause = ""
-        params: tuple = ()
+        match_join = ""
+        match_select = ""
+        match_group = ""
+        join_params: tuple = ()
+        where_params: tuple = ()
         if q:
             # Escape backslashes first — ILIKE's default escape char is `\`,
             # so an unescaped literal backslash in the query would otherwise
@@ -334,18 +419,30 @@ async def list_sessions(
                 .replace("_", chr(92) + "_")
             )
             pattern = f"%{escaped}%"
-            search_clause = """
-                AND (
-                    s.title ILIKE %s
-                    OR EXISTS (
-                        SELECT 1 FROM chat_messages cm
-                        WHERE cm.session_id = s.session_id AND cm.content ILIKE %s
-                    )
-                )
+            # MS-417: the message match used to be an EXISTS test, which only
+            # answered yes/no. The same ILIKE now runs as a LATERAL join so the
+            # matching message comes back with it and the result can show a
+            # snippet. LIMIT 1 keeps it one row per session, so neither the set
+            # of matching sessions nor the message_count aggregate changes —
+            # only what we can say about each match.
+            match_join = """
+                LEFT JOIN LATERAL (
+                    SELECT cm.message_id, cm.content
+                    FROM chat_messages cm
+                    WHERE cm.session_id = s.session_id AND cm.content ILIKE %s
+                    ORDER BY cm.created_at ASC, cm.id ASC
+                    LIMIT 1
+                ) mm ON TRUE
             """
-            params = (pattern, pattern)
+            match_select = ", mm.message_id AS matched_message_id, mm.content AS matched_content"
+            match_group = ", mm.message_id, mm.content"
+            search_clause = " AND (s.title ILIKE %s OR mm.message_id IS NOT NULL)"
+            join_params = (pattern,)
+            where_params = (pattern,)
 
         with conn.cursor() as cur:
+            # The lateral join is textually before WHERE, so its parameter binds
+            # first — hence join_params ahead of the owner id, not after it.
             if user.role == "admin":
                 cur.execute(f"""
                     SELECT s.session_id,
@@ -355,14 +452,17 @@ async def list_sessions(
                            s.created_at,
                            s.updated_at,
                            COUNT(m.id) AS message_count
+                           {match_select}
                     FROM chat_sessions s
                     LEFT JOIN chat_messages m ON m.session_id = s.session_id
+                    {match_join}
                     WHERE TRUE {search_clause}
                     GROUP BY s.session_id, s.title, s.pdf_collections,
                              s.chat_collections, s.created_at, s.updated_at
+                             {match_group}
                     ORDER BY s.updated_at DESC
                     LIMIT 200
-                """, params)
+                """, join_params + where_params)
             else:
                 cur.execute(f"""
                     SELECT s.session_id,
@@ -372,27 +472,44 @@ async def list_sessions(
                            s.created_at,
                            s.updated_at,
                            COUNT(m.id) AS message_count
+                           {match_select}
                     FROM chat_sessions s
                     LEFT JOIN chat_messages m ON m.session_id = s.session_id
+                    {match_join}
                     WHERE s.owner_id = %s {search_clause}
                     GROUP BY s.session_id, s.title, s.pdf_collections,
                              s.chat_collections, s.created_at, s.updated_at
+                             {match_group}
                     ORDER BY s.updated_at DESC
                     LIMIT 200
-                """, (user.user_id,) + params)
+                """, join_params + (user.user_id,) + where_params)
             rows = cur.fetchall()
-        return [
-            SessionSummary(
-                session_id=r["session_id"],
-                title=r["title"],
-                message_count=int(r["message_count"] or 0),
-                created_at=_ts(r["created_at"]),
-                updated_at=_ts(r["updated_at"]),
-                pdf_collections=list(r["pdf_collections"] or []),
-                chat_collections=list(r["chat_collections"] or []),
+
+        results: List[SessionSummary] = []
+        for r in rows:
+            snippet = None
+            matched_message_id = None
+            # A title match is presented by highlighting the title, so it takes
+            # precedence: no snippet even when messages matched as well.
+            title_matched = bool(q) and q.lower() in (r["title"] or "").lower()
+            if q and not title_matched and r.get("matched_content"):
+                snippet = _snippet_around(r["matched_content"], q) or None
+                if snippet:
+                    matched_message_id = r["matched_message_id"]
+            results.append(
+                SessionSummary(
+                    session_id=r["session_id"],
+                    title=r["title"],
+                    message_count=int(r["message_count"] or 0),
+                    created_at=_ts(r["created_at"]),
+                    updated_at=_ts(r["updated_at"]),
+                    pdf_collections=list(r["pdf_collections"] or []),
+                    chat_collections=list(r["chat_collections"] or []),
+                    matched_snippet=snippet,
+                    matched_message_id=matched_message_id,
+                )
             )
-            for r in rows
-        ]
+        return results
     except Exception as e:
         logger.error("sessions list DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to list sessions")
