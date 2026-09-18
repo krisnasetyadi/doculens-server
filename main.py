@@ -93,6 +93,7 @@ from router.compliance import router as compliance_router
 from router.telegram import router as telegram_router
 from router.payment import router as payment_router
 from router.skills import router as skills_router
+from router.folders import router as folders_router
 
 app.include_router(auth_router, prefix="/api/v1")           # Auth & RBAC
 app.include_router(upload_router, prefix="/api/v1")         # PDF upload
@@ -107,6 +108,7 @@ app.include_router(compliance_router, prefix="/api/v1")     # Reference Framewor
 app.include_router(telegram_router, prefix="/api/v1")       # Telegram live chat connections
 app.include_router(payment_router, prefix="/api/v1")        # Dummy/test-mode Stripe payment flow
 app.include_router(skills_router, prefix="/api/v1")         # Uploaded skill instructions (MS-251)
+app.include_router(folders_router, prefix="/api/v1")        # Source folders (MS-274)
 
 
 @app.get("/")

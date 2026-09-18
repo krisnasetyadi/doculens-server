@@ -1,7 +1,7 @@
 # router/collections.py
 from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import FileResponse, RedirectResponse
-from models import CollectionInfo, SetPdfCollectionActiveRequest
+from models import CollectionInfo, SetPdfCollectionActiveRequest, MoveToFolderRequest
 from config import config
 from processor import processor
 from utils import DOCUMENT_EXTRACTORS
@@ -56,6 +56,7 @@ async def list_collections(user: UserRecord = Depends(get_current_user)):
                         title=row.get("title") or None,
                         status=row.get("status") or "active",
                         owner_id=row.get("owner_id"),
+                        folder_id=row.get("folder_id"),
                     )
                     for row in visible_rows
                 ]
@@ -143,6 +144,30 @@ async def set_pdf_collection_active(
     if not updated:
         raise HTTPException(status_code=404, detail="Collection not found")
     return {"status": "success", "collection_id": body.collection_id, "active": body.active}
+
+
+@router.post("/pdf-collections/move-to-folder")
+async def move_pdf_collection_to_folder(
+    body: MoveToFolderRequest,
+    user: UserRecord = Depends(get_current_user),
+):
+    """Assign (or unassign, when folder_id is null) a PDF collection to a
+    folder (MS-274). Owner-gated like every other pdf-collections mutation."""
+    row = supabase_storage.get_collection(body.collection_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    if not _can_access(row, user):
+        raise HTTPException(status_code=403, detail="Not allowed to modify this collection")
+
+    if body.folder_id:
+        folder = supabase_storage.get_folder(body.folder_id)
+        if not folder or (user.role != "admin" and folder.get("owner_id") != user.user_id):
+            raise HTTPException(status_code=404, detail="Folder not found")
+
+    ok = supabase_storage.set_collection_folder(body.collection_id, body.folder_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to move file")
+    return {"status": "success", "collection_id": body.collection_id, "folder_id": body.folder_id}
 
 
 @router.delete("/pdf-collections/{collection_id}")

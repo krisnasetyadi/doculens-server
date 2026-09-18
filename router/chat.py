@@ -13,7 +13,7 @@ from typing import Optional, List
 
 import storage as supabase_storage
 from config import config
-from models import ChatUploadResponse, ChatPlatform, SetChatCollectionActiveRequest
+from models import ChatUploadResponse, ChatPlatform, SetChatCollectionActiveRequest, MoveToFolderRequest
 from chat_parser import ChatParser
 from chat_ingest import ingest_chat_messages
 from processor import processor
@@ -220,6 +220,32 @@ async def set_chat_collection_active(
     if not updated:
         raise HTTPException(status_code=404, detail="Chat collection not found")
     return {"status": "success", "collection_id": body.collection_id, "active": body.active}
+
+
+@router.post('/chat-collections/move-to-folder')
+async def move_chat_collection_to_folder(
+    body: MoveToFolderRequest,
+    _: UserRecord = Depends(require_role("admin")),
+):
+    """Assign (or unassign) a chat/WhatsApp collection to a folder (MS-274).
+    Admin-gated, matching every other chat-collections mutation — chat rows
+    carry no per-row owner_id (see storage.py). Every caller here is already
+    an admin (require_role("admin") above), so — same as the pdf endpoint's
+    admin branch — any folder is a valid target, not just ones the caller
+    personally created."""
+    row = supabase_storage.get_chat_collection(body.collection_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Chat collection not found")
+
+    if body.folder_id:
+        folder = supabase_storage.get_folder(body.folder_id)
+        if not folder:
+            raise HTTPException(status_code=404, detail="Folder not found")
+
+    ok = supabase_storage.set_collection_folder(body.collection_id, body.folder_id)
+    if not ok:
+        raise HTTPException(status_code=500, detail="Failed to move file")
+    return {"status": "success", "collection_id": body.collection_id, "folder_id": body.folder_id}
 
 
 @router.delete('/chat-collections/{collection_id}')
