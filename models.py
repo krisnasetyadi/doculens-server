@@ -283,11 +283,39 @@ class CollectionInfo(BaseModel):
     title: Optional[str] = None
     status: str = "active"
     owner_id: Optional[str] = None
+    folder_id: Optional[str] = None
 
 
 class SetPdfCollectionActiveRequest(BaseModel):
     collection_id: str
     active: bool
+
+
+# ===================== SOURCE FOLDERS (MS-274) =====================
+# Folders group `collections` rows (kind='pdf' or 'chat') for the Files tab
+# only. Owner-scoped like collections themselves — there is no "workspace"
+# table to attach to (see storage.py::_team_admin_id for why).
+
+class Folder(BaseModel):
+    folder_id: str
+    name: str
+    owner_id: str
+    created_at: Union[str, datetime]
+    updated_at: Union[str, datetime]
+
+
+class FolderCreate(BaseModel):
+    name: str
+
+
+class FolderRename(BaseModel):
+    name: str
+
+
+class MoveToFolderRequest(BaseModel):
+    collection_id: str
+    folder_id: Optional[str] = None  # null = unassign back to root
+
 
 class DatabaseResult(BaseModel):
     table: str

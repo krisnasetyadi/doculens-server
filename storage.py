@@ -9,8 +9,10 @@ Credentials (set in .env / HF Space secrets):
   SUPABASE_S3_ENDPOINT       -- e.g. https://<ref>.storage.supabase.co/storage/v1/s3
   SUPABASE_S3_REGION         -- e.g. ap-southeast-1
 
-DATABASE_URL is used for metadata tables (pdf_collections, chat_collections).
-Auto-migration creates both tables on first run.
+DATABASE_URL is used for the metadata table `collections` (kind='pdf'|'chat',
+unified in MS-274 — see storage.py::ensure_schema()). Auto-migration creates
+it, plus a one-time idempotent backfill from the legacy pdf_collections /
+chat_collections tables, on first run.
 
 Buckets (create once in Supabase Dashboard -> Storage):
   pdf-uploads    raw PDF files
@@ -123,6 +125,74 @@ def ensure_schema():
                 CREATE INDEX IF NOT EXISTS idx_chat_collections_created
                     ON chat_collections (created_at DESC);
 
+                -- MS-274: pdf_collections + chat_collections unified into one
+                -- table so a Source can carry a single folder_id regardless of
+                -- kind. pdf_collections/chat_collections above are left in
+                -- place (unread, unwritten) as a rollback snapshot — not
+                -- dropped here. See migrations/004_unified_collections.sql.
+                CREATE TABLE IF NOT EXISTS collections (
+                    id            BIGSERIAL   PRIMARY KEY,
+                    collection_id TEXT        NOT NULL UNIQUE,
+                    kind          TEXT        NOT NULL CHECK (kind IN ('pdf', 'chat')),
+                    title         TEXT        NOT NULL DEFAULT '',
+                    file_names    TEXT[]      NOT NULL DEFAULT '{}',
+                    item_count    INTEGER     NOT NULL DEFAULT 0,
+                    storage_paths TEXT[]      NOT NULL DEFAULT '{}',
+                    status        TEXT        NOT NULL DEFAULT 'active'
+                                  CHECK (status IN ('active', 'inactive')),
+                    owner_id      TEXT,
+                    metadata      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+                    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS idx_collections_cid
+                    ON collections (collection_id);
+                CREATE INDEX IF NOT EXISTS idx_collections_owner
+                    ON collections (owner_id);
+                CREATE INDEX IF NOT EXISTS idx_collections_kind_created
+                    ON collections (kind, created_at DESC);
+                -- One-time backfill from the legacy tables. Idempotent via
+                -- ON CONFLICT DO NOTHING, so it's safe (and cheap once caught
+                -- up) to leave running on every startup rather than requiring
+                -- a separate manual script — same idiom as the
+                -- gap_analysis_runs.target_collection_ids backfill above.
+                INSERT INTO collections
+                    (collection_id, kind, title, file_names, item_count, storage_paths, status, owner_id, created_at, updated_at)
+                SELECT collection_id, 'pdf', title, file_names, chunk_count, storage_paths, status, owner_id, created_at, updated_at
+                FROM pdf_collections
+                ON CONFLICT (collection_id) DO NOTHING;
+                INSERT INTO collections
+                    (collection_id, kind, title, file_names, item_count, storage_paths, status, metadata, created_at, updated_at)
+                SELECT collection_id, 'chat', '', ARRAY[file_name], message_count, storage_paths, status,
+                       jsonb_build_object(
+                           'platform', platform,
+                           'participants', to_jsonb(participants),
+                           'date_range', date_range,
+                           'keywords', to_jsonb(keywords)
+                       ),
+                       created_at, updated_at
+                FROM chat_collections
+                ON CONFLICT (collection_id) DO NOTHING;
+
+                -- MS-274: folders group `collections` rows (Files tab only).
+                -- ON DELETE SET NULL, not CASCADE — deleting a folder must
+                -- never delete the sources inside it (AC requires sources to
+                -- stay accessible), so unlinking is the whole implementation.
+                CREATE TABLE IF NOT EXISTS folders (
+                    id          BIGSERIAL   PRIMARY KEY,
+                    folder_id   TEXT        NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
+                    name        TEXT        NOT NULL,
+                    owner_id    TEXT        NOT NULL,
+                    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS idx_folders_owner ON folders (owner_id);
+
+                ALTER TABLE collections
+                    ADD COLUMN IF NOT EXISTS folder_id TEXT
+                        REFERENCES folders(folder_id) ON DELETE SET NULL;
+                CREATE INDEX IF NOT EXISTS idx_collections_folder ON collections (folder_id);
+
                 CREATE TABLE IF NOT EXISTS chat_sessions (
                     id               BIGSERIAL PRIMARY KEY,
                     session_id       TEXT        NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
@@ -234,7 +304,7 @@ def ensure_schema():
                     ON skills (owner_id, scope);
             """)
         conn.close()
-        logger.info("Schema ensured: pdf_collections, chat_collections, chat_sessions, chat_messages, gap_analysis_runs, gap_analysis_items, skills.")
+        logger.info("Schema ensured: collections (pdf+chat, unified), folders, chat_sessions, chat_messages, gap_analysis_runs, gap_analysis_items, skills.")
     except Exception as e:
         logger.warning("Auto-migration skipped (disk fallback): %s", e)
     _migration_done = True
@@ -545,8 +615,52 @@ def download_chat_index(collection_id: str, dest_dir: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# pdf_collections metadata table
+# collections metadata table (unified pdf+chat, MS-274)
 # ---------------------------------------------------------------------------
+
+# Columns shared by both kinds; kind-specific fields are reconstructed from
+# `file_names`/`item_count`/`metadata` by _pdf_row_from_unified /
+# _chat_row_from_unified so every caller keeps seeing the pre-unification
+# dict shape (chunk_count vs message_count, file_names[] vs file_name, etc.).
+_COLLECTIONS_SELECT = (
+    "collection_id, title, file_names, item_count, storage_paths, "
+    "status, owner_id, folder_id, metadata, created_at, updated_at"
+)
+
+
+def _pdf_row_from_unified(row: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "collection_id": row["collection_id"],
+        "title": row.get("title") or "",
+        "file_names": row.get("file_names") or [],
+        "chunk_count": row.get("item_count") or 0,
+        "storage_paths": row.get("storage_paths") or [],
+        "status": row.get("status") or "active",
+        "owner_id": row.get("owner_id"),
+        "folder_id": row.get("folder_id"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
+
+def _chat_row_from_unified(row: Dict[str, Any]) -> Dict[str, Any]:
+    metadata = row.get("metadata") or {}
+    file_names = row.get("file_names") or []
+    return {
+        "collection_id": row["collection_id"],
+        "file_name": file_names[0] if file_names else "",
+        "platform": metadata.get("platform") or "whatsapp",
+        "message_count": row.get("item_count") or 0,
+        "participants": metadata.get("participants") or [],
+        "date_range": metadata.get("date_range"),
+        "keywords": metadata.get("keywords") or [],
+        "storage_paths": row.get("storage_paths") or [],
+        "status": row.get("status") or "active",
+        "folder_id": row.get("folder_id"),
+        "created_at": row.get("created_at"),
+        "updated_at": row.get("updated_at"),
+    }
+
 
 def register_collection(
     collection_id: str,
@@ -565,15 +679,15 @@ def register_collection(
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO pdf_collections
-                    (collection_id, title, file_names, chunk_count, storage_paths, owner_id)
-                VALUES (%s, %s, %s, %s, %s, %s)
+                INSERT INTO collections
+                    (collection_id, kind, title, file_names, item_count, storage_paths, owner_id)
+                VALUES (%s, 'pdf', %s, %s, %s, %s, %s)
                 ON CONFLICT (collection_id) DO UPDATE SET
                     title         = EXCLUDED.title,
                     file_names    = EXCLUDED.file_names,
-                    chunk_count   = EXCLUDED.chunk_count,
+                    item_count    = EXCLUDED.item_count,
                     storage_paths = EXCLUDED.storage_paths,
-                    owner_id      = COALESCE(EXCLUDED.owner_id, pdf_collections.owner_id),
+                    owner_id      = COALESCE(EXCLUDED.owner_id, collections.owner_id),
                     updated_at    = now()
             """, (collection_id, title or "", file_names, chunk_count, storage_paths or [], owner_id))
         conn.close()
@@ -590,7 +704,7 @@ def delete_collection_from_db(collection_id: str) -> bool:
     if conn:
         try:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM pdf_collections WHERE collection_id = %s",
+                cur.execute("DELETE FROM collections WHERE collection_id = %s AND kind = 'pdf'",
                             (collection_id,))
             conn.close()
         except Exception as e:
@@ -628,13 +742,13 @@ def list_collections() -> List[Dict[str, Any]]:
         return []
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT collection_id, title, file_names, chunk_count, storage_paths, status, owner_id, created_at, updated_at
-                FROM pdf_collections ORDER BY created_at DESC
+            cur.execute(f"""
+                SELECT {_COLLECTIONS_SELECT}
+                FROM collections WHERE kind = 'pdf' ORDER BY created_at DESC
             """)
             rows = cur.fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        return [_pdf_row_from_unified(dict(r)) for r in rows]
     except Exception as e:
         logger.warning("list_collections failed: %s", e)
         return []
@@ -647,13 +761,13 @@ def get_collection(collection_id: str) -> Optional[Dict[str, Any]]:
         return None
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT collection_id, title, file_names, chunk_count, storage_paths, status, owner_id, created_at, updated_at
-                FROM pdf_collections WHERE collection_id = %s
+            cur.execute(f"""
+                SELECT {_COLLECTIONS_SELECT}
+                FROM collections WHERE collection_id = %s AND kind = 'pdf'
             """, (collection_id,))
             row = cur.fetchone()
         conn.close()
-        return dict(row) if row else None
+        return _pdf_row_from_unified(dict(row)) if row else None
     except Exception as e:
         logger.warning("get_collection failed for %s: %s", collection_id, e)
         return None
@@ -661,7 +775,10 @@ def get_collection(collection_id: str) -> Optional[Dict[str, Any]]:
 
 def list_collection_ids_for_user(user_id: str, is_admin: bool) -> List[str]:
     """Collection IDs a given user is allowed to see: all of them for admins,
-    only their own (owner_id match) for everyone else."""
+    only their own (owner_id match) for everyone else. kind='pdf' only — chat
+    collections have no per-row ownership and stay admin-gated at the route
+    layer (router/chat.py), so they must never leak into this pdf-scoped list
+    now that both kinds share one table (MS-274)."""
     ensure_schema()
     conn = _db_conn()
     if not conn:
@@ -669,10 +786,10 @@ def list_collection_ids_for_user(user_id: str, is_admin: bool) -> List[str]:
     try:
         with conn.cursor() as cur:
             if is_admin:
-                cur.execute("SELECT collection_id FROM pdf_collections")
+                cur.execute("SELECT collection_id FROM collections WHERE kind = 'pdf'")
             else:
                 cur.execute(
-                    "SELECT collection_id FROM pdf_collections WHERE owner_id = %s",
+                    "SELECT collection_id FROM collections WHERE kind = 'pdf' AND owner_id = %s",
                     (user_id,),
                 )
             rows = cur.fetchall()
@@ -691,7 +808,7 @@ def set_collection_status(collection_id: str, active: bool) -> bool:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE pdf_collections SET status = %s, updated_at = now() WHERE collection_id = %s",
+                "UPDATE collections SET status = %s, updated_at = now() WHERE collection_id = %s AND kind = 'pdf'",
                 ("active" if active else "inactive", collection_id),
             )
             updated = cur.rowcount > 0
@@ -1020,7 +1137,7 @@ def delete_skill(skill_id: str, owner_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# chat_collections metadata table
+# chat collections (kind='chat' rows in the unified `collections` table)
 # ---------------------------------------------------------------------------
 
 def register_chat_collection(
@@ -1037,28 +1154,28 @@ def register_chat_collection(
     conn = _db_conn()
     if not conn:
         return False
+    metadata = {
+        "platform": platform,
+        "participants": participants or [],
+        "date_range": date_range,
+        "keywords": keywords or [],
+    }
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                INSERT INTO chat_collections
-                    (collection_id, file_name, platform, message_count,
-                     participants, date_range, keywords, storage_paths)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                INSERT INTO collections
+                    (collection_id, kind, file_names, item_count, storage_paths, metadata)
+                VALUES (%s, 'chat', %s, %s, %s, %s)
                 ON CONFLICT (collection_id) DO UPDATE SET
-                    file_name     = EXCLUDED.file_name,
-                    platform      = EXCLUDED.platform,
-                    message_count = EXCLUDED.message_count,
-                    participants  = EXCLUDED.participants,
-                    date_range    = EXCLUDED.date_range,
-                    keywords      = EXCLUDED.keywords,
+                    file_names    = EXCLUDED.file_names,
+                    item_count    = EXCLUDED.item_count,
                     storage_paths = EXCLUDED.storage_paths,
+                    metadata      = EXCLUDED.metadata,
                     updated_at    = now()
             """, (
-                collection_id, file_name, platform, message_count,
-                participants or [],
-                json.dumps(date_range) if date_range else None,
-                keywords or [],
+                collection_id, [file_name], message_count,
                 storage_paths or [],
+                json.dumps(metadata),
             ))
         conn.close()
         logger.info("Registered chat collection: %s", collection_id)
@@ -1075,15 +1192,13 @@ def list_chat_collections() -> List[Dict[str, Any]]:
         return []
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT collection_id, file_name, platform, message_count,
-                       participants, date_range, keywords, storage_paths, status,
-                       created_at, updated_at
-                FROM chat_collections ORDER BY created_at DESC
+            cur.execute(f"""
+                SELECT {_COLLECTIONS_SELECT}
+                FROM collections WHERE kind = 'chat' ORDER BY created_at DESC
             """)
             rows = cur.fetchall()
         conn.close()
-        return [dict(r) for r in rows]
+        return [_chat_row_from_unified(dict(r)) for r in rows]
     except Exception as e:
         logger.warning("list_chat_collections failed: %s", e)
         return []
@@ -1096,15 +1211,13 @@ def get_chat_collection(collection_id: str) -> Optional[Dict[str, Any]]:
         return None
     try:
         with conn.cursor() as cur:
-            cur.execute("""
-                SELECT collection_id, file_name, platform, message_count,
-                       participants, date_range, keywords, storage_paths, status,
-                       created_at, updated_at
-                FROM chat_collections WHERE collection_id = %s
+            cur.execute(f"""
+                SELECT {_COLLECTIONS_SELECT}
+                FROM collections WHERE collection_id = %s AND kind = 'chat'
             """, (collection_id,))
             row = cur.fetchone()
         conn.close()
-        return dict(row) if row else None
+        return _chat_row_from_unified(dict(row)) if row else None
     except Exception as e:
         logger.warning("get_chat_collection failed for %s: %s", collection_id, e)
         return None
@@ -1118,7 +1231,7 @@ def set_chat_collection_status(collection_id: str, active: bool) -> bool:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE chat_collections SET status = %s, updated_at = now() WHERE collection_id = %s",
+                "UPDATE collections SET status = %s, updated_at = now() WHERE collection_id = %s AND kind = 'chat'",
                 ("active" if active else "inactive", collection_id),
             )
             updated = cur.rowcount > 0
@@ -1135,7 +1248,7 @@ def delete_chat_collection_from_db(collection_id: str) -> bool:
     if conn:
         try:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM chat_collections WHERE collection_id = %s",
+                cur.execute("DELETE FROM collections WHERE collection_id = %s AND kind = 'chat'",
                             (collection_id,))
             conn.close()
         except Exception as e:
@@ -1151,3 +1264,141 @@ def delete_chat_collection_from_db(collection_id: str) -> bool:
                 logger.warning("Chat S3 delete failed (%s): %s", bucket, e)
     logger.info("Deleted chat collection: %s", collection_id)
     return True
+
+
+# ---------------------------------------------------------------------------
+# folders — group `collections` rows for the Files tab (MS-274)
+# Owner-scoped like collections themselves; there is no workspace/team table
+# to attach to (see _team_admin_id above for why "team" is derived, not
+# stored). Deleting a folder never touches the collections inside it — the
+# `folder_id` FK is ON DELETE SET NULL, so unlinking is automatic.
+# ---------------------------------------------------------------------------
+
+def create_folder(folder_id: str, name: str, owner_id: str) -> Optional[Dict[str, Any]]:
+    ensure_schema()
+    conn = _db_conn()
+    if not conn:
+        logger.warning("create_folder: no DB connection, skipping insert")
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO folders (folder_id, name, owner_id)
+                VALUES (%s, %s, %s)
+                RETURNING folder_id, name, owner_id, created_at, updated_at
+            """, (folder_id, name, owner_id))
+            row = cur.fetchone()
+        conn.close()
+        logger.info("Created folder: %s (owner=%s)", folder_id, owner_id)
+        return dict(row) if row else None
+    except Exception as e:
+        logger.warning("create_folder failed: %s", e)
+        return None
+
+
+def list_folders_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
+    """Folders a given user is allowed to see: all of them for admins, only
+    their own (owner_id match) for everyone else — same rule as collections."""
+    ensure_schema()
+    conn = _db_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            if is_admin:
+                cur.execute("""
+                    SELECT folder_id, name, owner_id, created_at, updated_at
+                    FROM folders ORDER BY created_at DESC
+                """)
+            else:
+                cur.execute("""
+                    SELECT folder_id, name, owner_id, created_at, updated_at
+                    FROM folders WHERE owner_id = %s ORDER BY created_at DESC
+                """, (user_id,))
+            rows = cur.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.warning("list_folders_for_user failed: %s", e)
+        return []
+
+
+def get_folder(folder_id: str) -> Optional[Dict[str, Any]]:
+    ensure_schema()
+    conn = _db_conn()
+    if not conn:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT folder_id, name, owner_id, created_at, updated_at
+                FROM folders WHERE folder_id = %s
+            """, (folder_id,))
+            row = cur.fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception as e:
+        logger.warning("get_folder failed for %s: %s", folder_id, e)
+        return None
+
+
+def rename_folder(folder_id: str, name: str) -> Optional[Dict[str, Any]]:
+    ensure_schema()
+    conn = _db_conn()
+    if not conn:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE folders SET name = %s, updated_at = now()
+                WHERE folder_id = %s
+                RETURNING folder_id, name, owner_id, created_at, updated_at
+            """, (name, folder_id))
+            row = cur.fetchone()
+        conn.close()
+        return dict(row) if row else None
+    except Exception as e:
+        logger.warning("rename_folder failed for %s: %s", folder_id, e)
+        return None
+
+
+def delete_folder(folder_id: str) -> bool:
+    """Deletes the folder row only. Collections inside it are never touched —
+    the folder_id FK is ON DELETE SET NULL, so Postgres unassigns them
+    automatically (they remain accessible, unassigned, per MS-274 AC)."""
+    ensure_schema()
+    conn = _db_conn()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM folders WHERE folder_id = %s", (folder_id,))
+            deleted = cur.rowcount > 0
+        conn.close()
+        return deleted
+    except Exception as e:
+        logger.warning("delete_folder failed for %s: %s", folder_id, e)
+        return False
+
+
+def set_collection_folder(collection_id: str, folder_id: Optional[str]) -> bool:
+    """Move (or unassign, when folder_id is None) a collection — works for
+    either kind, since folder_id lives on the unified `collections` table.
+    Which kinds a caller is allowed to move is enforced by the router layer
+    (owner-gated for pdf, admin-gated for chat), not here."""
+    ensure_schema()
+    conn = _db_conn()
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE collections SET folder_id = %s, updated_at = now() WHERE collection_id = %s",
+                (folder_id, collection_id),
+            )
+            updated = cur.rowcount > 0
+        conn.close()
+        return updated
+    except Exception as e:
+        logger.warning("set_collection_folder failed for %s: %s", collection_id, e)
+        return False
