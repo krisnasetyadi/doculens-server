@@ -7,9 +7,11 @@ Endpoints:
   POST /auth/login      — returns JWT access token
   GET  /auth/me         — returns current user's full profile, refreshed from the DB
   POST /auth/me         — update own display name and/or avatar
-  GET  /auth/admin/users           — admin-only: list team members this admin created
-  POST /auth/admin/users           — admin-only: add a team member (role "user"), capped by max_sub_users
-  POST /auth/admin/users/activate  — admin-only: activate/deactivate a team member this admin created
+  GET    /auth/admin/users           — admin-only: list team members this admin created
+  POST   /auth/admin/users           — admin-only: add a team member (role "user"), capped by max_sub_users
+  POST   /auth/admin/users/activate  — admin-only: activate/deactivate a team member this admin created
+  PUT    /auth/admin/users/{id}      — admin-only: rename a team member this admin created
+  DELETE /auth/admin/users/{id}      — admin-only: remove a team member this admin created and hard-delete their chat history
 
 RBAC dependency helpers (importable by other routers):
   get_current_user(token)        → UserRecord (any authenticated user)
@@ -176,15 +178,7 @@ def _validate_name(v: Optional[str]) -> Optional[str]:
 class RegisterRequest(BaseModel):
     email: EmailStr
     password: str
-    role: str = "user"  # "user" | "admin"
     name: Optional[str] = None
-
-    @field_validator("role")
-    @classmethod
-    def validate_role(cls, v: str) -> str:
-        if v not in ("user", "admin"):
-            raise ValueError("role must be 'user' or 'admin'")
-        return v
 
     @field_validator("password")
     @classmethod
@@ -276,11 +270,21 @@ class AdminUserStatusRequest(BaseModel):
     active: bool
 
 
+class AdminUpdateUserRequest(BaseModel):
+    name: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_name(v) if v is not None else v
+
+
 class TeamMember(BaseModel):
     user_id: str
     email: str
     role: str
     is_active: bool
+    name: Optional[str] = None
     created_at: datetime
 
 
@@ -376,7 +380,10 @@ def _decode_token(token: str) -> dict:
 def get_current_user(
     credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
 ) -> UserRecord:
-    """Require a valid JWT. Returns the decoded user record."""
+    """Require a valid JWT, then re-check the account against the DB on every
+    request (role, is_active, existence) instead of trusting the token's
+    claims for its lifetime. This is what makes a deleted or deactivated
+    account's access end immediately rather than whenever its token expires."""
     if not credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -384,6 +391,32 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     payload = _decode_token(credentials.credentials)
+    conn = _get_conn()
+    if conn:
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT role, is_active, name FROM users WHERE user_id = %s",
+                    (payload["sub"],),
+                )
+                row = cur.fetchone()
+        finally:
+            conn.close()
+        if not row or not row["is_active"]:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid or expired token",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+        return UserRecord(
+            user_id=payload["sub"],
+            email=payload["email"],
+            role=row["role"],
+            is_active=True,
+            name=row["name"],
+        )
+    # DB unavailable — fall back to trusting the token rather than locking
+    # everyone out of every route on a transient DB hiccup.
     return UserRecord(
         user_id=payload["sub"],
         email=payload["email"],
@@ -440,7 +473,10 @@ async def register(body: RegisterRequest):
             # First user in DB gets admin role regardless of request
             cur.execute("SELECT COUNT(*) AS cnt FROM users")
             count = cur.fetchone()["cnt"]
-            role = "admin" if count == 0 else body.role
+            # Role is never caller-controlled: the first account bootstraps
+            # the installation, and every later account starts as a regular
+            # user — there is no self-service way to become an admin.
+            role = "admin" if count == 0 else "user"
 
             user_id = str(uuid.uuid4())
             hashed  = _hash_password(pwd_ctx, body.password)
@@ -666,7 +702,7 @@ async def list_admin_users(admin: UserRecord = Depends(require_role("admin"))):
 
             cur.execute(
                 """
-                SELECT user_id, email, role, is_active, created_at
+                SELECT user_id, email, role, is_active, name, created_at
                 FROM users WHERE created_by = %s ORDER BY created_at DESC
                 """,
                 (admin.user_id,),
@@ -717,7 +753,7 @@ async def add_admin_user(
                 """
                 INSERT INTO users (user_id, email, password_hash, role, created_by)
                 VALUES (%s, %s, %s, 'user', %s)
-                RETURNING user_id, email, role, is_active, created_at
+                RETURNING user_id, email, role, is_active, name, created_at
                 """,
                 (user_id, body.email, hashed, admin.user_id),
             )
@@ -764,6 +800,89 @@ async def set_admin_user_status(
     except Exception as e:
         logger.error("set_admin_user_status error: %s", e, exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to update team member: {e}")
+    finally:
+        conn.close()
+
+
+@router.put("/auth/admin/users/{user_id}", response_model=TeamMember)
+async def update_admin_user(
+    user_id: str,
+    body: AdminUpdateUserRequest,
+    admin: UserRecord = Depends(require_role("admin")),
+):
+    """Admin-only: rename a team member this admin created. Scoped to
+    created_by = admin.user_id, same guard as the other per-member admin
+    mutations."""
+    if body.name is None:
+        raise HTTPException(status_code=400, detail="Nothing to update")
+    conn = _get_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        _ensure_users_table(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id FROM users WHERE user_id = %s AND created_by = %s",
+                (user_id, admin.user_id),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Team member not found")
+
+            cur.execute(
+                """
+                UPDATE users SET name = %s, updated_at = now() WHERE user_id = %s
+                RETURNING user_id, email, role, is_active, name, created_at
+                """,
+                (body.name, user_id),
+            )
+            row = cur.fetchone()
+        return TeamMember(**row)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("update_admin_user error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to update team member: {e}")
+    finally:
+        conn.close()
+
+
+@router.delete("/auth/admin/users/{user_id}")
+async def delete_admin_user(
+    user_id: str,
+    admin: UserRecord = Depends(require_role("admin")),
+):
+    """Admin-only: remove a team member this admin created. Scoped to
+    created_by = admin.user_id, same guard as the other per-member admin
+    mutations (and an admin can never remove themselves this way, since
+    their own row has no created_by pointing at themselves).
+
+    Hard-deletes the member's chat history (chat_sessions cascades to
+    chat_messages via ON DELETE CASCADE) along with their account.
+    Deliberately scoped to just that: their uploaded sources (documents),
+    skills, gap-analysis runs, and token allocation are left untouched —
+    what happens to those on removal is a separate, not-yet-scoped piece
+    of work, not part of this ticket."""
+    conn = _get_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        _ensure_users_table(conn)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id FROM users WHERE user_id = %s AND created_by = %s",
+                (user_id, admin.user_id),
+            )
+            if not cur.fetchone():
+                raise HTTPException(status_code=404, detail="Team member not found")
+
+            cur.execute("DELETE FROM chat_sessions WHERE owner_id = %s", (user_id,))
+            cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+        return {"status": "success", "user_id": user_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("delete_admin_user error: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete team member: {e}")
     finally:
         conn.close()
 
