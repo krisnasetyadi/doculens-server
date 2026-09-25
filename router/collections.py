@@ -1,5 +1,5 @@
 # router/collections.py
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Query
 from fastapi.responses import FileResponse, RedirectResponse
 from models import CollectionInfo, SetPdfCollectionActiveRequest, MoveToFolderRequest
 from config import config
@@ -9,11 +9,14 @@ from utils import (
     CONTENT_TYPE_BY_EXT,
     INLINE_VIEWABLE_EXTS,
     content_disposition,
+    extract_text_from_txt,
 )
 import storage as supabase_storage
 from router.auth import get_current_user, UserRecord
 import os
 import shutil
+import tempfile
+import httpx
 from typing import List, Optional
 from datetime import datetime
 import logging
@@ -319,6 +322,79 @@ async def serve_pdf_file(
     except Exception as e:
         logger.error("Failed to serve file: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/pdf-collections/{collection_id}/text-content")
+async def get_pdf_text_content(
+    collection_id: str,
+    file_name: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=500),
+    user: UserRecord = Depends(get_current_user),
+):
+    """Paginated plain-text content for a .txt document source (kind='pdf'),
+    read line by line, for the formatted text viewer (MS-415). Read-only —
+    never writes to the stored file.
+    """
+    row = supabase_storage.get_collection(collection_id)
+    if not _can_access(row, user):
+        raise HTTPException(status_code=403, detail="Not allowed to access this collection")
+
+    decoded_file_name = urllib.parse.unquote(file_name)
+    if ".." in decoded_file_name or decoded_file_name.startswith("/"):
+        raise HTTPException(status_code=400, detail="Invalid file name")
+    if os.path.splitext(decoded_file_name)[1].lower() != ".txt":
+        raise HTTPException(status_code=400, detail="Not a text file")
+
+    upload_folder_abs = os.path.abspath(config.upload_folder)
+    file_path = os.path.join(upload_folder_abs, collection_id, decoded_file_name)
+
+    full_text: Optional[str] = None
+    if os.path.exists(file_path):
+        extracted = extract_text_from_txt(file_path)
+        full_text = extracted[0]["text"] if extracted else ""
+    elif supabase_storage.is_enabled():
+        # Ephemeral disk (e.g. HF Space restart): no pdf-side equivalent of
+        # download_chat_file exists to restore the file locally, so pull the
+        # bytes via the existing signed-URL helper instead, then run them
+        # through the same extractor the ingest pipeline uses so encoding
+        # handling stays identical either way.
+        signed_url = supabase_storage.get_pdf_signed_url(collection_id, decoded_file_name)
+        if signed_url:
+            try:
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.get(signed_url)
+                    resp.raise_for_status()
+                with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+                    tmp.write(resp.content)
+                    tmp_path = tmp.name
+                try:
+                    extracted = extract_text_from_txt(tmp_path)
+                    full_text = extracted[0]["text"] if extracted else ""
+                finally:
+                    os.remove(tmp_path)
+            except Exception as exc:
+                logger.warning(f"Text content fetch from bucket failed for {collection_id}: {exc}")
+
+    if full_text is None:
+        raise HTTPException(status_code=404, detail="Text file not found")
+
+    lines = full_text.splitlines()
+    total = len(lines)
+    page = lines[offset: offset + limit]
+
+    return {
+        "collection_id": collection_id,
+        "file_name": decoded_file_name,
+        "total_lines": total,
+        "offset": offset,
+        "limit": limit,
+        "has_more": offset + limit < total,
+        "lines": [
+            {"line_number": offset + i + 1, "content": line}
+            for i, line in enumerate(page)
+        ],
+    }
 
 
 @router.get("/collection/{collection_id}/files")

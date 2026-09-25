@@ -15,6 +15,7 @@ import storage as supabase_storage
 from config import config
 from models import ChatUploadResponse, ChatPlatform, SetChatCollectionActiveRequest, MoveToFolderRequest
 from chat_parser import ChatParser
+from text_source_preview import read_text_source_page
 from chat_ingest import ingest_chat_messages
 from processor import processor
 from router.auth import require_role, UserRecord
@@ -144,19 +145,18 @@ async def list_chat_collections(_: UserRecord = Depends(require_role("admin"))):
     return {"collections": collections, "count": len(collections)}
 
 
-@router.get('/chat-collections/{collection_id}/preview')
-async def preview_chat_collection(
-    collection_id: str,
-    max_chars: int = Query(default=20000, ge=500, le=200000),
-    _: UserRecord = Depends(require_role("admin")),
-):
-    """Return plain-text preview content from an uploaded chat collection file."""
+def _resolve_chat_collection_file(collection_id: str) -> tuple[str, Optional[dict]]:
+    """Locate the raw uploaded file for a chat collection, restoring it from
+    the Supabase bucket first if the local disk copy is missing (e.g. an
+    ephemeral HF Space restart). Shared by /preview and /messages so both
+    read the exact same file.
+    """
     collection_info = None
     if supabase_storage.has_database():
         try:
             collection_info = supabase_storage.get_chat_collection(collection_id)
         except Exception as exc:
-            logger.warning(f"Preview metadata lookup failed for {collection_id}: {exc}")
+            logger.warning(f"Chat collection metadata lookup failed for {collection_id}: {exc}")
 
     upload_dir = os.path.join(config.chat_upload_folder, collection_id)
 
@@ -164,8 +164,6 @@ async def preview_chat_collection(
     if isinstance(collection_info, dict):
         preferred_name = collection_info.get("file_name")
 
-    # Ephemeral disk (e.g. HF Space restart): restore the raw file from the
-    # Supabase bucket before giving up.
     if (not os.path.isdir(upload_dir) or not os.listdir(upload_dir)) and preferred_name:
         try:
             if supabase_storage.is_enabled():
@@ -189,6 +187,18 @@ async def preview_chat_collection(
     if not file_path:
         raise HTTPException(status_code=404, detail="No chat file available for preview")
 
+    return file_path, collection_info
+
+
+@router.get('/chat-collections/{collection_id}/preview')
+async def preview_chat_collection(
+    collection_id: str,
+    max_chars: int = Query(default=20000, ge=500, le=200000),
+    _: UserRecord = Depends(require_role("admin")),
+):
+    """Return plain-text preview content from an uploaded chat collection file."""
+    file_path, _collection_info = _resolve_chat_collection_file(collection_id)
+
     try:
         with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
             content = handle.read(max_chars + 1)
@@ -205,6 +215,34 @@ async def preview_chat_collection(
         "content_preview": preview_text,
         "truncated": truncated,
         "max_chars": max_chars,
+    }
+
+
+@router.get('/chat-collections/{collection_id}/messages')
+async def get_chat_collection_messages(
+    collection_id: str,
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    _: UserRecord = Depends(require_role("admin")),
+):
+    """Preview recognized WhatsApp messages, or raw text lines for other sources.
+    Both formats are read-only and paginated (MS-415).
+    """
+    file_path, collection_info = _resolve_chat_collection_file(collection_id)
+    platform = (collection_info or {}).get("platform")
+
+    try:
+        page = read_text_source_page(file_path, platform, offset, limit)
+    except Exception as exc:
+        logger.error(f"Failed reading chat file for {collection_id}: {exc}")
+        raise HTTPException(status_code=500, detail="Failed to read chat file")
+
+    return {
+        "collection_id": collection_id,
+        "file_name": os.path.basename(file_path),
+        "offset": offset,
+        "limit": limit,
+        **page,
     }
 
 
