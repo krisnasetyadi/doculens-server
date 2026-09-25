@@ -8,11 +8,12 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS # type: ignore
 from langchain_core.documents import Document
 from config import config
+from upload_progress import ProgressCallback
 
 logger = logging.getLogger(__name__)
 
 
-def extract_text_from_pdf(pdf_path):
+def extract_text_from_pdf(pdf_path, on_page=None):
     """Extract page-by-page clean text and page numbers from PDF"""
     pages_data = []
     try:
@@ -27,6 +28,8 @@ def extract_text_from_pdf(pdf_path):
                             "text": page_text,
                             "page": page_num
                         })
+                if on_page:
+                    on_page(page_num, len(pdf.pages))
         return pages_data if pages_data else None
     except Exception as e:
         logger.error(f"Failed to extract text from {pdf_path}: {str(e)}")
@@ -220,16 +223,43 @@ def content_disposition(disposition_type: str, filename: str) -> str:
     return f'{disposition_type}; filename="{filename}"'
 
 
-def process_pdfs(pdf_paths, collection_id):
+def build_source_index(documents, embeddings, on_progress: ProgressCallback | None = None):
+    """Build the FAISS index, reporting each completed embedding batch so a
+    large source doesn't sit at one percentage for the whole embed step."""
+    if not on_progress:
+        return FAISS.from_documents(documents, embeddings)
+    vector_store = None
+    batch_size = 32
+    on_progress("preparing", 35)
+    for start in range(0, len(documents), batch_size):
+        batch = documents[start:start + batch_size]
+        if vector_store is None:
+            vector_store = FAISS.from_documents(batch, embeddings)
+        else:
+            vector_store.add_documents(batch)
+        on_progress("preparing", 35 + int(50 * min(start + batch_size, len(documents)) / len(documents)))
+    return vector_store
+
+
+def process_pdfs(pdf_paths, collection_id, on_progress: ProgressCallback | None = None):
     """Process uploaded documents (PDF, DOCX, CSV, XLSX, TXT — despite the
     name, kept for backward compatibility with existing callers) with
     improved page-level text splitting."""
     documents = []
 
-    for pdf_path in pdf_paths:
+    if on_progress:
+        on_progress("reading", 10)
+    for file_index, pdf_path in enumerate(pdf_paths):
         ext = os.path.splitext(pdf_path)[1].lower()
         extract_text = DOCUMENT_EXTRACTORS.get(ext, extract_text_from_pdf)
-        pages_data = extract_text(pdf_path)
+        if on_progress and ext == ".pdf":
+            pages_data = extract_text(pdf_path, on_page=lambda done, total: on_progress(
+                "reading", 10 + int(20 * (file_index + done / total) / len(pdf_paths)),
+            ))
+        else:
+            pages_data = extract_text(pdf_path)
+        if on_progress:
+            on_progress("reading", 10 + int(20 * (file_index + 1) / len(pdf_paths)))
         if pages_data:
             for page_entry in pages_data:
                 doc = Document(
@@ -256,6 +286,8 @@ def process_pdfs(pdf_paths, collection_id):
         keep_separator=True
     )
 
+    if on_progress:
+        on_progress("preparing", 30)
     chunks = text_splitter.split_documents(documents)
 
     if not chunks:
@@ -265,12 +297,14 @@ def process_pdfs(pdf_paths, collection_id):
     # Create vector store
     try:
         from processor import processor
-        vector_store = FAISS.from_documents(chunks, processor.embeddings)
+        vector_store = build_source_index(chunks, processor.embeddings, on_progress)
 
         # Save vector store
         index_path = os.path.join(config.index_folder, collection_id)
         os.makedirs(index_path, exist_ok=True)
         vector_store.save_local(index_path)
+        if on_progress:
+            on_progress("saving", 88)
 
         logger.info(f"Created vector store with {len(chunks)} chunks for collection {collection_id}")
         return len(chunks)

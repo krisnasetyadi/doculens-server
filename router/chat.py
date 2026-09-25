@@ -5,6 +5,8 @@ Handles WhatsApp TXT file uploads and indexing to FAISS
 """
 
 from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Query, Depends
+from fastapi.responses import JSONResponse
+import asyncio
 import logging
 import os
 import uuid
@@ -19,97 +21,118 @@ from text_source_preview import read_text_source_page
 from chat_ingest import ingest_chat_messages
 from processor import processor
 from router.auth import require_role, UserRecord
+from upload_progress import ProgressCallback, progress_response, upload_progress_store
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-@router.post('/chat-collections/upload', response_model=ChatUploadResponse)
+@router.get('/chat-collections/uploads/{upload_id}')
+async def get_chat_upload_status(upload_id: str, user: UserRecord = Depends(require_role("admin"))):
+    record = upload_progress_store.get(upload_id, user.user_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    return JSONResponse(record, headers={"Cache-Control": "no-store"})
+
+
+@router.post('/chat-collections/upload', response_model=ChatUploadResponse,
+             responses={200: {"content": {"application/x-ndjson": {}}}})
 async def upload_chat(
     file: UploadFile = File(...),
     platform: str = Form(default="whatsapp"),
-    _: UserRecord = Depends(require_role("admin")),
+    user: UserRecord = Depends(require_role("admin")),
+    stream_progress: bool = Query(False),
 ):
     """
     Upload and process a chat export file
-    
+
     - **file**: Chat export file (TXT for WhatsApp)
     - **platform**: Chat platform (whatsapp, teams, slack). Default: whatsapp
     """
     logger.info(f"📱 Chat upload received: {file.filename}, platform: {platform}")
-    
+
     # Validate platform
     if platform.lower() not in config.supported_chat_platforms:
         raise HTTPException(
             status_code=400,
             detail=f"Platform '{platform}' not supported. Supported: {config.supported_chat_platforms}"
         )
-    
+
     # Validate file extension
     if platform.lower() == "whatsapp" and not file.filename.lower().endswith('.txt'):
         raise HTTPException(
             status_code=400,
             detail="WhatsApp exports should be .txt files"
         )
-    
+
     try:
         # Generate collection ID
         collection_id = str(uuid.uuid4())
-        
+
         # Create directories
         upload_dir = os.path.join(config.chat_upload_folder, collection_id)
         index_dir = os.path.join(config.chat_index_folder, collection_id)
         os.makedirs(upload_dir, exist_ok=True)
         os.makedirs(index_dir, exist_ok=True)
-        
+
         # Save uploaded file
         file_path = os.path.join(upload_dir, file.filename)
         with open(file_path, 'wb') as f:
             content = await file.read()
             f.write(content)
-        
+
         logger.info(f"💾 Saved chat file to: {file_path}")
-        
-        # Parse chat file
-        parser = ChatParser()
-        messages, metadata = parser.parse_whatsapp(file_path)
-
-        if not messages:
-            raise HTTPException(
-                status_code=400,
-                detail="No messages found in chat file. Please check the file format."
-            )
-
-        # Chunk, embed, index, and register — shared with the Telegram sync
-        # path (chat_ingest.py) so both stay searchable through identical code.
-        collection = await ingest_chat_messages(
-            collection_id,
-            messages,
-            file_name=file.filename,
-            platform=ChatPlatform(platform.lower()),
-            raw_file_path=file_path,
-        )
-
-        logger.info(f"✅ Chat collection created: {collection_id} with {len(messages)} messages")
-
-        return ChatUploadResponse(
-            collection_id=collection_id,
-            file_name=file.filename,
-            platform=platform,
-            message_count=collection.message_count,
-            participants=collection.participants,
-            date_range=collection.date_range,
-            status="success"
-        )
-        
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(f"❌ Chat upload failed: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to process chat file: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to process chat file: {str(e)}")
+
+    def prepare(report: ProgressCallback) -> dict:
+        try:
+            report("reading", 10)
+            # Parse chat file
+            parser = ChatParser()
+            messages, metadata = parser.parse_whatsapp(file_path)
+
+            if not messages:
+                raise HTTPException(
+                    status_code=400,
+                    detail="No messages found in chat file. Please check the file format."
+                )
+            report("reading", 30)
+
+            # Chunk, embed, index, and register — shared with the Telegram sync
+            # path (chat_ingest.py) so both stay searchable through identical code.
+            collection = asyncio.run(ingest_chat_messages(
+                collection_id,
+                messages,
+                file_name=file.filename,
+                platform=ChatPlatform(platform.lower()),
+                raw_file_path=file_path,
+                on_progress=report,
+            ))
+            report("saving", 97)
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"❌ Chat upload failed: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail=f"Failed to process chat file: {str(e)}")
+
+        logger.info(f"✅ Chat collection created: {collection_id} with {len(messages)} messages")
+        return {
+            "collection_id": collection_id,
+            "file_name": file.filename,
+            "platform": platform,
+            "message_count": collection.message_count,
+            "participants": collection.participants,
+            "date_range": collection.date_range,
+            "status": "success",
+        }
+
+    if stream_progress:
+        upload_progress_store.start(collection_id, owner_id=user.user_id)
+        return progress_response(prepare, upload_id=collection_id)
+
+    return ChatUploadResponse(**await asyncio.to_thread(prepare, lambda stage, progress: None))
 
 
 @router.get('/chat-collections')

@@ -1,5 +1,6 @@
 # router/upload.py
 from fastapi import APIRouter, UploadFile, File, HTTPException, Query, Depends
+from fastapi.responses import JSONResponse
 from typing import List, Optional, Literal
 import asyncio
 import os
@@ -14,6 +15,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import httpx
 
 from utils import process_pdfs, DOCUMENT_EXTRACTORS
+from upload_progress import ProgressCallback, progress_response, upload_progress_store
 from ssrf_guard import assert_public_url_safe
 from models import (
     DriveFolderItem,
@@ -268,6 +270,7 @@ def _register_uploaded_collection(
     title: Optional[str] = None,
     persist_mode: Literal["auto", "local", "database"] = "auto",
     owner_id: Optional[str] = None,
+    on_progress: ProgressCallback | None = None,
 ):
     if persist_mode == "local":
         logger.info("Persist mode=local — skipping Supabase upload and DB registration")
@@ -283,10 +286,12 @@ def _register_uploaded_collection(
     if persist_mode in ("auto", "database") and supabase_storage.is_enabled():
         logger.info("Uploading collection %s to Supabase Storage…", collection_id)
 
-        for file_path, fname in zip(saved_files, file_names):
+        for file_index, (file_path, fname) in enumerate(zip(saved_files, file_names)):
             path = supabase_storage.upload_pdf(collection_id, file_path, fname)
             if path:
                 storage_paths.append(path)
+            if on_progress:
+                on_progress("saving", 88 + int(6 * (file_index + 1) / len(saved_files)))
 
         index_dir = os.path.join(config.index_folder, collection_id)
         supabase_storage.upload_index(collection_id, index_dir)
@@ -386,7 +391,16 @@ async def list_drive_folder_items(
         )
 
 
-@router.post("/pdf-collections/upload", response_model=UploadResponse)
+@router.get("/pdf-collections/uploads/{upload_id}")
+async def get_pdf_upload_status(upload_id: str, user: UserRecord = Depends(get_current_user)):
+    record = upload_progress_store.get(upload_id, user.user_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Upload not found")
+    return JSONResponse(record, headers={"Cache-Control": "no-store"})
+
+
+@router.post("/pdf-collections/upload", response_model=UploadResponse,
+             responses={200: {"content": {"application/x-ndjson": {}}}})
 async def upload_pdfs(
     files: List[UploadFile] = File(...),
     persist_mode: Literal["auto", "local", "database"] = Query(
@@ -394,6 +408,7 @@ async def upload_pdfs(
         description="Persistence mode: auto (default), local (disk only), database (require DATABASE_URL)",
     ),
     user: UserRecord = Depends(get_current_user),
+    stream_progress: bool = Query(False),
 ):
     """Upload and process document files (PDF, DOC, DOCX, CSV, XLSX, TXT), then
     persist to Supabase Storage."""
@@ -422,38 +437,47 @@ async def upload_pdfs(
         raise HTTPException(
             status_code=400, detail="No valid files uploaded (supported: PDF, DOC, DOCX, CSV, XLSX, TXT)")
 
-    try:
-        chunk_count = await asyncio.to_thread(process_pdfs, saved_files, collection_id)
-    except Exception as e:
-        shutil.rmtree(collection_path, ignore_errors=True)
-        logger.error(f"Upload failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Failed to process PDFs")
+    def prepare(report: ProgressCallback) -> dict:
+        try:
+            chunk_count = process_pdfs(saved_files, collection_id, on_progress=report)
+        except Exception as e:
+            shutil.rmtree(collection_path, ignore_errors=True)
+            logger.error(f"Upload failed: {str(e)}")
+            raise HTTPException(status_code=500, detail="Failed to process PDFs")
 
-    if chunk_count <= 0:
-        shutil.rmtree(collection_path, ignore_errors=True)
-        raise HTTPException(
-            status_code=400,
-            detail="No readable text was found in the uploaded file(s) — the collection was not created.",
+        if chunk_count <= 0:
+            shutil.rmtree(collection_path, ignore_errors=True)
+            raise HTTPException(
+                status_code=400,
+                detail="No readable text was found in the uploaded file(s) — the collection was not created.",
+            )
+
+        _register_uploaded_collection(
+            collection_id,
+            saved_files,
+            file_names,
+            chunk_count,
+            persist_mode=persist_mode,
+            owner_id=user.user_id,
+            on_progress=report,
         )
+        report("saving", 97)
 
-    _register_uploaded_collection(
-        collection_id,
-        saved_files,
-        file_names,
-        chunk_count,
-        persist_mode=persist_mode,
-        owner_id=user.user_id,
-    )
+        if persist_mode == "database":
+            _cleanup_local_artifacts(collection_id, collection_path)
 
-    if persist_mode == "database":
-        _cleanup_local_artifacts(collection_id, collection_path)
+        return {
+            "collection_id": collection_id,
+            "file_count": len(saved_files),
+            "status": "success",
+            "file_names": file_names,
+        }
 
-    return UploadResponse(
-        collection_id=collection_id,
-        file_count=len(saved_files),
-        status="success",
-        file_names=file_names,
-    )
+    if stream_progress:
+        upload_progress_store.start(collection_id, owner_id=user.user_id)
+        return progress_response(prepare, upload_id=collection_id)
+
+    return UploadResponse(**await asyncio.to_thread(prepare, lambda stage, progress: None))
 
 
 @router.post("/pdf-collections/upload-from-url", response_model=UploadResponse)
