@@ -244,6 +244,17 @@ class Config(BaseSettings):
     # this app tracking query *count* anywhere.
     free_plan_token_limit: int = Field(default=60_000)
 
+    # MS-402: fallback "Default Token Allocation" for a workspace whose admin
+    # hasn't set one yet (workspace_settings row missing) — every new team
+    # member gets this cap instead of being created uncapped.
+    default_member_token_allocation: int = Field(default=5_000)
+    # MS-402: headroom a query must still fit into before it's allowed to
+    # run. Caps are checked BEFORE the LLM call and usage is only known
+    # AFTER, so a bare `used >= cap` check lets one query overshoot by its
+    # whole cost. Blocking at `used + reserve > cap` bounds that overshoot.
+    # Roughly one small query's cost; 0 restores the old `used >= cap`.
+    query_token_reserve: int = Field(default=2_000)
+
     @property
     def effective_rate_limit_window_hours(self) -> float:
         if self.rate_limit_window_minutes is not None:

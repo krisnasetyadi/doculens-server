@@ -48,6 +48,8 @@ from models import (
     MembersUsageResponse,
     UpdateMemberAllocationRequest,
     UpdateMemberAllocationResponse,
+    WorkspaceTokenSettings,
+    UpdateWorkspaceTokenSettingsRequest,
     RateLimitStatus,
     EfficientModeStats,
     CreateTokenRequestRequest,
@@ -246,6 +248,15 @@ def _ensure_usage_tables(conn) -> None:
 
                 CREATE INDEX IF NOT EXISTS idx_token_requests_admin_status
                     ON token_requests (admin_user_id, status, created_at DESC);
+
+                -- MS-402: per-workspace "Default Token Allocation". No row
+                -- means the admin hasn't set one yet and
+                -- config.default_member_token_allocation applies.
+                CREATE TABLE IF NOT EXISTS workspace_settings (
+                    admin_user_id             TEXT        PRIMARY KEY,
+                    default_member_allocation INTEGER     NOT NULL,
+                    updated_at                TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
                 """
             )
         _usage_tables_ensured = True
@@ -324,20 +335,38 @@ def _get_latest_plan_window(conn, admin_user_id: str) -> Optional[PlanWindow]:
         user_row = cur.fetchone()
     if not user_row:
         return None
-    period_start = user_row["created_at"]
+    return _free_window(user_row["created_at"])
+
+
+def _free_window(anchor: datetime) -> PlanWindow:
+    """The current Free-tier period, rolling forward from `anchor` in fixed
+    SUBSCRIPTION_PERIOD_DAYS steps."""
     now = datetime.now(timezone.utc)
     period_length = timedelta(days=SUBSCRIPTION_PERIOD_DAYS)
-    periods_elapsed = max(0, (now - period_start) // period_length)
-    period_start = period_start + periods_elapsed * period_length
-    period_end = period_start + period_length
+    periods_elapsed = max(0, (now - anchor) // period_length)
+    period_start = anchor + periods_elapsed * period_length
     return PlanWindow(
         plan=PLAN_QUOTAS["free"],
         payment_id=None,
         period_start=period_start,
-        period_end=period_end,
+        period_end=period_start + period_length,
         status="active",
         cancel_at_period_end=False,
     )
+
+
+def _get_enforced_window(conn, admin_user_id: str) -> Optional[PlanWindow]:
+    """The window token caps are actually enforced against (MS-402). Same
+    as _get_latest_plan_window, except an EXPIRED paid plan drops back to
+    the Free quota -- rolling from the day it expired, so usage restarts
+    fresh -- instead of switching every cap off until the admin renews.
+    Member allocations keep applying on top of that Free pool.
+    _get_latest_plan_window itself stays as-is so Billing can still show
+    the paid plan as "expired" and cancel/resume keep their own rules."""
+    window = _get_latest_plan_window(conn, admin_user_id)
+    if window is None or window.status == "active":
+        return window
+    return _free_window(window.period_end)
 
 
 def _sum_tokens_for_admin(conn, admin_user_id: str, period_start, period_end) -> int:
@@ -381,6 +410,171 @@ def _sum_tokens_by_user(conn, user_ids: list, period_start, period_end) -> dict:
         )
         rows = cur.fetchall()
     return {r["user_id"]: int(r["used"] or 0) for r in rows}
+
+
+# ===================== DEFAULT / EFFECTIVE ALLOCATION (MS-402) =====================
+# A team member with no token_allocations row used to be silently uncapped
+# (enforce_member_allocation returned early) while the Billing tab showed
+# them as "0" — so they could burn the whole workspace pool. Now every
+# team member (an account an admin created) is capped: by their explicit
+# row if there is one, otherwise by the workspace's Default Token
+# Allocation. The admin keeps the old opt-in behavior (uncapped unless they
+# allocate themselves a slice), since they control the pool anyway; so do
+# self-registered accounts, which have no admin to raise a cap.
+
+def exceeds_cap(used: int, cap: int, reserve: int) -> bool:
+    """True if a new query must be refused: the cap is already reached, or
+    what's left can't fit `reserve` more tokens (see
+    config.query_token_reserve for why the headroom matters). The reserve
+    is limited to half the cap, so a small cap (e.g. 1,000 with a 2,000
+    reserve) still allows queries instead of blocking before the first one."""
+    reserve = min(max(0, reserve), cap // 2)
+    return used >= cap or used + reserve > cap
+
+
+def clamp_to_pool(requested: int, token_limit: int, allocated_elsewhere: int) -> tuple[int, bool]:
+    """(allocation actually granted, whether it had to be reduced) so a new
+    member's allocation never pushes the workspace past its token pool."""
+    available = max(0, token_limit - allocated_elsewhere)
+    if requested <= available:
+        return requested, False
+    return available, True
+
+
+def effective_allocations(
+    explicit: dict[str, int], member_ids: list[str], default_allocation: int
+) -> dict[str, tuple[int, bool]]:
+    """user_id -> (enforced allocation, is_default). Explicit rows win
+    (including the admin's own optional one); every listed member without
+    a row falls back to the workspace default."""
+    result = {uid: (tokens, False) for uid, tokens in explicit.items()}
+    for uid in member_ids:
+        result.setdefault(uid, (default_allocation, True))
+    return result
+
+
+def _get_default_allocation(conn, admin_user_id: str) -> int:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT default_member_allocation FROM workspace_settings WHERE admin_user_id = %s",
+            (admin_user_id,),
+        )
+        row = cur.fetchone()
+    return row["default_member_allocation"] if row else config.default_member_token_allocation
+
+
+def _get_workspace_allocations(conn, admin_user_id: str) -> dict[str, tuple[int, bool]]:
+    """Effective allocation for everyone in the workspace pool. Only ACTIVE
+    members fall back to the default — a deactivated member can't query,
+    so counting a default for them would just shrink the pool for nothing."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT user_id, allocated_tokens FROM token_allocations WHERE admin_user_id = %s",
+            (admin_user_id,),
+        )
+        explicit = {r["user_id"]: r["allocated_tokens"] for r in cur.fetchall()}
+        cur.execute(
+            "SELECT user_id FROM users WHERE created_by = %s AND is_active = true",
+            (admin_user_id,),
+        )
+        member_ids = [r["user_id"] for r in cur.fetchall()]
+    return effective_allocations(explicit, member_ids, _get_default_allocation(conn, admin_user_id))
+
+
+def _get_user_allocation(conn, user: UserRecord) -> Optional[tuple[int, bool]]:
+    """(enforced allocation, is_default) for one user, or None if they're
+    uncapped: an admin with no explicit row, or a self-registered account
+    (created_by NULL). The latter owns its own workspace with no admin to
+    raise a cap, so only its plan limit applies, same as before MS-402."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT allocated_tokens FROM token_allocations WHERE user_id = %s",
+            (user.user_id,),
+        )
+        row = cur.fetchone()
+    if row:
+        return row["allocated_tokens"], False
+    if user.role == "admin":
+        return None
+    with conn.cursor() as cur:
+        cur.execute("SELECT created_by FROM users WHERE user_id = %s", (user.user_id,))
+        user_row = cur.fetchone()
+    if not user_row or not user_row["created_by"]:
+        return None
+    return _get_default_allocation(conn, user_row["created_by"]), True
+
+
+def _member_usage(user_id: str, email: str, allocated: int, used: int, is_default: bool) -> MemberTokenUsage:
+    return MemberTokenUsage(
+        user_id=user_id,
+        email=email,
+        allocated_tokens=allocated,
+        used_tokens=used,
+        remaining_tokens=max(0, allocated - used),
+        usage_percent=round(used / allocated * 100, 2) if allocated > 0 else 0.0,
+        is_default_allocation=is_default,
+    )
+
+
+def assign_initial_allocation(
+    admin_user_id: str, user_id: str, requested: Optional[int] = None
+) -> Optional[tuple[int, bool]]:
+    """Called by router/auth.py right after a team member is created.
+    `requested` (a custom cap from the create form) is clamped to what's
+    left of the pool and stored as an explicit token_allocations row.
+    Without one, no row is written: the member follows the workspace
+    default lazily (_get_user_allocation), so later changes to the default
+    reach them too — unless the default doesn't fit the pool, in which case
+    the clamped value is stored explicitly. Returns (allocated, clamped),
+    or None if the metering DB is unreachable; the member is then still
+    capped by the default at enforcement time, so this is best-effort."""
+    conn = _get_app_conn()
+    if not conn:
+        return None
+    try:
+        _ensure_tables(conn)
+        _ensure_usage_tables(conn)
+        wanted = requested if requested is not None else _get_default_allocation(conn, admin_user_id)
+        window = _get_enforced_window(conn, admin_user_id)
+        clamped = False
+        if window:
+            allocations = _get_workspace_allocations(conn, admin_user_id)
+            elsewhere = sum(tokens for uid, (tokens, _) in allocations.items() if uid != user_id)
+            wanted, clamped = clamp_to_pool(wanted, window.plan["token_limit"], elsewhere)
+        if requested is None and not clamped:
+            return wanted, False
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO token_allocations (admin_user_id, user_id, allocated_tokens)
+                VALUES (%s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET allocated_tokens = EXCLUDED.allocated_tokens
+                """,
+                (admin_user_id, user_id, wanted),
+            )
+        return wanted, clamped
+    except Exception as exc:
+        logger.warning("payment: assign_initial_allocation failed for user %s: %s", user_id, exc)
+        return None
+    finally:
+        conn.close()
+
+
+def release_member_allocation(user_id: str) -> None:
+    """Called by router/auth.py when a member is deleted, so their slice
+    goes back to the pool instead of staying locked by a user that no
+    longer exists. Best-effort, never raises."""
+    conn = _get_app_conn()
+    if not conn:
+        return
+    try:
+        _ensure_usage_tables(conn)
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM token_allocations WHERE user_id = %s", (user_id,))
+    except Exception as exc:
+        logger.warning("payment: release_member_allocation failed for user %s: %s", user_id, exc)
+    finally:
+        conn.close()
 
 
 def _build_subscription_usage(
@@ -549,15 +743,15 @@ def enforce_plan_limit(user: UserRecord) -> None:
         _ensure_tables(conn)
         _ensure_usage_tables(conn)
         admin_user_id = _resolve_admin_user_id(conn, user)
-        window = _get_latest_plan_window(conn, admin_user_id)
-        if not window or window.status != "active":
+        window = _get_enforced_window(conn, admin_user_id)
+        if not window:
             return
         used = _sum_tokens_for_admin(conn, admin_user_id, window.period_start, window.period_end)
         token_limit = window.plan["token_limit"]
         plan_name = window.plan["name"]
     finally:
         conn.close()
-    if used >= token_limit:
+    if exceeds_cap(used, token_limit, config.query_token_reserve):
         raise HTTPException(
             status_code=402,
             detail=f"Jatah token workspace untuk plan {plan_name} sudah habis untuk periode ini.",
@@ -565,38 +759,31 @@ def enforce_plan_limit(user: UserRecord) -> None:
 
 
 def enforce_member_allocation(user: UserRecord) -> None:
-    """Raise HTTPException(403) if this user has an assigned token cap (a
-    row in token_allocations) and has used it up this period. No row at
-    all means nobody has capped this account individually — they're still
-    subject to the flat rate limit (enforce_rate_limit), just not this
-    per-member one. Applies to admins too (MS-248 follow-up): an admin can
-    optionally allocate themselves a slice of the workspace pool for their
-    own budget discipline, same mechanism as any team member, and can
-    always raise it back up to whatever's unallocated since they're the
-    one who controls it. Fails open if the metering DB is unreachable,
-    same as enforce_rate_limit."""
+    """Raise HTTPException(403) once this user can't fit another query into
+    their token cap this period. Every team member is capped (MS-402): by
+    their token_allocations row, or by the workspace's Default Token
+    Allocation when they have none — see _get_user_allocation. An admin (or
+    a self-registered account) is only capped if they have an explicit row
+    — for an admin, a slice of the pool they allocated themselves (MS-248
+    follow-up), which they can always raise back up since they control it.
+    Fails open if the metering DB is unreachable, same as enforce_rate_limit."""
     conn = _get_app_conn()
     if not conn:
         return
     try:
         _ensure_tables(conn)
         _ensure_usage_tables(conn)
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT allocated_tokens FROM token_allocations WHERE user_id = %s",
-                (user.user_id,),
-            )
-            alloc_row = cur.fetchone()
-        if not alloc_row:
+        allocation = _get_user_allocation(conn, user)
+        if allocation is None:
             return
         admin_user_id = _resolve_admin_user_id(conn, user)
-        window = _get_latest_plan_window(conn, admin_user_id)
-        if not window or window.status != "active":
+        window = _get_enforced_window(conn, admin_user_id)
+        if not window:
             return
         used = _sum_tokens_for_user(conn, user.user_id, window.period_start, window.period_end)
     finally:
         conn.close()
-    if used >= alloc_row["allocated_tokens"]:
+    if exceeds_cap(used, allocation[0], config.query_token_reserve):
         raise HTTPException(
             status_code=403,
             detail="Token cap yang diberikan admin untuk akun kamu sudah habis untuk periode ini.",
@@ -840,29 +1027,17 @@ async def get_my_usage(user: UserRecord = Depends(get_current_user)):
     _ensure_usage_tables(conn)
     try:
         admin_user_id = _resolve_admin_user_id(conn, user)
-        window = _get_latest_plan_window(conn, admin_user_id)
-        if not window or window.status != "active":
+        window = _get_enforced_window(conn, admin_user_id)
+        if not window:
             return MyMemberUsageResponse(usage=None)
 
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT allocated_tokens FROM token_allocations WHERE user_id = %s",
-                (user.user_id,),
-            )
-            alloc_row = cur.fetchone()
-        allocated = alloc_row["allocated_tokens"] if alloc_row else 0
+        # Uncapped admin (no row) keeps reporting 0, as before MS-402.
+        allocated, is_default = _get_user_allocation(conn, user) or (0, False)
         used = _sum_tokens_for_user(conn, user.user_id, window.period_start, window.period_end)
     finally:
         conn.close()
 
-    usage = MemberTokenUsage(
-        user_id=user.user_id,
-        email=user.email,
-        allocated_tokens=allocated,
-        used_tokens=used,
-        remaining_tokens=max(0, allocated - used),
-        usage_percent=round(used / allocated * 100, 2) if allocated > 0 else 0.0,
-    )
+    usage = _member_usage(user.user_id, user.email, allocated, used, is_default)
     return MyMemberUsageResponse(usage=usage)
 
 
@@ -882,6 +1057,10 @@ async def get_members_usage(admin: UserRecord = Depends(require_role("admin"))):
     try:
         window = _get_latest_plan_window(conn, admin.user_id)
         subscription = _build_subscription_usage(conn, admin.user_id, window=window)
+        # Member usage and the allocation pool follow the ENFORCED window --
+        # the Free quota once a paid plan has expired (MS-402) -- while
+        # `subscription` above keeps describing the paid plan itself.
+        pool = _get_enforced_window(conn, admin.user_id)
 
         with conn.cursor() as cur:
             cur.execute(
@@ -891,39 +1070,33 @@ async def get_members_usage(admin: UserRecord = Depends(require_role("admin"))):
             team_rows = cur.fetchall()
         pool_rows = [{"user_id": admin.user_id, "email": admin.email}] + list(team_rows)
 
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT user_id, allocated_tokens FROM token_allocations WHERE admin_user_id = %s",
-                (admin.user_id,),
-            )
-            alloc_rows = cur.fetchall()
-        allocations = {r["user_id"]: r["allocated_tokens"] for r in alloc_rows}
+        # Effective, not just explicit rows (MS-402): a member without a row
+        # is shown — and counted against the pool — at the default they're
+        # actually enforced at, instead of a misleading 0.
+        allocations = _get_workspace_allocations(conn, admin.user_id)
 
         members: list[MemberTokenUsage] = []
-        if window:
+        if pool:
             used_by_user = _sum_tokens_by_user(
-                conn, [row["user_id"] for row in pool_rows], window.period_start, window.period_end
+                conn, [row["user_id"] for row in pool_rows], pool.period_start, pool.period_end
             )
             for row in pool_rows:
-                allocated = allocations.get(row["user_id"], 0)
+                allocated, is_default = allocations.get(row["user_id"], (0, False))
                 used = used_by_user.get(row["user_id"], 0)
-                members.append(
-                    MemberTokenUsage(
-                        user_id=row["user_id"],
-                        email=row["email"],
-                        allocated_tokens=allocated,
-                        used_tokens=used,
-                        remaining_tokens=max(0, allocated - used),
-                        usage_percent=round(used / allocated * 100, 2) if allocated > 0 else 0.0,
-                    )
-                )
+                members.append(_member_usage(row["user_id"], row["email"], allocated, used, is_default))
 
-        token_limit = subscription.token_limit if subscription else 0
-        unallocated = max(0, token_limit - sum(allocations.values()))
+        token_limit = pool.plan["token_limit"] if pool else 0
+        unallocated = max(0, token_limit - sum(tokens for tokens, _ in allocations.values()))
     finally:
         conn.close()
 
-    return MembersUsageResponse(subscription=subscription, members=members, unallocated_tokens=unallocated)
+    return MembersUsageResponse(
+        subscription=subscription,
+        members=members,
+        unallocated_tokens=unallocated,
+        pool_token_limit=token_limit,
+        pool_plan_name=pool.plan["name"] if pool else None,
+    )
 
 
 @router.post("/payments/subscription/cancel", response_model=SubscriptionUsage)
@@ -1014,20 +1187,21 @@ async def set_member_allocation(
             if not member_row:
                 raise HTTPException(status_code=404, detail="Team member not found")
 
-        window = _get_latest_plan_window(conn, admin.user_id)
-        if not window or window.status != "active":
+        window = _get_enforced_window(conn, admin.user_id)
+        if not window:
             raise HTTPException(status_code=400, detail="No active subscription to allocate tokens from")
-        subscription = _build_subscription_usage(conn, admin.user_id, window=window)
+        pool_limit = window.plan["token_limit"]
 
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT user_id, allocated_tokens FROM token_allocations WHERE admin_user_id = %s",
-                (admin.user_id,),
-            )
-            alloc_rows = cur.fetchall()
-        allocations = {r["user_id"]: r["allocated_tokens"] for r in alloc_rows}
-        already_allocated_elsewhere = sum(v for k, v in allocations.items() if k != body.user_id)
-        if already_allocated_elsewhere + body.allocated_tokens > subscription.token_limit:
+        allocations = _get_workspace_allocations(conn, admin.user_id)
+        already_allocated_elsewhere = sum(
+            tokens for uid, (tokens, _) in allocations.items() if uid != body.user_id
+        )
+        current = allocations.get(body.user_id, (0, False))[0]
+        # Lowering is always allowed (MS-402): members that fell back to the
+        # default can leave an older workspace over-allocated, and refusing
+        # every edit there would leave the admin no way to fix it.
+        is_increase = body.allocated_tokens > current
+        if is_increase and already_allocated_elsewhere + body.allocated_tokens > pool_limit:
             raise HTTPException(status_code=400, detail="Allocation exceeds the workspace's token pool")
 
         with conn.cursor() as cur:
@@ -1041,19 +1215,62 @@ async def set_member_allocation(
             )
 
         used = _sum_tokens_for_user(conn, body.user_id, window.period_start, window.period_end)
-        unallocated = max(0, subscription.token_limit - already_allocated_elsewhere - body.allocated_tokens)
+        unallocated = max(0, pool_limit - already_allocated_elsewhere - body.allocated_tokens)
     finally:
         conn.close()
 
-    member = MemberTokenUsage(
-        user_id=body.user_id,
-        email=member_row["email"],
-        allocated_tokens=body.allocated_tokens,
-        used_tokens=used,
-        remaining_tokens=max(0, body.allocated_tokens - used),
-        usage_percent=round(used / body.allocated_tokens * 100, 2) if body.allocated_tokens > 0 else 0.0,
-    )
+    member = _member_usage(body.user_id, member_row["email"], body.allocated_tokens, used, False)
     return UpdateMemberAllocationResponse(member=member, unallocated_tokens=unallocated)
+
+
+@router.get("/payments/subscription/settings", response_model=WorkspaceTokenSettings)
+async def get_workspace_token_settings(admin: UserRecord = Depends(require_role("admin"))):
+    """Admin-only (MS-402) — this workspace's Default Token Allocation."""
+    conn = _get_app_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    _ensure_usage_tables(conn)
+    try:
+        return WorkspaceTokenSettings(default_member_allocation=_get_default_allocation(conn, admin.user_id))
+    finally:
+        conn.close()
+
+
+@router.put("/payments/subscription/settings", response_model=WorkspaceTokenSettings)
+async def update_workspace_token_settings(
+    body: UpdateWorkspaceTokenSettingsRequest,
+    admin: UserRecord = Depends(require_role("admin")),
+):
+    """Admin-only (MS-402) — set the Default Token Allocation new members
+    get, and that members without an explicit allocation are capped at.
+    Can't exceed the plan's whole token_limit — a default no single member
+    could ever be granted would only ever be clamped."""
+    conn = _get_app_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    _ensure_tables(conn)
+    _ensure_usage_tables(conn)
+    try:
+        window = _get_enforced_window(conn, admin.user_id)
+        if window and body.default_member_allocation > window.plan["token_limit"]:
+            raise HTTPException(
+                status_code=400,
+                detail="Default allocation exceeds the workspace's token pool",
+            )
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO workspace_settings (admin_user_id, default_member_allocation)
+                VALUES (%s, %s)
+                ON CONFLICT (admin_user_id) DO UPDATE
+                    SET default_member_allocation = EXCLUDED.default_member_allocation,
+                        updated_at = now()
+                """,
+                (admin.user_id, body.default_member_allocation),
+            )
+    finally:
+        conn.close()
+    return WorkspaceTokenSettings(default_member_allocation=body.default_member_allocation)
 
 
 @router.get("/payments/rate-limit/me", response_model=RateLimitStatus)
