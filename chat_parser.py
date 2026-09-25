@@ -109,6 +109,7 @@ class ChatParser:
                 elif current_message:
                     # Continuation of previous message (multiline)
                     current_message.content += f"\n{line}"
+                    current_message.raw_line += f"\n{line}"
             
             # Don't forget the last message
             if current_message:
