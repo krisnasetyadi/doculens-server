@@ -20,6 +20,7 @@ import storage as supabase_storage
 from config import config
 from models import ChatMessage, ChatCollection, ChatPlatform
 from chat_parser import ChatParser
+from upload_progress import ProgressCallback
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ async def ingest_chat_messages(
     file_name: str,
     platform: ChatPlatform,
     raw_file_path: Optional[str] = None,
+    on_progress: ProgressCallback | None = None,
 ) -> ChatCollection:
     """Chunk, embed, index, and register a set of parsed chat messages as a ChatCollection.
 
@@ -49,6 +51,8 @@ async def ingest_chat_messages(
         "end": max(timestamps).isoformat() if timestamps else None,
     }
 
+    if on_progress:
+        on_progress("preparing", 30)
     keywords = parser.extract_keywords(messages, top_n=30)
     chunks = parser.chunk_messages_by_conversation(
         messages,
@@ -58,7 +62,9 @@ async def ingest_chat_messages(
 
     index_dir = os.path.join(config.chat_index_folder, collection_id)
     os.makedirs(index_dir, exist_ok=True)
-    await _build_vector_store(collection_id, chunks, file_name, platform.value)
+    await _build_vector_store(collection_id, chunks, file_name, platform.value, on_progress)
+    if on_progress:
+        on_progress("saving", 88)
 
     if supabase_storage.is_enabled():
         try:
@@ -75,6 +81,8 @@ async def ingest_chat_messages(
                 keywords=keywords,
                 storage_paths=[f"chat-uploads/{collection_id}/{file_name}"] if raw_file_path else [],
             )
+            if on_progress:
+                on_progress("saving", 97)
             logger.info("Chat collection synced to Supabase: %s", collection_id)
         except Exception as exc:
             logger.warning("Supabase sync failed (disk fallback): %s", exc)
@@ -95,10 +103,11 @@ async def ingest_chat_messages(
     return collection
 
 
-async def _build_vector_store(collection_id: str, chunks: List[dict], file_name: str, platform: str) -> None:
+async def _build_vector_store(collection_id: str, chunks: List[dict], file_name: str, platform: str,
+                              on_progress: ProgressCallback | None = None) -> None:
     from langchain_core.documents import Document
-    from langchain_community.vectorstores import FAISS
     from processor import processor
+    from utils import build_source_index
 
     documents = [
         Document(
@@ -121,7 +130,7 @@ async def _build_vector_store(collection_id: str, chunks: List[dict], file_name:
     if not processor.embeddings:
         processor.initialize_components()
 
-    vector_store = FAISS.from_documents(documents, processor.embeddings)
+    vector_store = build_source_index(documents, processor.embeddings, on_progress)
     index_path = os.path.join(config.chat_index_folder, collection_id)
     vector_store.save_local(index_path)
     logger.info("Chat vector store saved to: %s", index_path)
