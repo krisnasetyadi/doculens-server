@@ -1219,8 +1219,36 @@ def list_chat_collections() -> List[Dict[str, Any]]:
                 FROM collections WHERE kind = 'chat' ORDER BY created_at DESC
             """)
             rows = cur.fetchall()
+            telegram_collection_ids = set()
+            if any((row.get("metadata") or {}).get("platform") == "telegram" for row in rows):
+                try:
+                    cur.execute("""
+                        SELECT to_regclass('telegram_connections') AS connections,
+                               to_regclass('telegram_selected_chats') AS selected_chats
+                    """)
+                    tables = cur.fetchone()
+                    if tables["connections"] and tables["selected_chats"]:
+                        cur.execute("""
+                            SELECT DISTINCT selected.chat_collection_id
+                            FROM telegram_selected_chats AS selected
+                            JOIN telegram_connections AS connection
+                              ON connection.connection_id = selected.connection_id
+                            WHERE connection.status = 'active'
+                              AND selected.status = 'active'
+                              AND selected.chat_collection_id IS NOT NULL
+                        """)
+                        telegram_collection_ids = {row["chat_collection_id"] for row in cur.fetchall()}
+                except Exception as e:
+                    logger.warning("Telegram source status lookup failed: %s", e)
         conn.close()
-        return [_chat_row_from_unified(dict(r)) for r in rows]
+        collections = [_chat_row_from_unified(dict(row)) for row in rows]
+        # A synced Telegram index may outlive its connection. Keep the data,
+        # but never advertise or query it as an active source after unlinking.
+        for collection in collections:
+            if (collection["platform"] == "telegram"
+                    and collection["collection_id"] not in telegram_collection_ids):
+                collection["status"] = "inactive"
+        return collections
     except Exception as e:
         logger.warning("list_chat_collections failed: %s", e)
         return []
