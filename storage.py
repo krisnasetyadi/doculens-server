@@ -174,10 +174,9 @@ def ensure_schema():
                 FROM chat_collections
                 ON CONFLICT (collection_id) DO NOTHING;
 
-                -- MS-274: folders group `collections` rows (Files tab only).
-                -- ON DELETE SET NULL, not CASCADE — deleting a folder must
-                -- never delete the sources inside it (AC requires sources to
-                -- stay accessible), so unlinking is the whole implementation.
+                -- Folders group `collections` rows (Files tab only).
+                -- Before deleting a folder, storage.delete_folder moves its
+                -- direct sources and child folders to the deleted folder's parent.
                 CREATE TABLE IF NOT EXISTS folders (
                     id          BIGSERIAL   PRIMARY KEY,
                     folder_id   TEXT        NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
@@ -186,7 +185,10 @@ def ensure_schema():
                     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
                     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
+                ALTER TABLE folders ADD COLUMN IF NOT EXISTS parent_folder_id TEXT
+                    REFERENCES folders(folder_id) ON DELETE RESTRICT;
                 CREATE INDEX IF NOT EXISTS idx_folders_owner ON folders (owner_id);
+                CREATE INDEX IF NOT EXISTS idx_folders_parent ON folders (parent_folder_id);
 
                 ALTER TABLE collections
                     ADD COLUMN IF NOT EXISTS folder_id TEXT
@@ -1289,33 +1291,90 @@ def delete_chat_collection_from_db(collection_id: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# folders — group `collections` rows for the Files tab (MS-274)
+# folders — group `collections` rows for the Files tab (MS-274/MS-557)
 # Owner-scoped like collections themselves; there is no workspace/team table
 # to attach to (see _team_admin_id above for why "team" is derived, not
-# stored). Deleting a folder never touches the collections inside it — the
-# `folder_id` FK is ON DELETE SET NULL, so unlinking is automatic.
+# stored). Root is level 0; folders may occupy levels 1 through 3.
 # ---------------------------------------------------------------------------
 
-def create_folder(folder_id: str, name: str, owner_id: str) -> Optional[Dict[str, Any]]:
+MAX_FOLDER_DEPTH = 3
+
+
+class FolderHierarchyError(ValueError):
+    """The requested parent would produce an invalid folder hierarchy."""
+
+
+def _validate_folder_parent(
+    folders: List[Dict[str, Any]], folder_id: str, parent_folder_id: Optional[str]
+) -> None:
+    by_id = {folder["folder_id"]: folder for folder in folders}
+    parent_depth = 0
+    current_id = parent_folder_id
+    visited = {folder_id}
+    while current_id is not None:
+        if current_id in visited:
+            raise FolderHierarchyError("A folder cannot contain itself")
+        visited.add(current_id)
+        parent = by_id.get(current_id)
+        if parent is None:
+            raise FolderHierarchyError("Parent folder not found")
+        parent_depth += 1
+        current_id = parent.get("parent_folder_id")
+
+    children: Dict[str, List[str]] = {}
+    for folder in folders:
+        parent_id = folder.get("parent_folder_id")
+        if parent_id is not None:
+            children.setdefault(parent_id, []).append(folder["folder_id"])
+
+    def subtree_height(node_id: str, path: set[str]) -> int:
+        if node_id in path:
+            raise FolderHierarchyError("Folder hierarchy contains a cycle")
+        next_path = path | {node_id}
+        return 1 + max(
+            (subtree_height(child_id, next_path) for child_id in children.get(node_id, [])),
+            default=0,
+        )
+
+    height = subtree_height(folder_id, set()) if folder_id in by_id else 1
+    if parent_depth + height > MAX_FOLDER_DEPTH:
+        raise FolderHierarchyError(f"Folders can be at most {MAX_FOLDER_DEPTH} levels deep")
+
+
+def create_folder(
+    folder_id: str, name: str, owner_id: str, parent_folder_id: Optional[str] = None
+) -> Optional[Dict[str, Any]]:
     ensure_schema()
     conn = _db_conn()
     if not conn:
         logger.warning("create_folder: no DB connection, skipping insert")
         return None
     try:
+        conn.autocommit = False
         with conn.cursor() as cur:
+            cur.execute(
+                "SELECT folder_id, parent_folder_id FROM folders WHERE owner_id = %s FOR UPDATE",
+                (owner_id,),
+            )
+            _validate_folder_parent(cur.fetchall(), folder_id, parent_folder_id)
             cur.execute("""
-                INSERT INTO folders (folder_id, name, owner_id)
-                VALUES (%s, %s, %s)
-                RETURNING folder_id, name, owner_id, created_at, updated_at
-            """, (folder_id, name, owner_id))
+                INSERT INTO folders (folder_id, name, owner_id, parent_folder_id)
+                VALUES (%s, %s, %s, %s)
+                RETURNING folder_id, name, owner_id, parent_folder_id, created_at, updated_at
+            """, (folder_id, name, owner_id, parent_folder_id))
             row = cur.fetchone()
-        conn.close()
+        conn.commit()
         logger.info("Created folder: %s (owner=%s)", folder_id, owner_id)
         return dict(row) if row else None
+    except FolderHierarchyError:
+        conn.rollback()
+        raise
     except Exception as e:
+        conn.rollback()
         logger.warning("create_folder failed: %s", e)
         return None
+    finally:
+        conn.close()
 
 
 def list_folders_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
@@ -1329,12 +1388,12 @@ def list_folders_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
         with conn.cursor() as cur:
             if is_admin:
                 cur.execute("""
-                    SELECT folder_id, name, owner_id, created_at, updated_at
+                    SELECT folder_id, name, owner_id, parent_folder_id, created_at, updated_at
                     FROM folders ORDER BY created_at DESC
                 """)
             else:
                 cur.execute("""
-                    SELECT folder_id, name, owner_id, created_at, updated_at
+                    SELECT folder_id, name, owner_id, parent_folder_id, created_at, updated_at
                     FROM folders WHERE owner_id = %s ORDER BY created_at DESC
                 """, (user_id,))
             rows = cur.fetchall()
@@ -1353,7 +1412,7 @@ def get_folder(folder_id: str) -> Optional[Dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT folder_id, name, owner_id, created_at, updated_at
+                SELECT folder_id, name, owner_id, parent_folder_id, created_at, updated_at
                 FROM folders WHERE folder_id = %s
             """, (folder_id,))
             row = cur.fetchone()
@@ -1364,43 +1423,84 @@ def get_folder(folder_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
-def rename_folder(folder_id: str, name: str) -> Optional[Dict[str, Any]]:
+def rename_folder(
+    folder_id: str, name: str, parent_folder_id: Optional[str]
+) -> Optional[Dict[str, Any]]:
     ensure_schema()
     conn = _db_conn()
     if not conn:
         return None
     try:
+        conn.autocommit = False
         with conn.cursor() as cur:
+            cur.execute(
+                "SELECT folder_id, owner_id FROM folders WHERE folder_id = %s FOR UPDATE",
+                (folder_id,),
+            )
+            existing = cur.fetchone()
+            if not existing:
+                conn.rollback()
+                return None
+            cur.execute(
+                "SELECT folder_id, parent_folder_id FROM folders WHERE owner_id = %s FOR UPDATE",
+                (existing["owner_id"],),
+            )
+            _validate_folder_parent(cur.fetchall(), folder_id, parent_folder_id)
             cur.execute("""
-                UPDATE folders SET name = %s, updated_at = now()
+                UPDATE folders SET name = %s, parent_folder_id = %s, updated_at = now()
                 WHERE folder_id = %s
-                RETURNING folder_id, name, owner_id, created_at, updated_at
-            """, (name, folder_id))
+                RETURNING folder_id, name, owner_id, parent_folder_id, created_at, updated_at
+            """, (name, parent_folder_id, folder_id))
             row = cur.fetchone()
-        conn.close()
+        conn.commit()
         return dict(row) if row else None
+    except FolderHierarchyError:
+        conn.rollback()
+        raise
     except Exception as e:
+        conn.rollback()
         logger.warning("rename_folder failed for %s: %s", folder_id, e)
         return None
+    finally:
+        conn.close()
 
 
 def delete_folder(folder_id: str) -> bool:
-    """Deletes the folder row only. Collections inside it are never touched —
-    the folder_id FK is ON DELETE SET NULL, so Postgres unassigns them
-    automatically (they remain accessible, unassigned, per MS-274 AC)."""
+    """Move direct children and files to the parent before deleting a folder."""
     ensure_schema()
     conn = _db_conn()
     if not conn:
         return False
     try:
+        conn.autocommit = False
         with conn.cursor() as cur:
+            cur.execute(
+                "SELECT parent_folder_id FROM folders WHERE folder_id = %s FOR UPDATE",
+                (folder_id,),
+            )
+            row = cur.fetchone()
+            if not row:
+                conn.rollback()
+                return False
+            parent_folder_id = row["parent_folder_id"]
+            cur.execute(
+                "UPDATE folders SET parent_folder_id = %s, updated_at = now() WHERE parent_folder_id = %s",
+                (parent_folder_id, folder_id),
+            )
+            cur.execute(
+                "UPDATE collections SET folder_id = %s, updated_at = now() WHERE folder_id = %s",
+                (parent_folder_id, folder_id),
+            )
             cur.execute("DELETE FROM folders WHERE folder_id = %s", (folder_id,))
             deleted = cur.rowcount > 0
-        conn.close()
+        conn.commit()
         return deleted
     except Exception as e:
+        conn.rollback()
         logger.warning("delete_folder failed for %s: %s", folder_id, e)
         return False
+    finally:
+        conn.close()
 
 
 def set_collection_folder(collection_id: str, folder_id: Optional[str]) -> bool:
