@@ -51,4 +51,7 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
 
 # Run the application
 # HuggingFace Spaces expects the app to run on port 7860
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860"]
+# --timeout-keep-alive: uvicorn's 5s default closes idle connections before
+# the HF proxy stops reusing them, so a request can land on a just-closed
+# connection and the proxy answers 502. Outlive the proxy's idle timeout.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "7860", "--timeout-keep-alive", "75"]

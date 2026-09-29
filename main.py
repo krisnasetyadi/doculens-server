@@ -4,6 +4,7 @@ load_dotenv()  # must run before config/router imports read os.environ
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import asyncio
 import os
 import logging
 from config import config
@@ -50,6 +51,13 @@ async def startup_event():
 @app.get("/health")
 async def health_check():
     """Comprehensive health check including database status"""
+    # The checks below are blocking (collection listing + a DB round trip,
+    # several seconds on the Space), and Docker's HEALTHCHECK hits this every
+    # 30s — off the event loop so it doesn't stall every other request.
+    return await asyncio.to_thread(_health_payload)
+
+
+def _health_payload():
     from datetime import datetime
     try:
         # Check processor initialization
