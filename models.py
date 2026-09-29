@@ -1,5 +1,5 @@
 # models.py
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from typing import List, Optional, Dict, Any, Union
 from enum import Enum
 from datetime import datetime
@@ -199,6 +199,10 @@ class MemberTokenUsage(BaseModel):
     used_tokens: int
     remaining_tokens: int
     usage_percent: float
+    # MS-402: True when this member has no explicit token_allocations row and
+    # allocated_tokens is the workspace's Default Token Allocation — the
+    # value that's actually enforced for them, not an explicit admin pick.
+    is_default_allocation: bool = False
 
 
 class MyMemberUsageResponse(BaseModel):
@@ -209,6 +213,11 @@ class MembersUsageResponse(BaseModel):
     subscription: Optional[SubscriptionUsage] = None
     members: List[MemberTokenUsage]
     unallocated_tokens: int
+    # MS-402: the pool allocations are carved from and enforced against --
+    # differs from subscription.token_limit once a paid plan has expired
+    # and the workspace has dropped back to the Free quota.
+    pool_token_limit: int = 0
+    pool_plan_name: Optional[str] = None
 
 
 class UpdateMemberAllocationRequest(BaseModel):
@@ -219,6 +228,16 @@ class UpdateMemberAllocationRequest(BaseModel):
 class UpdateMemberAllocationResponse(BaseModel):
     member: MemberTokenUsage
     unallocated_tokens: int
+
+
+# MS-402: workspace-level "Default Token Allocation" — what a newly created
+# team member (or an existing one with no explicit allocation) is capped at.
+class WorkspaceTokenSettings(BaseModel):
+    default_member_allocation: int
+
+
+class UpdateWorkspaceTokenSettingsRequest(BaseModel):
+    default_member_allocation: int = Field(..., ge=0)
 
 
 # Flat, plan-independent safety-net rate limit (same for every user) — see

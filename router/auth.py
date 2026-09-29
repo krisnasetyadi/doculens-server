@@ -8,7 +8,8 @@ Endpoints:
   GET  /auth/me         — returns current user's full profile, refreshed from the DB
   POST /auth/me         — update own display name and/or avatar
   GET    /auth/admin/users           — admin-only: list team members this admin created
-  POST   /auth/admin/users           — admin-only: add a team member (role "user"), capped by max_sub_users
+  POST   /auth/admin/users           — admin-only: add a team member (role "user"), capped by max_sub_users;
+                                       also gives them a token allocation (MS-402)
   POST   /auth/admin/users/activate  — admin-only: activate/deactivate a team member this admin created
   PUT    /auth/admin/users/{id}      — admin-only: rename a team member this admin created
   DELETE /auth/admin/users/{id}      — admin-only: remove a team member this admin created and hard-delete their chat history
@@ -39,7 +40,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Depends, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, EmailStr, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -253,6 +254,9 @@ class AdminResetRequest(BaseModel):
 class AdminCreateUserRequest(BaseModel):
     email: EmailStr
     password: str
+    # MS-402: optional custom token cap; omitted -> the workspace's Default
+    # Token Allocation (router/payment.py::assign_initial_allocation).
+    allocated_tokens: Optional[int] = Field(default=None, ge=0)
 
     @field_validator("email")
     @classmethod
@@ -286,6 +290,11 @@ class TeamMember(BaseModel):
     is_active: bool
     name: Optional[str] = None
     created_at: datetime
+    # MS-402: only set on the create response, so the admin UI can land on
+    # this member's Token Settings with the value that was actually granted
+    # (allocation_clamped = reduced to fit what was left of the pool).
+    allocated_tokens: Optional[int] = None
+    allocation_clamped: bool = False
 
 
 class TeamMembersResponse(BaseModel):
@@ -758,7 +767,15 @@ async def add_admin_user(
                 (user_id, body.email, hashed, admin.user_id),
             )
             row = cur.fetchone()
-        return TeamMember(**row)
+        # Imported here: router.payment imports get_current_user from this
+        # module, so a top-level import would be circular.
+        from router.payment import assign_initial_allocation
+
+        member = TeamMember(**row)
+        allocation = assign_initial_allocation(admin.user_id, user_id, body.allocated_tokens)
+        if allocation:
+            member.allocated_tokens, member.allocation_clamped = allocation
+        return member
     except HTTPException:
         raise
     except Exception as e:
@@ -859,7 +876,7 @@ async def delete_admin_user(
     Hard-deletes the member's chat history (chat_sessions cascades to
     chat_messages via ON DELETE CASCADE) along with their account.
     Deliberately scoped to just that: their uploaded sources (documents),
-    skills, gap-analysis runs, and token allocation are left untouched —
+    skills, and gap-analysis runs are left untouched —
     what happens to those on removal is a separate, not-yet-scoped piece
     of work, not part of this ticket."""
     conn = _get_conn()
@@ -877,6 +894,10 @@ async def delete_admin_user(
 
             cur.execute("DELETE FROM chat_sessions WHERE owner_id = %s", (user_id,))
             cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
+        # MS-402: hand their token slice back to the workspace pool.
+        from router.payment import release_member_allocation
+
+        release_member_allocation(user_id)
         return {"status": "success", "user_id": user_id}
     except HTTPException:
         raise
