@@ -319,16 +319,19 @@ class Folder(BaseModel):
     folder_id: str
     name: str
     owner_id: str
+    parent_folder_id: Optional[str] = None
     created_at: Union[str, datetime]
     updated_at: Union[str, datetime]
 
 
 class FolderCreate(BaseModel):
     name: str
+    parent_folder_id: Optional[str] = None
 
 
 class FolderRename(BaseModel):
     name: str
+    parent_folder_id: Optional[str] = None
 
 
 class MoveToFolderRequest(BaseModel):
