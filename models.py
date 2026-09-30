@@ -192,6 +192,16 @@ class SubscriptionUsage(BaseModel):
     is_paid: bool = True
 
 
+class TokenQuotaTierUsage(BaseModel):
+    interval: str  # daily | weekly | monthly
+    token_limit: int
+    token_used: int
+    token_remaining: int
+    period_start: Union[str, datetime]
+    next_reset_date: Union[str, datetime]
+    blocked: bool
+
+
 class MemberTokenUsage(BaseModel):
     user_id: str
     email: str
@@ -203,6 +213,9 @@ class MemberTokenUsage(BaseModel):
     # allocated_tokens is the workspace's Default Token Allocation — the
     # value that's actually enforced for them, not an explicit admin pick.
     is_default_allocation: bool = False
+    # None for legacy allocations that still follow the workspace plan period.
+    quota_anchor_at: Optional[Union[str, datetime]] = None
+    quota_tiers: List[TokenQuotaTierUsage] = Field(default_factory=list)
 
 
 class MyMemberUsageResponse(BaseModel):
@@ -222,7 +235,9 @@ class MembersUsageResponse(BaseModel):
 
 class UpdateMemberAllocationRequest(BaseModel):
     user_id: str
-    allocated_tokens: int
+    allocated_tokens: int = Field(..., ge=0, strict=True)
+    daily_token_quota: Optional[int] = Field(default=None, ge=0, strict=True)
+    weekly_token_quota: Optional[int] = Field(default=None, ge=0, strict=True)
 
 
 class UpdateMemberAllocationResponse(BaseModel):
