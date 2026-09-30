@@ -240,6 +240,21 @@ class UpdateWorkspaceTokenSettingsRequest(BaseModel):
     default_member_allocation: int = Field(..., ge=0)
 
 
+# MS-504: what Settings > Storage and the Files-tab meter show. Limits come
+# from the workspace plan, so members see the same numbers as their admin.
+class StorageUsageResponse(BaseModel):
+    plan_name: str
+    used_bytes: int
+    limit_bytes: int
+    remaining_bytes: int
+    usage_percent: float
+    max_file_bytes: int
+    max_batch_files: int
+    # True once no new upload can fit, so the UI need not infer it from
+    # remaining_bytes == 0.
+    blocked: bool
+
+
 # Flat, plan-independent safety-net rate limit (same for every user) — see
 # router/payment.py::_get_rate_limit_status. Separate from SubscriptionUsage
 # / MemberTokenUsage above, which track the per-plan/per-member allocation.

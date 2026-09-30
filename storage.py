@@ -151,6 +151,12 @@ def ensure_schema():
                     ON collections (owner_id);
                 CREATE INDEX IF NOT EXISTS idx_collections_kind_created
                     ON collections (kind, created_at DESC);
+                -- MS-504: bytes of the original uploaded file(s), summed per
+                -- workspace to enforce the storage quota. 0 for rows created
+                -- before this column existed until
+                -- scripts/backfill_collection_sizes.py fills them in.
+                ALTER TABLE collections
+                    ADD COLUMN IF NOT EXISTS size_bytes BIGINT NOT NULL DEFAULT 0;
                 -- One-time backfill from the legacy tables. Idempotent via
                 -- ON CONFLICT DO NOTHING, so it's safe (and cheap once caught
                 -- up) to leave running on every startup rather than requiring
@@ -693,6 +699,7 @@ def register_collection(
     title: Optional[str] = None,
     storage_paths: Optional[List[str]] = None,
     owner_id: Optional[str] = None,
+    size_bytes: int = 0,
 ) -> bool:
     ensure_schema()
     logger.info("register_collection: collection_id=%s, has_db=%s", collection_id, has_database())
@@ -704,16 +711,17 @@ def register_collection(
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO collections
-                    (collection_id, kind, title, file_names, item_count, storage_paths, owner_id)
-                VALUES (%s, 'pdf', %s, %s, %s, %s, %s)
+                    (collection_id, kind, title, file_names, item_count, storage_paths, owner_id, size_bytes)
+                VALUES (%s, 'pdf', %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (collection_id) DO UPDATE SET
                     title         = EXCLUDED.title,
                     file_names    = EXCLUDED.file_names,
                     item_count    = EXCLUDED.item_count,
                     storage_paths = EXCLUDED.storage_paths,
                     owner_id      = COALESCE(EXCLUDED.owner_id, collections.owner_id),
+                    size_bytes    = GREATEST(EXCLUDED.size_bytes, collections.size_bytes),
                     updated_at    = now()
-            """, (collection_id, title or "", file_names, chunk_count, storage_paths or [], owner_id))
+            """, (collection_id, title or "", file_names, chunk_count, storage_paths or [], owner_id, size_bytes))
         conn.close()
         logger.info("Registered PDF collection: %s", collection_id)
         return True
@@ -1173,6 +1181,8 @@ def register_chat_collection(
     date_range: Optional[Dict[str, Any]],
     keywords: Optional[List[str]] = None,
     storage_paths: Optional[List[str]] = None,
+    owner_id: Optional[str] = None,
+    size_bytes: int = 0,
 ) -> bool:
     ensure_schema()
     conn = _db_conn()
@@ -1188,18 +1198,21 @@ def register_chat_collection(
         with conn.cursor() as cur:
             cur.execute("""
                 INSERT INTO collections
-                    (collection_id, kind, file_names, item_count, storage_paths, metadata)
-                VALUES (%s, 'chat', %s, %s, %s, %s)
+                    (collection_id, kind, file_names, item_count, storage_paths, metadata, owner_id, size_bytes)
+                VALUES (%s, 'chat', %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (collection_id) DO UPDATE SET
                     file_names    = EXCLUDED.file_names,
                     item_count    = EXCLUDED.item_count,
                     storage_paths = EXCLUDED.storage_paths,
                     metadata      = EXCLUDED.metadata,
+                    owner_id      = COALESCE(EXCLUDED.owner_id, collections.owner_id),
+                    size_bytes    = GREATEST(EXCLUDED.size_bytes, collections.size_bytes),
                     updated_at    = now()
             """, (
                 collection_id, [file_name], message_count,
                 storage_paths or [],
                 json.dumps(metadata),
+                owner_id, size_bytes,
             ))
         conn.close()
         logger.info("Registered chat collection: %s", collection_id)

@@ -28,6 +28,8 @@ from models import (
 from config import config
 import logging
 import storage as supabase_storage
+import storage_limits
+from router.payment import resolve_storage_limits
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -214,7 +216,11 @@ def _normalize_title(candidate: Optional[str]) -> Optional[str]:
     return title[:150] if title else None
 
 
-async def _download_remote_pdf(source_url: str, destination_path: str) -> tuple[str, str]:
+async def _download_remote_pdf(
+    source_url: str,
+    destination_path: str,
+    limits: storage_limits.StorageLimits,
+) -> tuple[str, str]:
     assert_public_url_safe(source_url)
     timeout = httpx.Timeout(60.0, connect=20.0)
     async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
@@ -236,9 +242,24 @@ async def _download_remote_pdf(source_url: str, destination_path: str) -> tuple[
                     detail="The provided link did not return a PDF file. Make sure the file is public and downloadable.",
                 )
 
-            with open(destination_path, "wb") as output:
-                async for chunk in response.aiter_bytes():
-                    output.write(chunk)
+            declared = response.headers.get("content-length")
+            if declared and declared.isdigit() and int(declared) > limits.max_file_bytes:
+                raise storage_limits.file_too_large_error(limits)
+
+            # The header is only a hint (and often absent); the bytes that
+            # actually arrive are what is capped.
+            written = 0
+            try:
+                with open(destination_path, "wb") as output:
+                    async for chunk in response.aiter_bytes():
+                        written += len(chunk)
+                        if written > limits.max_file_bytes:
+                            raise storage_limits.file_too_large_error(limits)
+                        output.write(chunk)
+            except BaseException:
+                if os.path.exists(destination_path):
+                    os.remove(destination_path)
+                raise
 
             return resolved_name or "", content_type
 
@@ -247,10 +268,11 @@ async def _download_pdf_to_collection(
     source_url: str,
     collection_path: str,
     fallback_stem: str,
+    limits: storage_limits.StorageLimits,
 ) -> tuple[str, str]:
     normalized_url = _normalize_remote_pdf_url(source_url)
     temp_path = os.path.join(collection_path, f"{fallback_stem}.pdf")
-    resolved_name, _ = await _download_remote_pdf(normalized_url, temp_path)
+    resolved_name, _ = await _download_remote_pdf(normalized_url, temp_path, limits)
     file_name = _safe_pdf_filename(resolved_name, fallback_stem)
     final_path = os.path.join(collection_path, file_name)
 
@@ -271,6 +293,7 @@ def _register_uploaded_collection(
     persist_mode: Literal["auto", "local", "database"] = "auto",
     owner_id: Optional[str] = None,
     on_progress: ProgressCallback | None = None,
+    size_bytes: int = 0,
 ):
     if persist_mode == "local":
         logger.info("Persist mode=local — skipping Supabase upload and DB registration")
@@ -308,6 +331,7 @@ def _register_uploaded_collection(
             title=title,
             storage_paths=storage_paths,
             owner_id=owner_id,
+            size_bytes=size_bytes,
         )
         logger.info("Collection %s registered in Supabase DB", collection_id)
     elif persist_mode == "database":
@@ -415,63 +439,87 @@ async def upload_pdfs(
     if not files:
         raise HTTPException(status_code=400, detail="No files provided")
 
-    collection_id = str(uuid.uuid4())
-    collection_path = os.path.join(config.upload_folder, collection_id)
-    os.makedirs(collection_path, exist_ok=True)
+    # MS-504: everything below that can reject the request runs before a byte
+    # is written, so a refused upload leaves nothing behind on disk.
+    limits, workspace_id = resolve_storage_limits(user)
+    if len(files) > limits.max_batch_files:
+        raise storage_limits.batch_too_large_error(limits)
 
-    saved_files: List[str] = []
-    file_names: List[str] = []
+    accepted: List[UploadFile] = []
+    total_size = 0
     for file in files:
-        file_name = file.filename or ""
-        ext = Path(file_name).suffix.lower()
-        if ext not in DOCUMENT_EXTRACTORS:
+        if Path(file.filename or "").suffix.lower() not in DOCUMENT_EXTRACTORS:
             continue
-        safe_name = _safe_upload_filename(file_name, f"upload-{len(saved_files) + 1}")
-        file_path = os.path.join(collection_path, safe_name)
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(file.file, buffer)
-        saved_files.append(file_path)
-        file_names.append(safe_name)
+        size = storage_limits.measure(file.file)
+        if size > limits.max_file_bytes:
+            raise storage_limits.file_too_large_error(limits)
+        accepted.append(file)
+        total_size += size
 
-    if not saved_files:
+    if not accepted:
         raise HTTPException(
             status_code=400, detail="No valid files uploaded (supported: PDF, DOC, DOCX, CSV, XLSX, TXT)")
 
+    reservation = storage_limits.reserve_workspace(workspace_id, limits, total_size)
+
+    collection_id = str(uuid.uuid4())
+    collection_path = os.path.join(config.upload_folder, collection_id)
+    saved_files: List[str] = []
+    file_names: List[str] = []
+    try:
+        os.makedirs(collection_path, exist_ok=True)
+        for file in accepted:
+            safe_name = _safe_upload_filename(file.filename, f"upload-{len(saved_files) + 1}")
+            file_path = os.path.join(collection_path, safe_name)
+            storage_limits.save_capped(file.file, file_path, limits.max_file_bytes, limits)
+            saved_files.append(file_path)
+            file_names.append(safe_name)
+    except BaseException:
+        reservation.release()
+        shutil.rmtree(collection_path, ignore_errors=True)
+        raise
+
     def prepare(report: ProgressCallback) -> dict:
         try:
-            chunk_count = process_pdfs(saved_files, collection_id, on_progress=report)
-        except Exception as e:
-            shutil.rmtree(collection_path, ignore_errors=True)
-            logger.error(f"Upload failed: {str(e)}")
-            raise HTTPException(status_code=500, detail="Failed to process PDFs")
+            try:
+                chunk_count = process_pdfs(saved_files, collection_id, on_progress=report)
+            except Exception as e:
+                shutil.rmtree(collection_path, ignore_errors=True)
+                logger.error(f"Upload failed: {str(e)}")
+                raise HTTPException(status_code=500, detail="Failed to process PDFs")
 
-        if chunk_count <= 0:
-            shutil.rmtree(collection_path, ignore_errors=True)
-            raise HTTPException(
-                status_code=400,
-                detail="No readable text was found in the uploaded file(s) — the collection was not created.",
+            if chunk_count <= 0:
+                shutil.rmtree(collection_path, ignore_errors=True)
+                raise HTTPException(
+                    status_code=400,
+                    detail="No readable text was found in the uploaded file(s) — the collection was not created.",
+                )
+
+            _register_uploaded_collection(
+                collection_id,
+                saved_files,
+                file_names,
+                chunk_count,
+                persist_mode=persist_mode,
+                owner_id=user.user_id,
+                on_progress=report,
+                size_bytes=total_size,
             )
+            report("saving", 97)
 
-        _register_uploaded_collection(
-            collection_id,
-            saved_files,
-            file_names,
-            chunk_count,
-            persist_mode=persist_mode,
-            owner_id=user.user_id,
-            on_progress=report,
-        )
-        report("saving", 97)
+            if persist_mode == "database":
+                _cleanup_local_artifacts(collection_id, collection_path)
 
-        if persist_mode == "database":
-            _cleanup_local_artifacts(collection_id, collection_path)
-
-        return {
-            "collection_id": collection_id,
-            "file_count": len(saved_files),
-            "status": "success",
-            "file_names": file_names,
-        }
+            return {
+                "collection_id": collection_id,
+                "file_count": len(saved_files),
+                "status": "success",
+                "file_names": file_names,
+            }
+        finally:
+            # The registered row counts towards usage from here on, or the
+            # upload failed and its space is free again.
+            reservation.release()
 
     if stream_progress:
         upload_progress_store.start(collection_id, owner_id=user.user_id)
@@ -494,11 +542,14 @@ async def upload_pdf_from_url(
     if not source_url:
         raise HTTPException(status_code=400, detail="URL is required")
 
+    limits, workspace_id = resolve_storage_limits(user)
+
     collection_id = str(uuid.uuid4())
     collection_path = os.path.join(config.upload_folder, collection_id)
     os.makedirs(collection_path, exist_ok=True)
 
     collection_title = _normalize_title(payload.title)
+    reservation = None
 
     try:
         fallback_name = f"remote-{collection_id[:8]}"
@@ -506,7 +557,10 @@ async def upload_pdf_from_url(
             source_url,
             collection_path,
             fallback_name,
+            limits,
         )
+        file_size = os.path.getsize(final_path)
+        reservation = storage_limits.reserve_workspace(workspace_id, limits, file_size)
 
         chunk_count = await asyncio.to_thread(process_pdfs, [final_path], collection_id)
         if chunk_count <= 0:
@@ -520,6 +574,7 @@ async def upload_pdf_from_url(
             title=collection_title,
             persist_mode=persist_mode,
             owner_id=user.user_id,
+            size_bytes=file_size,
         )
 
         if persist_mode == "database":
@@ -546,6 +601,9 @@ async def upload_pdf_from_url(
         shutil.rmtree(collection_path, ignore_errors=True)
         logger.error("Remote PDF processing failed for %s: %s", source_url, exc)
         raise HTTPException(status_code=500, detail="Failed to process remote PDF")
+    finally:
+        if reservation:
+            reservation.release()
 
 
 @router.post("/pdf-collections/upload-from-urls", response_model=UploadResponse)
@@ -561,6 +619,10 @@ async def upload_pdfs_from_urls(
     if not urls:
         raise HTTPException(status_code=400, detail="At least one URL is required")
 
+    limits, workspace_id = resolve_storage_limits(user)
+    if len(urls) > limits.max_batch_files:
+        raise storage_limits.batch_too_large_error(limits)
+
     collection_id = str(uuid.uuid4())
     collection_path = os.path.join(config.upload_folder, collection_id)
     os.makedirs(collection_path, exist_ok=True)
@@ -569,6 +631,7 @@ async def upload_pdfs_from_urls(
     saved_files: List[str] = []
     file_names: List[str] = []
     failures: List[str] = []
+    reservation = None
 
     try:
         for index, source_url in enumerate(urls, start=1):
@@ -578,6 +641,7 @@ async def upload_pdfs_from_urls(
                     source_url,
                     collection_path,
                     fallback_name,
+                    limits,
                 )
                 saved_files.append(final_path)
                 file_names.append(file_name)
@@ -589,6 +653,9 @@ async def upload_pdfs_from_urls(
         if not saved_files:
             failure_message = failures[0] if failures else "Unable to download selected files"
             raise HTTPException(status_code=400, detail=f"No valid PDF files imported: {failure_message}")
+
+        total_size = sum(os.path.getsize(path) for path in saved_files)
+        reservation = storage_limits.reserve_workspace(workspace_id, limits, total_size)
 
         chunk_count = await asyncio.to_thread(process_pdfs, saved_files, collection_id)
         if chunk_count <= 0:
@@ -602,6 +669,7 @@ async def upload_pdfs_from_urls(
             title=collection_title,
             persist_mode=persist_mode,
             owner_id=user.user_id,
+            size_bytes=total_size,
         )
 
         if persist_mode == "database":
@@ -621,3 +689,6 @@ async def upload_pdfs_from_urls(
         shutil.rmtree(collection_path, ignore_errors=True)
         logger.error("Remote PDFs processing failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to process selected remote PDFs")
+    finally:
+        if reservation:
+            reservation.release()

@@ -35,6 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 import app_db
+import storage_limits
 from config import config
 from router.auth import get_current_user, require_role, UserRecord
 from models import (
@@ -51,6 +52,7 @@ from models import (
     WorkspaceTokenSettings,
     UpdateWorkspaceTokenSettingsRequest,
     RateLimitStatus,
+    StorageUsageResponse,
     EfficientModeStats,
     CreateTokenRequestRequest,
     TokenRequestRecord,
@@ -96,10 +98,19 @@ PLAN_PRICES = {
 # here — see _get_latest_plan_window's fallback branch below — so a workspace
 # that's never paid still gets a real, enforced cap instead of relying on
 # the flat safety-net alone.
+# MS-504: every plan also carries its upload/storage limits. They all start
+# from the same configured defaults; give a plan its own numbers here to
+# tier them (e.g. a smaller storage_limit_bytes for Free).
+_STORAGE_DEFAULTS = {
+    "storage_limit_bytes": config.storage_quota_bytes,
+    "max_file_bytes": config.max_file_size_bytes,
+    "max_batch_files": config.max_batch_files,
+}
+
 PLAN_QUOTAS = {
-    "free": {"name": "Free", "token_limit": config.free_plan_token_limit},
-    "individual": {"name": "Individual", "token_limit": 2_000_000},
-    "team": {"name": "Team", "token_limit": 10_000_000},
+    "free": {"name": "Free", "token_limit": config.free_plan_token_limit, **_STORAGE_DEFAULTS},
+    "individual": {"name": "Individual", "token_limit": 2_000_000, **_STORAGE_DEFAULTS},
+    "team": {"name": "Team", "token_limit": 10_000_000, **_STORAGE_DEFAULTS},
 }
 
 # No real recurring billing exists yet (see module docstring — Checkout is
@@ -1271,6 +1282,62 @@ async def update_workspace_token_settings(
     finally:
         conn.close()
     return WorkspaceTokenSettings(default_member_allocation=body.default_member_allocation)
+
+
+def resolve_storage_limits(user: UserRecord) -> tuple[storage_limits.StorageLimits, str]:
+    """The upload/storage limits that apply to `user`, and the id of the
+    workspace (its admin) they are measured against. Limits follow the
+    workspace's enforced plan, so an expired paid plan drops to Free like the
+    token caps do. Falls back to the configured defaults, measured against the
+    user's own id, if the metering database cannot be reached."""
+    conn = _get_app_conn()
+    if not conn:
+        return storage_limits.default_limits(), user.user_id
+    try:
+        admin_user_id = _resolve_admin_user_id(conn, user)
+        window = _get_enforced_window(conn, admin_user_id)
+    finally:
+        conn.close()
+    plan = window.plan if window else PLAN_QUOTAS["free"]
+    return (
+        storage_limits.StorageLimits(
+            plan_name=plan["name"],
+            storage_limit_bytes=plan["storage_limit_bytes"],
+            max_file_bytes=plan["max_file_bytes"],
+            max_batch_files=plan["max_batch_files"],
+        ),
+        admin_user_id,
+    )
+
+
+@router.get("/payments/storage/usage", response_model=StorageUsageResponse)
+async def get_storage_usage(user: UserRecord = Depends(get_current_user)):
+    """Workspace storage used against the plan's limit (MS-504). Members see
+    their workspace's totals, since the quota is shared."""
+    limits, workspace_id = resolve_storage_limits(user)
+    conn = _get_app_conn()
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        used = storage_limits.get_used_bytes(conn, workspace_id)
+    finally:
+        conn.close()
+
+    remaining = max(0, limits.storage_limit_bytes - used)
+    percent = (
+        min(100.0, used / limits.storage_limit_bytes * 100)
+        if limits.storage_limit_bytes > 0 else 100.0
+    )
+    return StorageUsageResponse(
+        plan_name=limits.plan_name,
+        used_bytes=used,
+        limit_bytes=limits.storage_limit_bytes,
+        remaining_bytes=remaining,
+        usage_percent=round(percent, 1),
+        max_file_bytes=limits.max_file_bytes,
+        max_batch_files=limits.max_batch_files,
+        blocked=remaining <= 0,
+    )
 
 
 @router.get("/payments/rate-limit/me", response_model=RateLimitStatus)

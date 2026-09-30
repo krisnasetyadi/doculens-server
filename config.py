@@ -255,6 +255,14 @@ class Config(BaseSettings):
     # Roughly one small query's cost; 0 restores the old `used >= cap`.
     query_token_reserve: int = Field(default=2_000)
 
+    # MS-504: upload and storage limits. These are the defaults every plan
+    # starts from (see PLAN_QUOTAS in router/payment.py); override per
+    # deployment through env, e.g. MAX_FILE_SIZE_BYTES=1048576 to test the
+    # limits without needing a 50 MB file.
+    max_file_size_bytes: int = Field(default=50 * 1024 * 1024)
+    max_batch_files: int = Field(default=10)
+    storage_quota_bytes: int = Field(default=5 * 1024 * 1024 * 1024)
+
     @property
     def effective_rate_limit_window_hours(self) -> float:
         if self.rate_limit_window_minutes is not None:

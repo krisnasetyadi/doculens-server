@@ -32,6 +32,8 @@ async def ingest_chat_messages(
     platform: ChatPlatform,
     raw_file_path: Optional[str] = None,
     on_progress: ProgressCallback | None = None,
+    owner_id: Optional[str] = None,
+    size_bytes: int = 0,
 ) -> ChatCollection:
     """Chunk, embed, index, and register a set of parsed chat messages as a ChatCollection.
 
@@ -80,6 +82,8 @@ async def ingest_chat_messages(
                 date_range=date_range,
                 keywords=keywords,
                 storage_paths=[f"chat-uploads/{collection_id}/{file_name}"] if raw_file_path else [],
+                owner_id=owner_id,
+                size_bytes=size_bytes,
             )
             if on_progress:
                 on_progress("saving", 97)
