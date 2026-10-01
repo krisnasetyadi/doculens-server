@@ -540,7 +540,8 @@ class TelegramConnectVerifyResponse(BaseModel):
 
 class TelegramSyncRequest(BaseModel):
     dialog_ids: List[str]
-    message_limit: int = 2000
+    # Kept for older clients; sync now reads the full available dialog history.
+    message_limit: Optional[int] = None
 
 
 class TelegramSyncResult(BaseModel):
