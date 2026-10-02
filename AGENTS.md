@@ -15,6 +15,10 @@ Every domain gets exactly ONE base path — list/create/delete/activate/upload/e
 
 /api/v1/chat-collections            GET/DELETE/upload/activate/preview — router/chat.py
 
+/api/v1/payments/storage/usage     GET (workspace storage used vs plan limit, plus per-file and per-upload
+                                     limits) — router/payment.py. Limits live in PLAN_QUOTAS; enforcement is in
+                                     storage_limits.py, called from router/upload.py and router/chat.py.
+
 /api/v1/database-connections        GET/POST (list/create)
 /api/v1/database-connections/{id}/tables  GET
 /api/v1/database-connections/activate     POST

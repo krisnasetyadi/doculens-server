@@ -14,6 +14,7 @@ import shutil
 from typing import Optional, List
 
 import storage as supabase_storage
+import storage_limits
 from config import config
 from models import ChatUploadResponse, ChatPlatform, SetChatCollectionActiveRequest, MoveToFolderRequest
 from chat_parser import ChatParser
@@ -21,6 +22,7 @@ from text_source_preview import read_text_source_page
 from chat_ingest import ingest_chat_messages
 from processor import processor
 from router.auth import require_role, UserRecord
+from router.payment import resolve_storage_limits
 from upload_progress import ProgressCallback, progress_response, upload_progress_store
 
 router = APIRouter()
@@ -65,6 +67,14 @@ async def upload_chat(
             detail="WhatsApp exports should be .txt files"
         )
 
+    # MS-504: refuse an oversized file or a full workspace before writing
+    # anything, then hold the space until the collection is registered.
+    limits, workspace_id = resolve_storage_limits(user)
+    file_size = storage_limits.measure(file.file)
+    if file_size > limits.max_file_bytes:
+        raise storage_limits.file_too_large_error(limits)
+    reservation = storage_limits.reserve_workspace(workspace_id, limits, file_size)
+
     try:
         # Generate collection ID
         collection_id = str(uuid.uuid4())
@@ -77,12 +87,14 @@ async def upload_chat(
 
         # Save uploaded file
         file_path = os.path.join(upload_dir, file.filename)
-        with open(file_path, 'wb') as f:
-            content = await file.read()
-            f.write(content)
+        storage_limits.save_capped(file.file, file_path, limits.max_file_bytes, limits)
 
         logger.info(f"💾 Saved chat file to: {file_path}")
+    except HTTPException:
+        reservation.release()
+        raise
     except Exception as e:
+        reservation.release()
         logger.error(f"❌ Chat upload failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to process chat file: {str(e)}")
 
@@ -109,6 +121,8 @@ async def upload_chat(
                 platform=ChatPlatform(platform.lower()),
                 raw_file_path=file_path,
                 on_progress=report,
+                owner_id=user.user_id,
+                size_bytes=file_size,
             ))
             report("saving", 97)
         except HTTPException:
@@ -116,6 +130,8 @@ async def upload_chat(
         except Exception as e:
             logger.error(f"❌ Chat upload failed: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail=f"Failed to process chat file: {str(e)}")
+        finally:
+            reservation.release()
 
         logger.info(f"✅ Chat collection created: {collection_id} with {len(messages)} messages")
         return {
