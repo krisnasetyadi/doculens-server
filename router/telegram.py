@@ -35,6 +35,8 @@ from __future__ import annotations
 
 import logging
 import os
+import re
+import tempfile
 import time
 import uuid
 from datetime import datetime
@@ -115,6 +117,20 @@ def _dialog_type(entity: Any) -> str:
     return "channel"
 
 
+def _telegram_transcript_name(title: str, dialog_id: int) -> str:
+    safe_title = re.sub(r"[^\w .()-]", "_", title).strip(" ._")[:80]
+    return f"telegram-{safe_title or dialog_id}.txt"
+
+
+def _write_telegram_transcript(path: str, messages: List[ChatMessage]) -> None:
+    """One preview line per indexed message, including sender and timestamp."""
+    with open(path, "w", encoding="utf-8") as transcript:
+        for message in messages:
+            sender = message.sender.replace("\r", " ").replace("\n", " ")
+            content = message.content.replace("\\", "\\\\").replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\\n")
+            transcript.write(f"{message.timestamp:%Y-%m-%d %H:%M:%S} | {sender}: {content}\n")
+
+
 # ---------------------------------------------------------------------------
 # App-DB storage (connection metadata + selected chats — NOT the chat content
 # itself, which flows through chat_ingest.py into chat_collections like any
@@ -162,6 +178,7 @@ def _ensure_tables(conn) -> None:
                     dialog_title        TEXT        NOT NULL,
                     dialog_type         TEXT        NOT NULL,
                     chat_collection_id  TEXT,
+                    message_count       INTEGER,
                     status              TEXT        NOT NULL DEFAULT 'active'
                                         CHECK (status IN ('active', 'inactive')),
                     last_synced_at      TIMESTAMPTZ,
@@ -170,6 +187,8 @@ def _ensure_tables(conn) -> None:
                 );
                 CREATE INDEX IF NOT EXISTS idx_telegram_selected_chats_connection
                     ON telegram_selected_chats (connection_id);
+                ALTER TABLE telegram_selected_chats
+                    ADD COLUMN IF NOT EXISTS message_count INTEGER;
                 """
             )
         _tables_ensured = True
@@ -181,7 +200,7 @@ def _ensure_tables(conn) -> None:
 def _selected_chats_for(cur, connection_id: str) -> List[TelegramSelectedChat]:
     cur.execute(
         """
-        SELECT dialog_id, dialog_title, dialog_type, chat_collection_id, status, last_synced_at
+        SELECT dialog_id, dialog_title, dialog_type, chat_collection_id, message_count, status, last_synced_at
         FROM telegram_selected_chats
         WHERE connection_id = %s
         ORDER BY created_at ASC
@@ -195,6 +214,7 @@ def _selected_chats_for(cur, connection_id: str) -> List[TelegramSelectedChat]:
             title=r["dialog_title"],
             type=r["dialog_type"],
             chat_collection_id=r.get("chat_collection_id"),
+            message_count=r.get("message_count"),
             status=r["status"],
             last_synced_at=app_db.ts(r["last_synced_at"]) if r.get("last_synced_at") else None,
         )
@@ -229,7 +249,7 @@ def _get_connection_row(connection_id: str) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
-def _upsert_selected_chat(connection_id: str, dialog_id: str, title: str, dialog_type: str, chat_collection_id: str) -> None:
+def _upsert_selected_chat(connection_id: str, dialog_id: str, title: str, dialog_type: str, chat_collection_id: str, message_count: int) -> None:
     conn = _get_app_conn()
     if not conn:
         return
@@ -239,15 +259,16 @@ def _upsert_selected_chat(connection_id: str, dialog_id: str, title: str, dialog
             cur.execute(
                 """
                 INSERT INTO telegram_selected_chats
-                    (connection_id, dialog_id, dialog_title, dialog_type, chat_collection_id, last_synced_at)
-                VALUES (%s, %s, %s, %s, %s, now())
+                    (connection_id, dialog_id, dialog_title, dialog_type, chat_collection_id, message_count, last_synced_at)
+                VALUES (%s, %s, %s, %s, %s, %s, now())
                 ON CONFLICT (connection_id, dialog_id) DO UPDATE SET
                     dialog_title       = EXCLUDED.dialog_title,
                     dialog_type        = EXCLUDED.dialog_type,
                     chat_collection_id = EXCLUDED.chat_collection_id,
+                    message_count      = EXCLUDED.message_count,
                     last_synced_at     = now()
                 """,
-                (connection_id, dialog_id, title, dialog_type, chat_collection_id),
+                (connection_id, dialog_id, title, dialog_type, chat_collection_id, message_count),
             )
     finally:
         conn.close()
@@ -503,6 +524,16 @@ async def sync_telegram_connection(
 
                 sender_names: Dict[int, str] = {}
                 try:
+                    me = await client.get_me()
+                except Exception:
+                    me = None  # Sender IDs still preserve attribution if profile lookup fails.
+                if me:
+                    own_name = " ".join(filter(None, [getattr(me, "first_name", None), getattr(me, "last_name", None)]))
+                    sender_names[me.id] = own_name or (getattr(me, "username", None) or str(me.id))
+                if _dialog_type(entity) == "user":
+                    peer_name = " ".join(filter(None, [getattr(entity, "first_name", None), getattr(entity, "last_name", None)]))
+                    sender_names[entity.id] = peer_name or (getattr(entity, "username", None) or str(entity.id))
+                try:
                     participants = await client.get_participants(entity, limit=200)
                     for p in participants:
                         name = " ".join(filter(None, [getattr(p, "first_name", None), getattr(p, "last_name", None)]))
@@ -510,43 +541,83 @@ async def sync_telegram_connection(
                 except Exception:
                     pass  # channels/broadcasts often can't list participants — fall back to sender id below
 
-                messages: List[ChatMessage] = []
-                async for msg in client.iter_messages(entity, limit=body.message_limit):
-                    text = msg.text or msg.message
+                messages_by_id: Dict[int, ChatMessage] = {}
+                # A bounded newest-first fetch silently drops older replies and
+                # replaces the existing index with that incomplete window on re-sync.
+                # Fetch all available history so old collections are backfilled too.
+                fetched_count = outgoing_count = 0
+                async for msg in client.iter_messages(entity, limit=None):
+                    fetched_count += 1
+                    outgoing_count += bool(getattr(msg, "out", False))
+                    text = getattr(msg, "text", None) or getattr(msg, "message", None)
                     if not text:
-                        continue
-                    sender_name = sender_names.get(msg.sender_id, str(msg.sender_id) if msg.sender_id else title)
-                    messages.append(
-                        ChatMessage(
-                            message_id=f"tg_{dialog_id}_{msg.id}",
-                            sender=sender_name,
-                            timestamp=msg.date.replace(tzinfo=None) if msg.date else datetime.now(),
-                            content=text,
-                            platform=ChatPlatform.TELEGRAM,
-                        )
+                        media = getattr(msg, "media", None)
+                        if not media:
+                            continue  # Service events have no searchable content.
+                        media_type = type(media).__name__.removeprefix("MessageMedia")
+                        text = f"[Media: {media_type}]"
+                    sender_id = getattr(msg, "sender_id", None)
+                    sender_name = sender_names.get(sender_id, str(sender_id) if sender_id else title)
+                    messages_by_id[msg.id] = ChatMessage(
+                        message_id=f"tg_{dialog_id}_{msg.id}",
+                        sender=sender_name,
+                        timestamp=msg.date.replace(tzinfo=None) if msg.date else datetime.now(),
+                        content=text,
+                        platform=ChatPlatform.TELEGRAM,
                     )
-                messages.reverse()  # iter_messages yields newest-first
+                messages = [
+                    message for _, message in sorted(
+                        messages_by_id.items(), key=lambda item: (item[1].timestamp, item[0])
+                    )
+                ]
+                logger.info(
+                    "telegram: dialog %s fetched %d messages (%d outgoing, %d incoming), indexed %d",
+                    dialog_id_str, fetched_count, outgoing_count, fetched_count - outgoing_count, len(messages),
+                )
 
                 if not messages:
                     results.append(
                         TelegramSyncResult(
                             dialog_id=dialog_id_str, title=title, chat_collection_id="",
-                            message_count=0, status="error", error="No text messages found in this chat",
+                            message_count=0, status="error", error="No messages with text or media found in this chat",
                         )
                     )
                     continue
 
                 existing_collection_id = _get_selected_chat_collection_id(connection_id, dialog_id_str)
                 collection_id = existing_collection_id or str(uuid.uuid4())
+                file_name = _telegram_transcript_name(title, dialog_id)
+                os.makedirs(config.chat_upload_folder, exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    mode="w", dir=config.chat_upload_folder, prefix=".telegram-sync-", delete=False
+                ) as staged:
+                    staged_path = staged.name
+                try:
+                    _write_telegram_transcript(staged_path, messages)
+                    collection = await ingest_chat_messages(
+                        collection_id,
+                        messages,
+                        file_name=file_name,
+                        platform=ChatPlatform.TELEGRAM,
+                        raw_file_path=staged_path,
+                    )
+                    upload_dir = os.path.join(config.chat_upload_folder, collection_id)
+                    os.makedirs(upload_dir, exist_ok=True)
+                    os.replace(staged_path, os.path.join(upload_dir, file_name))
+                    for old_name in os.listdir(upload_dir):
+                        if old_name != file_name and old_name.startswith("telegram-") and old_name.endswith(".txt"):
+                            os.remove(os.path.join(upload_dir, old_name))
+                finally:
+                    if os.path.exists(staged_path):
+                        os.remove(staged_path)
 
-                collection = await ingest_chat_messages(
-                    collection_id,
-                    messages,
-                    file_name=f"telegram-{title}",
-                    platform=ChatPlatform.TELEGRAM,
-                )
+                # Rebuilding a collection under the same ID must also replace
+                # its in-memory search index, otherwise queries see stale text.
+                from processor import processor
+                with processor._cache_lock:
+                    processor.vector_store_cache.pop(f"chat_{collection_id}", None)
 
-                _upsert_selected_chat(connection_id, dialog_id_str, title, _dialog_type(entity), collection_id)
+                _upsert_selected_chat(connection_id, dialog_id_str, title, _dialog_type(entity), collection_id, collection.message_count)
 
                 results.append(
                     TelegramSyncResult(

@@ -38,9 +38,8 @@ async def ingest_chat_messages(
     """Chunk, embed, index, and register a set of parsed chat messages as a ChatCollection.
 
     `raw_file_path`, when given, is the original export file on disk (WhatsApp
-    upload) and gets uploaded to Supabase Storage alongside the index. A
-    Telegram sync has no such file — messages come straight from the API —
-    so it's omitted there and only the index + metadata are persisted.
+    upload) and gets uploaded to Supabase Storage alongside the index. Telegram
+    sync passes a generated text transcript so its messages can be previewed.
     """
     if not messages:
         raise ValueError("No messages to ingest")
@@ -68,6 +67,20 @@ async def ingest_chat_messages(
     if on_progress:
         on_progress("saving", 88)
 
+    collection = ChatCollection(
+        collection_id=collection_id,
+        platform=platform,
+        file_name=file_name,
+        message_count=len(messages),
+        date_range=date_range,
+        participants=participants,
+        created_at=datetime.now(),
+    )
+    collection_dict = collection.model_dump(mode="json")
+    collection_dict["keywords"] = keywords
+    # S3 must receive metadata from this build, not the previous sync.
+    _save_collection_metadata(collection_id, collection_dict)
+
     if supabase_storage.is_enabled():
         try:
             if raw_file_path and os.path.isfile(raw_file_path):
@@ -90,19 +103,6 @@ async def ingest_chat_messages(
             logger.info("Chat collection synced to Supabase: %s", collection_id)
         except Exception as exc:
             logger.warning("Supabase sync failed (disk fallback): %s", exc)
-
-    collection = ChatCollection(
-        collection_id=collection_id,
-        platform=platform,
-        file_name=file_name,
-        message_count=len(messages),
-        date_range=date_range,
-        participants=participants,
-        created_at=datetime.now(),
-    )
-    collection_dict = collection.model_dump(mode="json")
-    collection_dict["keywords"] = keywords
-    _save_collection_metadata(collection_id, collection_dict)
 
     return collection
 
