@@ -809,13 +809,14 @@ def _get_rate_limit_status(conn, user_id: str) -> RateLimitStatus:
     )
 
 
-def enforce_rate_limit(user_id: str) -> None:
+def enforce_rate_limit(user_id: str, pending_tokens: int = 0) -> None:
     """Raise HTTPException(429) if this user has hit the flat safety-net
     rate limit. Call this from router/agnostic.py BEFORE the LLM is
     invoked — unlike log_token_usage (best-effort, never raises), this one
     is meant to actually block overage, so callers should let it propagate
     rather than swallowing it. Fails open (never blocks) if the metering DB
-    itself is unreachable — a metering outage shouldn't take down chat."""
+    itself is unreachable — a metering outage shouldn't take down chat.
+    `pending_tokens`: this user's in-flight reservations (in_flight_tokens)."""
     conn = _get_app_conn()
     if not conn:
         return
@@ -824,7 +825,8 @@ def enforce_rate_limit(user_id: str) -> None:
         status = _get_rate_limit_status(conn, user_id)
     finally:
         conn.close()
-    if status.blocked:
+    cap = status.cap_tokens
+    if status.blocked or (cap > 0 and pending_tokens and status.used_tokens + pending_tokens >= cap):
         raise HTTPException(
             status_code=429,
             detail="Batas token untuk akun kamu sudah tercapai untuk saat ini. Coba lagi setelah beberapa saat.",
@@ -884,7 +886,134 @@ def get_workspace_lock(workspace_id: str) -> asyncio.Lock:
     return lock
 
 
-def enforce_plan_limit(user: UserRecord) -> None:
+# In-flight reservations — what lets callers hold the workspace lock only
+# for the CHECK, not for the whole LLM call. Holding it through the call
+# (as agnostic.py/compliance.py used to) made every query in a workspace
+# wait for the previous one's Gemini round trip: 5 concurrent questions
+# took 2.5s/4.7s/7.0s/9.2s/11.4s (measured), and one gap-check run froze
+# the whole team's chat for its full duration.
+#
+# Instead: under the lock, the enforce_* checks count every request that
+# passed its check but hasn't logged usage yet as already spent
+# (pending_tokens), then the caller registers its own reservation and
+# releases the lock. Concurrent requests therefore can't all slip past a
+# cap together — each sees the others' reservations — while the LLM calls
+# themselves run in parallel.
+#
+# What a request reserves is its expected COST (config.query_in_flight_estimate
+# for a chat, config.gap_check_token_reserve for a gap check), not the small
+# gate headroom (config.query_token_reserve): with parallel calls, any cost
+# a reservation under-counts can be overspent once per concurrent request.
+# Each reservation is also clamped to half of the cap it counts against (as
+# exceeds_cap does for the gate), so one big in-flight run — a 100k gap
+# check on a 60k Free pool, or on a member's 5k allocation — can't by itself
+# lock every other request out until it finishes.
+#
+# Mutated only from the event loop thread (never inside asyncio.to_thread),
+# so plain dicts need no extra locking. In-process, like _workspace_locks.
+_in_flight_workspace_tokens: dict[str, int] = {}
+_in_flight_user_tokens: dict[str, int] = {}
+
+
+@dataclass(frozen=True)
+class InFlightReservation:
+    workspace_id: str
+    user_id: str
+    workspace_tokens: int
+    user_tokens: int
+
+
+def reservation_amount(estimate: int, cap: Optional[int]) -> int:
+    """`estimate`, clamped to half of `cap` (None/0 = uncapped)."""
+    estimate = max(0, estimate)
+    return min(estimate, cap // 2) if cap else estimate
+
+
+def in_flight_tokens(workspace_id: str, user_id: str) -> tuple[int, int]:
+    """(tokens reserved by in-flight requests in this workspace, by this
+    user) — pass to the enforce_* checks as pending_tokens."""
+    return _in_flight_workspace_tokens.get(workspace_id, 0), _in_flight_user_tokens.get(user_id, 0)
+
+
+def begin_in_flight(
+    workspace_id: str,
+    user_id: str,
+    estimate: int,
+    workspace_cap: Optional[int] = None,
+    user_cap: Optional[int] = None,
+) -> InFlightReservation:
+    """Register a request that just passed its checks. The caps are what
+    enforce_plan_limit / enforce_member_allocation returned for it."""
+    reservation = InFlightReservation(
+        workspace_id=workspace_id,
+        user_id=user_id,
+        workspace_tokens=reservation_amount(estimate, workspace_cap),
+        user_tokens=reservation_amount(estimate, user_cap),
+    )
+    _in_flight_workspace_tokens[workspace_id] = _in_flight_workspace_tokens.get(workspace_id, 0) + reservation.workspace_tokens
+    _in_flight_user_tokens[user_id] = _in_flight_user_tokens.get(user_id, 0) + reservation.user_tokens
+    return reservation
+
+
+def end_in_flight(reservation: InFlightReservation) -> None:
+    """Call AFTER log_token_usage — so between the two there's never a
+    moment where a request's cost is counted neither as reserved nor as
+    logged usage."""
+    for store, key, tokens in (
+        (_in_flight_workspace_tokens, reservation.workspace_id, reservation.workspace_tokens),
+        (_in_flight_user_tokens, reservation.user_id, reservation.user_tokens),
+    ):
+        remaining = store.get(key, 0) - tokens
+        if remaining > 0:
+            store[key] = remaining
+        else:
+            store.pop(key, None)
+
+
+# Plans that include Compliance Gap Check — every paid plan. A run costs
+# 130k-260k tokens (measured), more than the whole Free pool (60k), so Free
+# is excluded. Enterprise is sales-assisted and has no plan_id in
+# PLAN_QUOTAS yet; add it here once it does.
+GAP_CHECK_PLAN_IDS = frozenset({"individual", "team"})
+
+
+def _plan_id_of(window: "PlanWindow") -> Optional[str]:
+    return next((plan_id for plan_id, plan in PLAN_QUOTAS.items() if plan is window.plan), None)
+
+
+def _plan_includes_gap_check(window: Optional["PlanWindow"]) -> bool:
+    """The one rule both enforce_gap_check_plan (backend gate) and
+    get_my_usage's gap_check_available (chat-ui visibility) read."""
+    return window is not None and _plan_id_of(window) in GAP_CHECK_PLAN_IDS
+
+
+def enforce_gap_check_plan(user: UserRecord) -> None:
+    """Raise HTTPException(403) unless the user's workspace is on a plan in
+    GAP_CHECK_PLAN_IDS for the current (enforced) period — an expired Team
+    plan has dropped back to the Free window, so it no longer qualifies.
+    Fails open if the metering DB is unreachable, same as the other checks."""
+    conn = _get_app_conn()
+    if not conn:
+        return
+    try:
+        _ensure_tables(conn)
+        admin_user_id = _resolve_admin_user_id(conn, user)
+        window = _get_enforced_window(conn, admin_user_id)
+    finally:
+        conn.close()
+    if window is None:
+        return
+    if not _plan_includes_gap_check(window):
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Compliance Gap Check hanya tersedia untuk plan Individual dan Team (workspace kamu "
+                f"saat ini: {window.plan['name']}). Upgrade plan untuk memakai fitur ini."
+            ),
+        )
+
+
+def enforce_plan_limit(user: UserRecord, pending_tokens: int = 0, reserve: Optional[int] = None) -> Optional[int]:
     """Raise HTTPException(402) once the WHOLE workspace has used up its
     plan's own token_limit for the current period (MS-248 follow-up) —
     Free/Individual/Team's own ceiling, separate from the flat per-user
@@ -892,30 +1021,36 @@ def enforce_plan_limit(user: UserRecord) -> None:
     (enforce_member_allocation). Every workspace always has a plan window
     now (Free is the fallback in _get_latest_plan_window when nobody's
     paid), so this always applies, not just to paying workspaces. Fails
-    open if the metering DB is unreachable, same as the other checks."""
+    open if the metering DB is unreachable, same as the other checks.
+    `pending_tokens`: the workspace's in-flight reservations; `reserve`:
+    this request's own headroom (defaults to config.query_token_reserve).
+    Returns the workspace token_limit it enforced (None if it couldn't
+    check), for begin_in_flight to clamp the reservation against."""
     conn = _get_app_conn()
     if not conn:
-        return
+        return None
     try:
         _ensure_tables(conn)
         _ensure_usage_tables(conn)
         admin_user_id = _resolve_admin_user_id(conn, user)
         window = _get_enforced_window(conn, admin_user_id)
         if not window:
-            return
+            return None
         used = _sum_tokens_for_admin(conn, admin_user_id, window.period_start, window.period_end)
         token_limit = window.plan["token_limit"]
         plan_name = window.plan["name"]
     finally:
         conn.close()
-    if exceeds_cap(used, token_limit, config.query_token_reserve):
+    own_reserve = config.query_token_reserve if reserve is None else reserve
+    if exceeds_cap(used + pending_tokens, token_limit, own_reserve):
         raise HTTPException(
             status_code=402,
             detail=f"Jatah token workspace untuk plan {plan_name} sudah habis untuk periode ini.",
         )
+    return token_limit
 
 
-def enforce_member_allocation(user: UserRecord) -> None:
+def enforce_member_allocation(user: UserRecord, pending_tokens: int = 0, reserve: Optional[int] = None) -> Optional[int]:
     """Raise HTTPException(403) once this user can't fit another query into
     their token cap this period. Every team member is capped (MS-402): by
     their token_allocations row, or by the workspace's Default Token
@@ -923,16 +1058,19 @@ def enforce_member_allocation(user: UserRecord) -> None:
     a self-registered account) is only capped if they have an explicit row
     — for an admin, a slice of the pool they allocated themselves (MS-248
     follow-up), which they can always raise back up since they control it.
-    Fails open if the metering DB is unreachable, same as enforce_rate_limit."""
+    Fails open if the metering DB is unreachable, same as enforce_rate_limit.
+    `pending_tokens`: this user's in-flight reservations; `reserve`: as in
+    enforce_plan_limit. Returns the allocation it enforced (None when the
+    user is uncapped or it couldn't check), like enforce_plan_limit."""
     conn = _get_app_conn()
     if not conn:
-        return
+        return None
     try:
         _ensure_tables(conn)
         _ensure_usage_tables(conn)
         allocation = _get_user_allocation(conn, user)
         if allocation is None:
-            return
+            return None
         admin_user_id = _resolve_admin_user_id(conn, user)
         window = _get_enforced_window(conn, admin_user_id)
         if not window:
@@ -957,11 +1095,13 @@ def enforce_member_allocation(user: UserRecord) -> None:
         used = _sum_tokens_for_user(conn, user.user_id, window.period_start, window.period_end)
     finally:
         conn.close()
-    if exceeds_cap(used, allocation[0], config.query_token_reserve):
+    own_reserve = config.query_token_reserve if reserve is None else reserve
+    if exceeds_cap(used + pending_tokens, allocation[0], own_reserve):
         raise HTTPException(
             status_code=403,
             detail="Token cap yang diberikan admin untuk akun kamu sudah habis untuk periode ini.",
         )
+    return allocation[0]
 
 
 def log_token_usage(
@@ -1013,6 +1153,43 @@ def log_token_usage(
             )
     except Exception as exc:
         logger.warning("payment: log_token_usage failed for user %s: %s", user_id, exc)
+    finally:
+        conn.close()
+
+
+def get_usage_snapshot(user: UserRecord) -> Optional[dict]:
+    """This user's plan + token usage for the current enforced period, as a
+    plain dict for the chat assistant's conversation mode ("sisa token saya
+    berapa?"). Same numbers as /payments/subscription/me (own allocation)
+    plus, for admins only, the workspace pool from Billing — a member never
+    sees workspace-wide totals here, same as in the Usage tab. Best-effort:
+    returns None on any failure, the assistant then points to /usage."""
+    conn = _get_app_conn()
+    if not conn:
+        return None
+    try:
+        _ensure_tables(conn)
+        _ensure_usage_tables(conn)
+        admin_user_id = _resolve_admin_user_id(conn, user)
+        window = _get_enforced_window(conn, admin_user_id)
+        if not window:
+            return None
+        allocation = _get_user_allocation(conn, user)
+        snapshot = {
+            "plan_name": window.plan["name"],
+            "period_end": app_db.ts(window.period_end),
+            "my_token_used": _sum_tokens_for_user(conn, user.user_id, window.period_start, window.period_end),
+            "my_token_limit": allocation[0] if allocation else None,
+        }
+        if user.role == "admin":
+            snapshot["workspace_token_limit"] = window.plan["token_limit"]
+            snapshot["workspace_token_used"] = _sum_tokens_for_admin(
+                conn, admin_user_id, window.period_start, window.period_end
+            )
+        return snapshot
+    except Exception as exc:
+        logger.warning("payment: get_usage_snapshot failed for user %s: %s", user.user_id, exc)
+        return None
     finally:
         conn.close()
 
@@ -1224,7 +1401,7 @@ async def get_my_usage(user: UserRecord = Depends(get_current_user)):
         user.user_id, user.email, allocated, used, is_default,
         quota_row["quota_anchor_at"] if quota_row else None, quota_tiers,
     )
-    return MyMemberUsageResponse(usage=usage)
+    return MyMemberUsageResponse(usage=usage, gap_check_available=_plan_includes_gap_check(window))
 
 
 @router.get("/payments/subscription/members", response_model=MembersUsageResponse)

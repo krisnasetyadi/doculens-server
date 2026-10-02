@@ -11,13 +11,26 @@ is the same hybrid-search path with a HybridResponse-compatible schema.
 
 import asyncio
 import logging
+import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException, Request, Depends
 from pydantic import BaseModel, Field
 
 from config import config
+from conversation.guard import is_internal_question
+from conversation.intent import (
+    is_app_question,
+    is_summary_request,
+    is_whole_document_summary,
+    mentions_document_part,
+    rule_based_intent,
+    scope_titles_for,
+    small_talk_kind,
+)
+from conversation.language import ReplyLanguage, detect_reply_language
+from conversation.messages import internal_refusal, no_source_selected
 from processor import processor
 import storage as supabase_storage
 from router.auth import get_current_user, UserRecord
@@ -28,8 +41,12 @@ from router.payment import (
     enforce_rate_limit,
     enforce_member_allocation,
     enforce_plan_limit,
+    get_usage_snapshot,
     resolve_workspace_id,
     get_workspace_lock,
+    in_flight_tokens,
+    begin_in_flight,
+    end_in_flight,
 )
 
 logger = logging.getLogger(__name__)
@@ -152,6 +169,81 @@ def _describe_source_type(has_public_links: bool, has_external_db: bool) -> str:
     return "Indexed Collections + " + " + ".join(extras)
 
 
+def _clamp_memory(memory: Optional[List[MemoryTurn]]) -> Optional[List[Dict[str, str]]]:
+    """MS-237: clamp the client's conversation-history window before it
+    ever reaches a prompt — see MAX_MEMORY_* above. Cut at the start of the
+    5th-from-last question rather than at a raw message count, so every
+    remembered question keeps the answer that belongs to it."""
+    if not memory:
+        return None
+    question_at = [i for i, m in enumerate(memory) if m.role == "user"]
+    start = question_at[-MAX_MEMORY_CHATS] if len(question_at) > MAX_MEMORY_CHATS else 0
+    return [
+        {"role": m.role, "content": _clip_turn(m.content)}
+        for m in memory[start:][-MAX_MEMORY_MESSAGES:]
+    ]
+
+
+def _clip_turn(content: str) -> str:
+    """Keep the START and the END of a long turn: an assistant reply's
+    closing question ("Mau saya ringkas X?") is exactly what the router
+    needs to resolve a following "ok", and a head-only cut dropped it."""
+    if len(content) <= MAX_MEMORY_CHARS:
+        return content
+    half = (MAX_MEMORY_CHARS - 3) // 2
+    return f"{content[:half]} … {content[-half:]}"
+
+
+def _system_response(
+    answer: str,
+    model_used: str,
+    question: str,
+    start_time: datetime,
+    source_type: str = "System",
+) -> AgnosticQueryResponse:
+    """A reply that involved no retrieval (system answers, refusals,
+    conversation mode) — no sources, nothing retrieved."""
+    return AgnosticQueryResponse(
+        answer=answer,
+        model_used=model_used,
+        pdf_sources=[],
+        pdf_sources_detailed=[],
+        db_results={},
+        chat_results=[],
+        processing_time=(datetime.now() - start_time).total_seconds(),
+        search_terms=[question],
+        target_tables=[],
+        source_type=source_type,
+        retrieved_count=0,
+    )
+
+
+async def _log_tokens(user_id: str, tokens: int) -> None:
+    """Best-effort token metering (MS-248) for the conversation router's
+    LLM call — same never-break-the-reply rule as _run_metered_query."""
+    if not tokens:
+        return
+    try:
+        await asyncio.to_thread(log_token_usage, user_id, tokens)
+    except Exception:
+        logger.warning("agnostic_query: failed to log token usage", exc_info=True)
+
+
+def _strip_titles(text: str, titles: List[str]) -> str:
+    """`text` without the collection titles it names — see
+    conversation.intent.is_whole_document_summary for why."""
+    for title in sorted((t for t in titles if t), key=len, reverse=True):
+        text = re.sub(re.escape(title), " ", text, flags=re.IGNORECASE)
+    return text
+
+
+def _collection_ids_for(titles: List[str], collections: List[Tuple[str, str]]) -> List[str]:
+    """Collection ids whose title matches one of `titles` (case-insensitive).
+    Titles aren't unique, so one title can map to several collections."""
+    wanted = {t.strip().lower() for t in titles if t}
+    return [cid for cid, title in collections if title.strip().lower() in wanted]
+
+
 @router.post("/agnostic/query", response_model=AgnosticQueryResponse)
 async def agnostic_query(
     req: AgnosticQueryRequest,
@@ -166,9 +258,13 @@ async def agnostic_query(
     try:
         # Resolve collections — scoped to what this user is allowed to see.
         # Admins can reach every PDF collection; everyone else only their own.
-        allowed_pdf_ids = set(await asyncio.to_thread(
-            supabase_storage.list_collection_ids_for_user, user.user_id, is_admin
-        ))
+        # One query returns both the ids and their display titles (which the
+        # router needs to name/scope collections), filtered in SQL.
+        collections = await asyncio.to_thread(
+            supabase_storage.list_collection_titles_for_user, user.user_id, is_admin
+        )
+        allowed_pdf_ids = {cid for cid, _ in collections}
+        titles = [title for _, title in collections]
         if req.pdf_collection_ids:
             pdf_collection_ids = [cid for cid in req.pdf_collection_ids if cid in allowed_pdf_ids]
         elif req.include_pdf_results:
@@ -177,104 +273,158 @@ async def agnostic_query(
             pdf_collection_ids = []
         logger.info("agnostic_query: %d PDF collection(s) accessible to user", len(pdf_collection_ids))
 
-        # "Meta/help" questions (about the app itself, e.g. "apa yang bisa
-        # dilakukan disini") short-circuit here — deliberately BEFORE running
-        # hybrid_search/generate_hybrid_answer, since there's no document to
-        # ground an LLM answer in. Answer is built from real state (this
-        # user's own collections), never LLM-generated. See
-        # Processor.is_meta_help_query / build_meta_help_answer.
-        if processor.is_meta_help_query(req.question):
-            all_rows = await asyncio.to_thread(supabase_storage.list_collections)
-            titles = [
-                row.get("title") or (row.get("file_names") or [""])[0] or row["collection_id"]
-                for row in all_rows
-                if row.get("collection_id") in allowed_pdf_ids
-            ]
-            help_answer = processor.build_meta_help_answer(len(allowed_pdf_ids), titles)
-            elapsed = (datetime.now() - start_time).total_seconds()
-            return AgnosticQueryResponse(
-                answer=help_answer,
-                model_used="system/meta-help",
-                pdf_sources=[],
-                pdf_sources_detailed=[],
-                db_results={},
-                chat_results=[],
-                processing_time=elapsed,
-                search_terms=[req.question],
-                target_tables=[],
-                source_type="System",
-                retrieved_count=0,
+        memory_payload = _clamp_memory(req.memory)
+        # Reply language (en/id) for every branch below — from the question,
+        # then earlier user turns, then English. Never hardcoded Indonesian.
+        language = detect_reply_language(req.question, memory_payload)
+
+        # "/help" — deterministic capability summary built from real state
+        # (this user's own collections), never LLM-generated, free.
+        if req.question.strip().lower() == "/help":
+            return _system_response(
+                processor.build_meta_help_answer(len(allowed_pdf_ids), titles, language),
+                "system/meta-help", req.question, start_time,
             )
 
         # Unrecognized "/" command — safety net for requests that bypass the
         # chat-ui command menu (which already intercepts unmatched slash
         # input client-side). Short-circuits before hybrid_search/
-        # generate_hybrid_answer, same reasoning as meta-help above: a
-        # mistyped command has no document to ground an LLM answer in.
-        elif processor.is_unknown_slash_command(req.question):
-            elapsed = (datetime.now() - start_time).total_seconds()
-            return AgnosticQueryResponse(
-                answer=processor.build_unknown_command_answer(req.question),
-                model_used="system/unknown-command",
-                pdf_sources=[],
-                pdf_sources_detailed=[],
-                db_results={},
-                chat_results=[],
-                processing_time=elapsed,
-                search_terms=[req.question],
-                target_tables=[],
-                source_type="System",
-                retrieved_count=0,
+        # generate_hybrid_answer: a mistyped command has no document to
+        # ground an LLM answer in.
+        if processor.is_unknown_slash_command(req.question):
+            return _system_response(
+                processor.build_unknown_command_answer(req.question, language),
+                "system/unknown-command", req.question, start_time,
             )
 
-        # No source selected at all — safety net for requests that bypass
-        # the chat-ui toggle guard (regenerate, direct API calls). Without
-        # this, hybrid_search silently returns empty results and
-        # generate_hybrid_answer still calls the LLM with an empty context,
-        # producing a misleading "not found in documents" answer instead of
-        # directing the user to pick a source.
-        elif not any([
+        # Questions about how DocuLens itself is built (tech stack, model,
+        # infra, prompts) or prompt-injection attempts — canned refusal,
+        # before any LLM sees the message. See conversation/guard.py.
+        if is_internal_question(req.question):
+            return _system_response(
+                internal_refusal(language), "system/guard", req.question, start_time,
+            )
+
+        # Two paths (conversation/intent.py):
+        # - "retrieval" by rule (the message points at the user's own data,
+        #   or a Skill is armed) → straight to the existing RAG pipeline, no
+        #   routing call. Scoped to any collection the message names.
+        # - everything else → the conversation router (processor.route_message):
+        #   ONE LLM call that either replies, or calls search_documents with
+        #   structured args (query / collection / task) that then run through
+        #   the same RAG pipeline. Small talk goes there too, so "ok" after an
+        #   offer becomes a real, scoped search instead of a pleasantry.
+        has_source = any([
             req.include_pdf_results, req.include_db_results,
             req.include_chat_results, req.include_public_links,
             req.include_external_db,
-        ]):
-            elapsed = (datetime.now() - start_time).total_seconds()
-            return AgnosticQueryResponse(
-                answer=(
-                    "Pilih dulu minimal satu sumber (PDF, Database, Chat, atau Drive) "
-                    "sebelum bertanya, biar jawabannya bisa saya dasarkan dari data kamu."
-                ),
-                model_used="system/no-source-selected",
-                pdf_sources=[],
-                pdf_sources_detailed=[],
-                db_results={},
-                chat_results=[],
-                processing_time=elapsed,
-                search_terms=[req.question],
-                target_tables=[],
-                source_type="System",
-                retrieved_count=0,
+        ])
+        intent = "retrieval" if req.skill_id else rule_based_intent(req.question, titles)
+
+        # No source selected for a data question — safety net for requests
+        # that bypass the chat-ui toggle guard (regenerate, direct API
+        # calls). Without this, hybrid_search silently returns empty results
+        # and the LLM produces a misleading "not found in documents" answer.
+        if intent == "retrieval" and not has_source:
+            return _system_response(
+                no_source_selected(language), "system/no-source-selected", req.question, start_time,
             )
 
-        # Past this point every branch actually calls the LLM (unlike the
-        # free system-answer branches above, which must stay reachable even
-        # for a capped user), so this is where rate limiting (MS-248) has to
-        # sit — checking any earlier would deny help text that costs nothing.
+        # Past this point every branch may call the LLM, so this is where
+        # rate limiting (MS-248) has to sit.
         #
-        # Held for the rest of this request (through the LLM call and the
-        # token-usage log below), keyed by workspace (not just this user):
-        # enforce_plan_limit and enforce_member_allocation both check state
-        # shared across the whole team, so two different members racing
-        # concurrently must serialize against each other too, not just
-        # against their own other requests — see get_workspace_lock.
+        # The workspace lock (keyed by workspace, not just this user —
+        # enforce_plan_limit/enforce_member_allocation check state shared
+        # across the whole team) is held only for the CHECK. Passing it
+        # registers this request's in-flight reservation, which every later
+        # check counts as already spent, so the LLM call itself can run
+        # outside the lock in parallel with other members' — see
+        # payment.begin_in_flight for why this replaced holding the lock
+        # through the whole call.
         workspace_id = await asyncio.to_thread(resolve_workspace_id, user)
         async with get_workspace_lock(workspace_id):
-            await asyncio.to_thread(enforce_rate_limit, user.user_id)
-            await asyncio.to_thread(enforce_plan_limit, user)
-            await asyncio.to_thread(enforce_member_allocation, user)
-            return await _run_metered_query(
-                req, user, is_admin, allowed_pdf_ids, pdf_collection_ids, base_url, start_time
+            pending_workspace, pending_user = in_flight_tokens(workspace_id, user.user_id)
+            try:
+                await asyncio.to_thread(enforce_rate_limit, user.user_id, pending_user)
+                workspace_cap = await asyncio.to_thread(enforce_plan_limit, user, pending_workspace)
+                user_cap = await asyncio.to_thread(enforce_member_allocation, user, pending_user)
+            except HTTPException:
+                # A capped user still gets a (free, canned) reply to "hi" or
+                # "what can DocuLens do?" — help must stay reachable even
+                # when the quota is spent. Data questions stay blocked,
+                # except that with no source on they'd only ever have been
+                # told to pick one, which costs nothing either.
+                if intent != "retrieval" and not has_source and not (
+                    small_talk_kind(req.question) or is_app_question(req.question)
+                ):
+                    return _system_response(
+                        no_source_selected(language), "system/no-source-selected", req.question, start_time,
+                    )
+                if intent == "retrieval" or not (small_talk_kind(req.question) or is_app_question(req.question)):
+                    raise
+                return _system_response(
+                    processor.build_conversation_fallback(req.question, language, len(allowed_pdf_ids), titles),
+                    "system/conversation", req.question, start_time, source_type="Conversation",
+                )
+            reservation = begin_in_flight(
+                workspace_id, user.user_id, config.query_in_flight_estimate, workspace_cap, user_cap
             )
+
+        try:
+            if intent == "retrieval":
+                scoped_titles = scope_titles_for(req.question, titles)
+                return await _run_metered_query(
+                    req, user, is_admin, allowed_pdf_ids, pdf_collection_ids, base_url, start_time,
+                    memory_payload, language,
+                    question=req.question,
+                    scope_collection_ids=_collection_ids_for(scoped_titles, collections),
+                    task="summarize" if scoped_titles and is_whole_document_summary(req.question, scoped_titles) else "answer",
+                )
+
+            usage = await asyncio.to_thread(get_usage_snapshot, user)
+            decision = await asyncio.to_thread(
+                processor.route_message,
+                req.question, language, memory_payload, is_admin, titles, len(allowed_pdf_ids),
+                usage, req.llm_provider, req.llm_model, has_source,
+            )
+
+            if decision.action == "reply":
+                await _log_tokens(user.user_id, decision.total_tokens)
+                return _system_response(
+                    decision.answer, decision.model_id, req.question, start_time, source_type="Conversation",
+                )
+
+            if not has_source:
+                await _log_tokens(user.user_id, decision.total_tokens)
+                return _system_response(
+                    no_source_selected(language), "system/no-source-selected", req.question, start_time,
+                )
+
+            scoped_titles = [decision.search_collection] if decision.search_collection else []
+            # The model picks the task, but a summary of one PART ("ringkas
+            # pasal 5", "summarize the access control section") must still be
+            # a search for that part — never the whole-document sample.
+            task = decision.search_task
+            if task == "summarize" and not (
+                is_whole_document_summary(req.question, titles) or not is_summary_request(req.question)
+            ):
+                task = "answer"
+            elif task == "summarize" and mentions_document_part(
+                _strip_titles(decision.search_query, titles), include_topics=False
+            ):
+                task = "answer"
+            return await _run_metered_query(
+                req, user, is_admin, allowed_pdf_ids, pdf_collection_ids, base_url, start_time,
+                memory_payload, language,
+                routing_tokens=decision.total_tokens,
+                question=decision.search_query,
+                scope_collection_ids=_collection_ids_for(scoped_titles, collections),
+                task=task,
+            )
+        finally:
+            # Every path above logs usage before returning, so the
+            # reservation only drops once the real cost is on the ledger.
+            end_in_flight(reservation)
 
     except HTTPException:
         raise
@@ -291,12 +441,29 @@ async def _run_metered_query(
     pdf_collection_ids: List[str],
     base_url: str,
     start_time: datetime,
+    memory_payload: Optional[List[Dict[str, str]]] = None,
+    language: Optional[ReplyLanguage] = None,
+    routing_tokens: int = 0,
+    question: Optional[str] = None,
+    scope_collection_ids: Optional[List[str]] = None,
+    task: str = "answer",
 ) -> "AgnosticQueryResponse":
     """The token-costing half of agnostic_query — everything from source
     resolution through the LLM call and usage logging, run while the
     caller holds that user's rate-limit lock. Split out from
     agnostic_query so that lock's scope is a plain, visible function call
-    rather than a large indented block sharing the outer try/except."""
+    rather than a large indented block sharing the outer try/except.
+
+    `question` is what gets searched/answered — req.question, or the
+    router's search_documents query. `scope_collection_ids` narrows the PDF
+    search to collections the user named (ignored when it doesn't overlap
+    what they may see); `task="summarize"` on a scoped search reads chunks
+    spread across those collections instead of the top similarity hits.
+    `routing_tokens` is the router call that sent the message here."""
+    question = question or req.question
+    scoped_ids = [cid for cid in (scope_collection_ids or []) if cid in allowed_pdf_ids]
+    if scoped_ids and req.include_pdf_results:
+        pdf_collection_ids = scoped_ids
     # Chat is admin-only (business rule — non-admins never search it,
     # regardless of what flags/ids the client sends).
     chat_collection_ids = req.chat_collection_ids if is_admin else []
@@ -319,37 +486,23 @@ async def _run_metered_query(
         external_db_connections = await resolve_active_database_connections(req.external_db_connection_ids)
     should_search_external_db = is_admin and bool(req.include_external_db) and bool(external_db_connections)
 
-    # Run hybrid search against pre-built FAISS indexes
-    hybrid_results = await asyncio.to_thread(
-        processor.hybrid_search,
-        req.question,
-        pdf_collection_ids or [],
-        should_search_chat,
-        should_search_pdfs,
-        should_search_db,
-        chat_collection_ids or [],
-        should_search_public_links,
-        public_link_sources,
-        should_search_external_db,
-        external_db_connections,
-    )
-
-    # MS-237: clamp the client's conversation-history window before it
-    # ever reaches the prompt — see MAX_MEMORY_* above. Cut at the start
-    # of the 5th-from-last question rather than at a raw message count,
-    # so every remembered question keeps the answer that belongs to it.
-    memory_payload: Optional[List[Dict[str, str]]] = None
-    if req.memory:
-        question_at = [i for i, m in enumerate(req.memory) if m.role == "user"]
-        start = (
-            question_at[-MAX_MEMORY_CHATS]
-            if len(question_at) > MAX_MEMORY_CHATS
-            else 0
+    if task == "summarize" and scoped_ids and should_search_pdfs:
+        hybrid_results = await asyncio.to_thread(processor.build_summary_results, pdf_collection_ids)
+    else:
+        # Run hybrid search against pre-built FAISS indexes
+        hybrid_results = await asyncio.to_thread(
+            processor.hybrid_search,
+            question,
+            pdf_collection_ids or [],
+            should_search_chat,
+            should_search_pdfs,
+            should_search_db,
+            chat_collection_ids or [],
+            should_search_public_links,
+            public_link_sources,
+            should_search_external_db,
+            external_db_connections,
         )
-        memory_payload = [
-            {"role": m.role, "content": m.content[:MAX_MEMORY_CHARS]}
-            for m in req.memory[start:][-MAX_MEMORY_MESSAGES:]
-        ]
 
     # MS-252: resolve the one-shot skill (if any) to its instruction text.
     # get_skill_for_user already enforces personal/team visibility — an id
@@ -373,12 +526,14 @@ async def _run_metered_query(
     answer_result = await asyncio.to_thread(
         processor.generate_hybrid_answer,
         hybrid_results,
-        req.question,
+        question,
         req.llm_provider,
         req.llm_model,
         memory_payload,
         skill_instruction,
         bool(req.efficient_mode),
+        language,
+        task,
     )
 
     if isinstance(answer_result, tuple) and len(answer_result) >= 2:
@@ -400,7 +555,9 @@ async def _run_metered_query(
     efficiency = answer_metadata.get("efficiency")
     efficient_mode_on = bool(efficiency and efficiency.get("enabled"))
     try:
-        tokens_consumed = answer_metadata.get("total_tokens", 0)
+        # routing_tokens: the router call that sent this message here (0 when
+        # the rules decided) — metered on the same row.
+        tokens_consumed = answer_metadata.get("total_tokens", 0) + routing_tokens
         # Local/free models (e.g. HuggingFace) always report 0 tokens —
         # still worth a row when Efficient Mode was on, so the dashboard
         # (GET /payments/efficient-mode/stats) isn't silently blind to
@@ -425,7 +582,8 @@ async def _run_metered_query(
         meta  = getattr(doc, "metadata", {})
         fname = meta.get("source", "Unknown")
         page  = meta.get("page")
-        pdf_sources.append(f"{fname} (Halaman {page})" if page else fname)
+        page_label = "Page" if language == "en" else "Halaman"
+        pdf_sources.append(f"{fname} ({page_label} {page})" if page else fname)
 
         try:
             page_num = int(page) if page is not None else None
@@ -501,7 +659,7 @@ async def _run_metered_query(
         db_results=hybrid_results.get("database_results", {}),
         chat_results=chat_results,
         processing_time=elapsed,
-        search_terms=hybrid_results.get("search_terms", [req.question]),
+        search_terms=hybrid_results.get("search_terms", [question]),
         target_tables=hybrid_results.get("target_tables", []),
         source_type=_describe_source_type(should_search_public_links, should_search_external_db),
         retrieved_count=len(pdf_sources) + len(chat_results),
