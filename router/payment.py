@@ -24,6 +24,7 @@ flow this ticket is about.
 from __future__ import annotations
 
 import asyncio
+import calendar
 import logging
 import uuid
 from dataclasses import dataclass
@@ -44,6 +45,7 @@ from models import (
     PaymentResponse,
     SubscriptionUsage,
     MemberTokenUsage,
+    TokenQuotaTierUsage,
     MyMemberUsageResponse,
     MembersUsageResponse,
     UpdateMemberAllocationRequest,
@@ -215,6 +217,14 @@ def _ensure_usage_tables(conn) -> None:
 
                 CREATE INDEX IF NOT EXISTS idx_token_allocations_admin
                     ON token_allocations (admin_user_id);
+
+                -- MS-418: a row remains an allocation from the workspace
+                -- pool. These optional fields activate rolling per-user
+                -- daily/weekly limits; allocated_tokens becomes that user's
+                -- monthly cap only after the admin activates the quotas.
+                ALTER TABLE token_allocations ADD COLUMN IF NOT EXISTS daily_token_quota INTEGER;
+                ALTER TABLE token_allocations ADD COLUMN IF NOT EXISTS weekly_token_quota INTEGER;
+                ALTER TABLE token_allocations ADD COLUMN IF NOT EXISTS quota_anchor_at TIMESTAMPTZ;
 
                 CREATE OR REPLACE FUNCTION _set_token_allocations_updated_at()
                 RETURNS TRIGGER LANGUAGE plpgsql AS $$
@@ -412,6 +422,111 @@ def _sum_tokens_by_user(conn, user_ids: list, period_start, period_end) -> dict:
     return {r["user_id"]: int(r["used"] or 0) for r in rows}
 
 
+def _month_anniversary(anchor: datetime, offset: int) -> datetime:
+    """Always calculate from the original day, so Jan 31 -> Feb 28 -> Mar 31."""
+    month_index = anchor.year * 12 + anchor.month - 1 + offset
+    year, month_index = divmod(month_index, 12)
+    month = month_index + 1
+    day = min(anchor.day, calendar.monthrange(year, month)[1])
+    return anchor.replace(year=year, month=month, day=day)
+
+
+def quota_period(anchor: datetime, interval: str, now: datetime) -> tuple[datetime, datetime]:
+    """Current anchored [start, end) window."""
+    anchor = anchor.astimezone(timezone.utc)
+    now = now.astimezone(timezone.utc)
+    if interval in ("daily", "weekly"):
+        length = timedelta(days=1 if interval == "daily" else 7)
+        elapsed = max(0, (now - anchor) // length)
+        start = anchor + elapsed * length
+        return start, start + length
+
+    if interval != "monthly":
+        raise ValueError(f"Unknown quota interval: {interval}")
+    offset = (now.year - anchor.year) * 12 + now.month - anchor.month
+    start = _month_anniversary(anchor, offset)
+    if start > now:
+        offset -= 1
+        start = _month_anniversary(anchor, offset)
+    return start, _month_anniversary(anchor, offset + 1)
+
+
+def default_quota_limits(monthly: int) -> tuple[int, int]:
+    """(daily, weekly) for a new member: the 2,000 / 50,000 / 200,000 ratio,
+    i.e. 1% and 25% of the monthly cap. Rounded up so a small cap never
+    yields a 0 limit (0 blocks), which keeps daily <= weekly <= monthly."""
+    return -(-monthly // 100), -(-monthly // 4)
+
+
+def _quota_windows(anchor: datetime, now: datetime) -> dict[str, tuple[datetime, datetime]]:
+    return {interval: quota_period(anchor, interval, now) for interval in ("daily", "weekly", "monthly")}
+
+
+def _sum_tokens_for_windows(
+    conn, windows: list[tuple[str, str, datetime, datetime]]
+) -> dict[tuple[str, str], int]:
+    """One indexed ledger query for all members' active quota windows."""
+    if not windows:
+        return {}
+    placeholders = ", ".join("(%s::text, %s::text, %s::timestamptz, %s::timestamptz)" for _ in windows)
+    params = [value for window in windows for value in window]
+    with conn.cursor() as cur:
+        cur.execute(
+            f"""
+            SELECT w.user_id, w.tier, COALESCE(SUM(u.tokens), 0) AS used
+            FROM (VALUES {placeholders}) AS w(user_id, tier, period_start, period_end)
+            LEFT JOIN token_usage u ON u.user_id = w.user_id
+                AND u.created_at >= w.period_start AND u.created_at < w.period_end
+            GROUP BY w.user_id, w.tier
+            """,
+            params,
+        )
+        rows = cur.fetchall()
+    return {(row["user_id"], row["tier"]): int(row["used"] or 0) for row in rows}
+
+
+def _get_quota_configs(conn, user_ids: list[str]) -> dict[str, dict]:
+    if not user_ids:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            """SELECT user_id, daily_token_quota, weekly_token_quota, quota_anchor_at
+               FROM token_allocations WHERE user_id = ANY(%s) AND quota_anchor_at IS NOT NULL""",
+            (user_ids,),
+        )
+        rows = cur.fetchall()
+    return {row["user_id"]: row for row in rows}
+
+
+def _quota_windows_for_user(user_id: str, anchor: datetime, now: datetime) -> list[tuple[str, str, datetime, datetime]]:
+    return [(user_id, interval, start, end) for interval, (start, end) in _quota_windows(anchor, now).items()]
+
+
+def _quota_tiers(
+    user_id: str, allocated: int, config_row: dict, used_by_window: dict, now: datetime
+) -> list[TokenQuotaTierUsage]:
+    limits = {
+        "daily": config_row["daily_token_quota"],
+        "weekly": config_row["weekly_token_quota"],
+        "monthly": allocated,
+    }
+    periods = _quota_windows(config_row["quota_anchor_at"], now)
+    tiers = []
+    for interval, limit in limits.items():
+        start, end = periods[interval]
+        used = used_by_window.get((user_id, interval), 0)
+        tiers.append(TokenQuotaTierUsage(
+            interval=interval,
+            token_limit=limit,
+            token_used=used,
+            token_remaining=max(0, limit - used),
+            period_start=app_db.ts(start),
+            next_reset_date=app_db.ts(end),
+            blocked=used >= limit,
+        ))
+    return tiers
+
+
 # ===================== DEFAULT / EFFECTIVE ALLOCATION (MS-402) =====================
 # A team member with no token_allocations row used to be silently uncapped
 # (enforce_member_allocation returned early) while the Billing tab showed
@@ -439,6 +554,26 @@ def clamp_to_pool(requested: int, token_limit: int, allocated_elsewhere: int) ->
     if requested <= available:
         return requested, False
     return available, True
+
+
+def _pool_state(
+    conn, admin_user_id: str, window: PlanWindow, allocations: dict[str, tuple[int, bool]],
+    extra_user_ids: tuple[str, ...] = (),
+) -> tuple[int, dict[str, int], dict[str, int]]:
+    """(tokens the plan has left this period, each member's still-unspent
+    share of their cap, each member's usage). What can be handed out is the
+    plan's remaining tokens minus what members' caps already set aside, so
+    the Billing pool always agrees with the Plan tab's remaining figure."""
+    used_total = _sum_tokens_for_admin(conn, admin_user_id, window.period_start, window.period_end)
+    remaining = max(0, window.plan["token_limit"] - used_total)
+    used_by_user = _sum_tokens_by_user(
+        conn, list({*allocations, *extra_user_ids}), window.period_start, window.period_end
+    )
+    reserved = {
+        user_id: max(0, tokens - used_by_user.get(user_id, 0))
+        for user_id, (tokens, _) in allocations.items()
+    }
+    return remaining, reserved, used_by_user
 
 
 def effective_allocations(
@@ -504,7 +639,11 @@ def _get_user_allocation(conn, user: UserRecord) -> Optional[tuple[int, bool]]:
     return _get_default_allocation(conn, user_row["created_by"]), True
 
 
-def _member_usage(user_id: str, email: str, allocated: int, used: int, is_default: bool) -> MemberTokenUsage:
+def _member_usage(
+    user_id: str, email: str, allocated: int, used: int, is_default: bool,
+    quota_anchor_at: Optional[datetime] = None,
+    quota_tiers: Optional[list[TokenQuotaTierUsage]] = None,
+) -> MemberTokenUsage:
     return MemberTokenUsage(
         user_id=user_id,
         email=email,
@@ -513,6 +652,8 @@ def _member_usage(user_id: str, email: str, allocated: int, used: int, is_defaul
         remaining_tokens=max(0, allocated - used),
         usage_percent=round(used / allocated * 100, 2) if allocated > 0 else 0.0,
         is_default_allocation=is_default,
+        quota_anchor_at=app_db.ts(quota_anchor_at) if quota_anchor_at else None,
+        quota_tiers=quota_tiers or [],
     )
 
 
@@ -520,12 +661,11 @@ def assign_initial_allocation(
     admin_user_id: str, user_id: str, requested: Optional[int] = None
 ) -> Optional[tuple[int, bool]]:
     """Called by router/auth.py right after a team member is created.
-    `requested` (a custom cap from the create form) is clamped to what's
-    left of the pool and stored as an explicit token_allocations row.
-    Without one, no row is written: the member follows the workspace
-    default lazily (_get_user_allocation), so later changes to the default
-    reach them too — unless the default doesn't fit the pool, in which case
-    the clamped value is stored explicitly. Returns (allocated, clamped),
+    `requested` (a custom monthly cap from the create form, else the
+    workspace default) is clamped to what's left of the pool and stored as
+    an explicit token_allocations row, together with derived daily/weekly
+    limits and a quota anchor of now (MS-418), so the new member is under
+    all three tiers from the start. Returns (allocated, clamped),
     or None if the metering DB is unreachable; the member is then still
     capped by the default at enforcement time, so this is best-effort."""
     conn = _get_app_conn()
@@ -539,18 +679,24 @@ def assign_initial_allocation(
         clamped = False
         if window:
             allocations = _get_workspace_allocations(conn, admin_user_id)
-            elsewhere = sum(tokens for uid, (tokens, _) in allocations.items() if uid != user_id)
-            wanted, clamped = clamp_to_pool(wanted, window.plan["token_limit"], elsewhere)
-        if requested is None and not clamped:
-            return wanted, False
+            remaining, reserved, _ = _pool_state(conn, admin_user_id, window, allocations)
+            elsewhere = sum(tokens for uid, tokens in reserved.items() if uid != user_id)
+            wanted, clamped = clamp_to_pool(wanted, remaining, elsewhere)
+        daily, weekly = default_quota_limits(wanted)
         with conn.cursor() as cur:
             cur.execute(
                 """
-                INSERT INTO token_allocations (admin_user_id, user_id, allocated_tokens)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (user_id) DO UPDATE SET allocated_tokens = EXCLUDED.allocated_tokens
+                INSERT INTO token_allocations
+                    (admin_user_id, user_id, allocated_tokens,
+                     daily_token_quota, weekly_token_quota, quota_anchor_at)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                ON CONFLICT (user_id) DO UPDATE SET
+                    allocated_tokens = EXCLUDED.allocated_tokens,
+                    daily_token_quota = EXCLUDED.daily_token_quota,
+                    weekly_token_quota = EXCLUDED.weekly_token_quota,
+                    quota_anchor_at = EXCLUDED.quota_anchor_at
                 """,
-                (admin_user_id, user_id, wanted),
+                (admin_user_id, user_id, wanted, daily, weekly, datetime.now(timezone.utc)),
             )
         return wanted, clamped
     except Exception as exc:
@@ -779,6 +925,23 @@ def enforce_member_allocation(user: UserRecord) -> None:
         admin_user_id = _resolve_admin_user_id(conn, user)
         window = _get_enforced_window(conn, admin_user_id)
         if not window:
+            return
+        quota_row = _get_quota_configs(conn, [user.user_id]).get(user.user_id)
+        if quota_row:
+            now = datetime.now(timezone.utc)
+            windows = _quota_windows_for_user(user.user_id, quota_row["quota_anchor_at"], now)
+            used_by_window = _sum_tokens_for_windows(conn, windows)
+            tiers = _quota_tiers(user.user_id, allocation[0], quota_row, used_by_window, now)
+            blocked = [tier for tier in tiers if tier.blocked]
+            if blocked:
+                names = ", ".join(tier.interval.capitalize() for tier in blocked)
+                # All active limits must clear, so the latest blocked reset
+                # is more useful than promising the earliest one will help.
+                reset_at = max(tier.next_reset_date for tier in blocked)
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Insufficient Tokens: {names} limit reached. Resets at {reset_at}.",
+                )
             return
         used = _sum_tokens_for_user(conn, user.user_id, window.period_start, window.period_end)
     finally:
@@ -1034,10 +1197,22 @@ async def get_my_usage(user: UserRecord = Depends(get_current_user)):
         # Uncapped admin (no row) keeps reporting 0, as before MS-402.
         allocated, is_default = _get_user_allocation(conn, user) or (0, False)
         used = _sum_tokens_for_user(conn, user.user_id, window.period_start, window.period_end)
+        quota_row = _get_quota_configs(conn, [user.user_id]).get(user.user_id)
+        quota_tiers = []
+        if quota_row:
+            now = datetime.now(timezone.utc)
+            windows = _quota_windows_for_user(user.user_id, quota_row["quota_anchor_at"], now)
+            quota_tiers = _quota_tiers(
+                user.user_id, allocated, quota_row, _sum_tokens_for_windows(conn, windows), now
+            )
+            used = quota_tiers[-1].token_used
     finally:
         conn.close()
 
-    usage = _member_usage(user.user_id, user.email, allocated, used, is_default)
+    usage = _member_usage(
+        user.user_id, user.email, allocated, used, is_default,
+        quota_row["quota_anchor_at"] if quota_row else None, quota_tiers,
+    )
     return MyMemberUsageResponse(usage=usage)
 
 
@@ -1077,16 +1252,35 @@ async def get_members_usage(admin: UserRecord = Depends(require_role("admin"))):
 
         members: list[MemberTokenUsage] = []
         if pool:
+            user_ids = [row["user_id"] for row in pool_rows]
             used_by_user = _sum_tokens_by_user(
-                conn, [row["user_id"] for row in pool_rows], pool.period_start, pool.period_end
+                conn, user_ids, pool.period_start, pool.period_end
             )
+            quota_configs = _get_quota_configs(conn, user_ids)
+            now = datetime.now(timezone.utc)
+            quota_windows = [
+                window
+                for user_id, quota in quota_configs.items()
+                for window in _quota_windows_for_user(user_id, quota["quota_anchor_at"], now)
+            ]
+            quota_used = _sum_tokens_for_windows(conn, quota_windows)
             for row in pool_rows:
                 allocated, is_default = allocations.get(row["user_id"], (0, False))
                 used = used_by_user.get(row["user_id"], 0)
-                members.append(_member_usage(row["user_id"], row["email"], allocated, used, is_default))
+                quota = quota_configs.get(row["user_id"])
+                quota_tiers = _quota_tiers(row["user_id"], allocated, quota, quota_used, now) if quota else []
+                if quota_tiers:
+                    used = quota_tiers[-1].token_used
+                members.append(_member_usage(
+                    row["user_id"], row["email"], allocated, used, is_default,
+                    quota["quota_anchor_at"] if quota else None, quota_tiers,
+                ))
 
         token_limit = pool.plan["token_limit"] if pool else 0
-        unallocated = max(0, token_limit - sum(tokens for tokens, _ in allocations.values()))
+        unallocated = 0
+        if pool:
+            remaining, reserved, _ = _pool_state(conn, admin.user_id, pool, allocations)
+            unallocated = max(0, remaining - sum(reserved.values()))
     finally:
         conn.close()
 
@@ -1166,8 +1360,9 @@ async def set_member_allocation(
     guard as auth.py's other per-member admin mutations — except the admin
     can also target their own user_id, to allocate themselves a slice of
     the same pool for their own budget discipline (MS-248 follow-up)."""
-    if body.allocated_tokens < 0:
-        raise HTTPException(status_code=400, detail="allocated_tokens must be >= 0")
+    configuring_quotas = body.daily_token_quota is not None or body.weekly_token_quota is not None
+    if configuring_quotas and (body.daily_token_quota is None or body.weekly_token_quota is None):
+        raise HTTPException(status_code=400, detail="Daily and weekly quotas must be configured together")
 
     conn = _get_app_conn()
     if not conn:
@@ -1190,36 +1385,80 @@ async def set_member_allocation(
         window = _get_enforced_window(conn, admin.user_id)
         if not window:
             raise HTTPException(status_code=400, detail="No active subscription to allocate tokens from")
-        pool_limit = window.plan["token_limit"]
-
         allocations = _get_workspace_allocations(conn, admin.user_id)
-        already_allocated_elsewhere = sum(
-            tokens for uid, (tokens, _) in allocations.items() if uid != body.user_id
+        remaining, reserved, used_by_user = _pool_state(
+            conn, admin.user_id, window, allocations, (body.user_id,)
         )
+        reserved_elsewhere = sum(tokens for uid, tokens in reserved.items() if uid != body.user_id)
+        new_reserved = max(0, body.allocated_tokens - used_by_user.get(body.user_id, 0))
         current = allocations.get(body.user_id, (0, False))[0]
         # Lowering is always allowed (MS-402): members that fell back to the
         # default can leave an older workspace over-allocated, and refusing
         # every edit there would leave the admin no way to fix it.
         is_increase = body.allocated_tokens > current
-        if is_increase and already_allocated_elsewhere + body.allocated_tokens > pool_limit:
-            raise HTTPException(status_code=400, detail="Allocation exceeds the workspace's token pool")
+        if is_increase and reserved_elsewhere + new_reserved > remaining:
+            raise HTTPException(status_code=400, detail="Allocation exceeds the tokens left in the workspace's plan")
+
+        if configuring_quotas:
+            daily_limit, weekly_limit = body.daily_token_quota, body.weekly_token_quota
+        else:
+            existing = _get_quota_configs(conn, [body.user_id]).get(body.user_id)
+            daily_limit = existing["daily_token_quota"] if existing else None
+            weekly_limit = existing["weekly_token_quota"] if existing else None
+        if daily_limit is not None and weekly_limit is not None:
+            if daily_limit > weekly_limit:
+                raise HTTPException(status_code=400, detail="Daily limit cannot exceed the weekly limit")
+            if weekly_limit > body.allocated_tokens:
+                raise HTTPException(status_code=400, detail="Weekly limit cannot exceed the monthly limit")
 
         with conn.cursor() as cur:
-            cur.execute(
-                """
-                INSERT INTO token_allocations (admin_user_id, user_id, allocated_tokens)
-                VALUES (%s, %s, %s)
-                ON CONFLICT (user_id) DO UPDATE SET allocated_tokens = EXCLUDED.allocated_tokens
-                """,
-                (admin.user_id, body.user_id, body.allocated_tokens),
-            )
+            if configuring_quotas:
+                cur.execute(
+                    """
+                    INSERT INTO token_allocations
+                        (admin_user_id, user_id, allocated_tokens,
+                         daily_token_quota, weekly_token_quota, quota_anchor_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET
+                        allocated_tokens = EXCLUDED.allocated_tokens,
+                        daily_token_quota = EXCLUDED.daily_token_quota,
+                        weekly_token_quota = EXCLUDED.weekly_token_quota,
+                        quota_anchor_at = COALESCE(token_allocations.quota_anchor_at, EXCLUDED.quota_anchor_at)
+                    """,
+                    (admin.user_id, body.user_id, body.allocated_tokens,
+                     body.daily_token_quota, body.weekly_token_quota, datetime.now(timezone.utc)),
+                )
+            else:
+                # Existing allocation-only clients keep their old behavior;
+                # editing a monthly cap later never shifts a quota anchor.
+                cur.execute(
+                    """
+                    INSERT INTO token_allocations (admin_user_id, user_id, allocated_tokens)
+                    VALUES (%s, %s, %s)
+                    ON CONFLICT (user_id) DO UPDATE SET allocated_tokens = EXCLUDED.allocated_tokens
+                    """,
+                    (admin.user_id, body.user_id, body.allocated_tokens),
+                )
 
-        used = _sum_tokens_for_user(conn, body.user_id, window.period_start, window.period_end)
-        unallocated = max(0, pool_limit - already_allocated_elsewhere - body.allocated_tokens)
+        quota_row = _get_quota_configs(conn, [body.user_id]).get(body.user_id)
+        quota_tiers = []
+        if quota_row:
+            now = datetime.now(timezone.utc)
+            windows = _quota_windows_for_user(body.user_id, quota_row["quota_anchor_at"], now)
+            quota_tiers = _quota_tiers(
+                body.user_id, body.allocated_tokens, quota_row, _sum_tokens_for_windows(conn, windows), now
+            )
+            used = quota_tiers[-1].token_used
+        else:
+            used = _sum_tokens_for_user(conn, body.user_id, window.period_start, window.period_end)
+        unallocated = max(0, remaining - reserved_elsewhere - new_reserved)
     finally:
         conn.close()
 
-    member = _member_usage(body.user_id, member_row["email"], body.allocated_tokens, used, False)
+    member = _member_usage(
+        body.user_id, member_row["email"], body.allocated_tokens, used, False,
+        quota_row["quota_anchor_at"] if quota_row else None, quota_tiers,
+    )
     return UpdateMemberAllocationResponse(member=member, unallocated_tokens=unallocated)
 
 
