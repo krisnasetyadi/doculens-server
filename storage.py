@@ -24,7 +24,7 @@ Buckets (create once in Supabase Dashboard -> Storage):
 import json
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from config import config
 from utils import DOCUMENT_EXTRACTORS, CONTENT_TYPE_BY_EXT
 
@@ -821,6 +821,40 @@ def list_collection_ids_for_user(user_id: str, is_admin: bool) -> List[str]:
         return [r["collection_id"] for r in rows]
     except Exception as e:
         logger.warning("list_collection_ids_for_user failed: %s", e)
+        return []
+
+
+def list_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[str, str]]:
+    """(collection_id, display title) for the same collections
+    list_collection_ids_for_user allows — one query, filtered in SQL, so the
+    chat router can name/scope a user's collections without reading every
+    tenant's rows (list_collections) on each message. Display title falls
+    back to the first file name, then the id, like the chat UI does."""
+    ensure_schema()
+    conn = _db_conn()
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            if is_admin:
+                cur.execute(
+                    "SELECT collection_id, title, file_names FROM collections "
+                    "WHERE kind = 'pdf' ORDER BY created_at DESC"
+                )
+            else:
+                cur.execute(
+                    "SELECT collection_id, title, file_names FROM collections "
+                    "WHERE kind = 'pdf' AND owner_id = %s ORDER BY created_at DESC",
+                    (user_id,),
+                )
+            rows = cur.fetchall()
+        conn.close()
+        return [
+            (r["collection_id"], r.get("title") or (r.get("file_names") or [""])[0] or r["collection_id"])
+            for r in rows
+        ]
+    except Exception as e:
+        logger.warning("list_collection_titles_for_user failed: %s", e)
         return []
 
 

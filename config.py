@@ -65,6 +65,22 @@ class Config(BaseSettings):
     # Gemini settings (cloud - free tier)
     gemini_api_key: Optional[str] = Field(default=None)
     gemini_model: str = Field(default=DEFAULT_GEMINI_MODEL)
+    # Gemini "thinking" budget for flash models (env GEMINI_THINKING_BUDGET).
+    # 0 = off: grounded RAG extraction, chat replies and intent routing don't
+    # need reasoning tokens, and leaving it on (the API default) roughly
+    # doubled answer latency (measured: RAG 5.6s → 2.6s, same answer).
+    # Unset/empty = model default. Only applied to "flash" models — pro
+    # models reject a 0 budget (they only run in thinking mode).
+    gemini_thinking_budget: Optional[int] = Field(default=0)
+
+    @field_validator("gemini_thinking_budget", mode="before")
+    @classmethod
+    def _empty_thinking_budget_is_default(cls, value):
+        # `GEMINI_THINKING_BUDGET=` (empty) must mean "model default", not
+        # crash startup with an int-parsing error.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def default_llm_provider(self) -> LLMProvider:
@@ -254,6 +270,16 @@ class Config(BaseSettings):
     # whole cost. Blocking at `used + reserve > cap` bounds that overshoot.
     # Roughly one small query's cost; 0 restores the old `used >= cap`.
     query_token_reserve: int = Field(default=2_000)
+    # What one chat request is counted as while its LLM call is in flight
+    # (see payment.begin_in_flight) — its expected COST, not the gate
+    # headroom above. Measured: conversation ~2k, RAG answer 3.7k-4.7k.
+    query_in_flight_estimate: int = Field(default=5_000)
+    # Same idea for one Gap Check run, which makes many LLM calls: reserved
+    # while it runs (see payment.begin_in_flight) so chats running in
+    # parallel in the same workspace can't spend the room it will need.
+    # Measured runs cost 130k-260k tokens; exceeds_cap clamps any reserve
+    # to half the cap, so small (Free) plans aren't blocked outright by it.
+    gap_check_token_reserve: int = Field(default=100_000)
 
     @property
     def effective_rate_limit_window_hours(self) -> float:

@@ -207,6 +207,10 @@ class MemberTokenUsage(BaseModel):
 
 class MyMemberUsageResponse(BaseModel):
     usage: Optional[MemberTokenUsage] = None
+    # Whether this user's workspace plan includes Compliance Gap Check
+    # (payment.GAP_CHECK_PLAN_IDS) — chat-ui hides the feature when False
+    # instead of letting the user hit the 403 from enforce_gap_check_plan.
+    gap_check_available: bool = False
 
 
 class MembersUsageResponse(BaseModel):

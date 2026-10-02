@@ -17,6 +17,7 @@ import logging
 import uuid
 
 from models import GapAnalysisRequest, GapAnalysisResponse, GapAnalysisRun, GapAnalysisItem
+from config import config
 from processor import processor
 import storage as supabase_storage
 from router.auth import get_current_user, UserRecord
@@ -27,6 +28,10 @@ from router.payment import (
     enforce_plan_limit,
     resolve_workspace_id,
     get_workspace_lock,
+    in_flight_tokens,
+    begin_in_flight,
+    end_in_flight,
+    enforce_gap_check_plan,
 )
 
 router = APIRouter()
@@ -90,6 +95,9 @@ async def run_gap_analysis(
     items: List[dict] = []
 
     if body.skill_id == "compliance_gap_check":
+        # Paid-plan feature (a run costs 130k-260k tokens) — checked first,
+        # before any validation or LLM work. See payment.GAP_CHECK_PLAN_IDS.
+        await asyncio.to_thread(enforce_gap_check_plan, user)
         if not body.target_collection_ids:
             raise HTTPException(
                 status_code=400,
@@ -101,12 +109,20 @@ async def run_gap_analysis(
         # opt-in via which feature you happen to use. Same workspace-keyed
         # lock as agnostic.py — see get_workspace_lock's docstring for why
         # it's keyed by workspace rather than by this caller alone.
+        # The lock is held only for the check: the run then reserves
+        # config.gap_check_token_reserve tokens as in-flight and executes
+        # outside the lock, so a multi-minute gap check no longer freezes
+        # every other chat in the workspace (see payment.begin_in_flight).
         workspace_id = await asyncio.to_thread(resolve_workspace_id, user)
+        reserve = config.gap_check_token_reserve
         async with get_workspace_lock(workspace_id):
-            await asyncio.to_thread(enforce_rate_limit, user.user_id)
-            await asyncio.to_thread(enforce_plan_limit, user)
-            await asyncio.to_thread(enforce_member_allocation, user)
+            pending_workspace, pending_user = in_flight_tokens(workspace_id, user.user_id)
+            await asyncio.to_thread(enforce_rate_limit, user.user_id, pending_user)
+            workspace_cap = await asyncio.to_thread(enforce_plan_limit, user, pending_workspace, reserve)
+            user_cap = await asyncio.to_thread(enforce_member_allocation, user, pending_user, reserve)
+            reservation = begin_in_flight(workspace_id, user.user_id, reserve, workspace_cap, user_cap)
 
+        try:
             # run_compliance_gap_check makes several sequential blocking LLM
             # calls — off the event loop, or one gap-analysis run freezes every
             # other concurrent request (health checks included) until it finishes.
@@ -122,6 +138,8 @@ async def run_gap_analysis(
                     await asyncio.to_thread(log_token_usage, user.user_id, tokens_consumed)
                 except Exception:
                     logger.warning("run_gap_analysis: failed to log token usage", exc_info=True)
+        finally:
+            end_in_flight(reservation)
     else:
         # scenario_regulatory_impact — scaffold only. The endpoint works
         # end-to-end (request validated, run persisted) so the structure
