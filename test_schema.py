@@ -48,6 +48,23 @@ class EnsureAllTest(unittest.TestCase):
             self.assertFalse(schema.ensure_all())
         users.assert_not_called()
 
+    def test_a_failing_domain_does_not_stop_startup_or_the_other_domains(self):
+        from fastapi import HTTPException
+        conn = MagicMock()
+        with patch.object(storage, "ensure_schema"), patch.object(schema.db, "get_conn", return_value=conn):
+            patches = [patch.object(module, name) for module, name in STEPS]
+            mocks = [p.start() for p in patches]
+            try:
+                # public_links' DDL fails the way its _ensure_tables reports it.
+                mocks[2].side_effect = HTTPException(status_code=500, detail="Failed to initialize public links schema")
+                self.assertFalse(schema.ensure_all())
+            finally:
+                for p in patches:
+                    p.stop()
+        for mock in mocks[3:]:
+            mock.assert_called_once_with(conn)
+        conn.close.assert_called_once_with()
+
     def test_handlers_no_longer_create_tables(self):
         """Table creation lives in the _ensure_* definitions and schema.py only."""
         root = os.path.dirname(os.path.abspath(__file__))
