@@ -177,7 +177,6 @@ def _get_required_conn():
     conn = db.get_conn("sessions")
     if not conn:
         raise HTTPException(status_code=503, detail="Session database unavailable")
-    _ensure_tables(conn)
     return conn
 
 

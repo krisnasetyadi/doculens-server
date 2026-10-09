@@ -111,7 +111,6 @@ def get_used_bytes(conn, admin_user_id: str) -> int:
     """Bytes stored by the workspace: the admin's own sources plus every
     member's. Sources with no owner (WhatsApp exports uploaded before
     MS-504) cannot be attributed to a workspace and are not counted."""
-    supabase_storage.ensure_schema()  # size_bytes may not exist yet on first call
     with conn.cursor() as cur:
         cur.execute(
             """

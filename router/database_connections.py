@@ -249,7 +249,6 @@ async def resolve_active_database_connections(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
     selected_ids = set(connection_ids or [])
     try:
         with conn.cursor() as cur:
@@ -274,7 +273,6 @@ async def list_database_connections(_: UserRecord = Depends(require_role("admin"
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             rows = _fetch_connections(cur, _db_connections_user_id())
@@ -305,7 +303,6 @@ async def create_database_connection(
     if not app_conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(app_conn)
     label = (body.label or "").strip() or _derive_label(body.url)
     connection_id = str(uuid.uuid4())
 
@@ -337,7 +334,6 @@ async def refresh_database_connection_tables(
     if not app_conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(app_conn)
     try:
         with app_conn.cursor() as cur:
             if _enforce_scope():
@@ -381,7 +377,6 @@ async def set_database_connection_active(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             if _enforce_scope():
@@ -425,7 +420,6 @@ async def delete_database_connection(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             if _enforce_scope():

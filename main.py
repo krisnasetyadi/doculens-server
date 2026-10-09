@@ -40,6 +40,8 @@ os.makedirs(config.chat_index_folder, exist_ok=True)
 
 @app.on_event("startup")
 async def startup_event():
+    import schema
+    schema.ensure_all()
     try:
         processor.initialize_components()
         logger.info("Application startup completed")

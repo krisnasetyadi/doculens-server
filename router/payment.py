@@ -679,8 +679,6 @@ def assign_initial_allocation(
     if not conn:
         return None
     try:
-        _ensure_tables(conn)
-        _ensure_usage_tables(conn)
         wanted = requested if requested is not None else _get_default_allocation(conn, admin_user_id)
         window = _get_enforced_window(conn, admin_user_id)
         clamped = False
@@ -721,7 +719,6 @@ def release_member_allocation(user_id: str) -> None:
     if not conn:
         return
     try:
-        _ensure_usage_tables(conn)
         with conn.cursor() as cur:
             cur.execute("DELETE FROM token_allocations WHERE user_id = %s", (user_id,))
     except Exception as exc:
@@ -817,7 +814,6 @@ def enforce_rate_limit(user_id: str, pending_tokens: int = 0) -> None:
     if not conn:
         return
     try:
-        _ensure_usage_tables(conn)
         status = _get_rate_limit_status(conn, user_id)
     finally:
         conn.close()
@@ -992,7 +988,6 @@ def enforce_gap_check_plan(user: UserRecord) -> None:
     if not conn:
         return
     try:
-        _ensure_tables(conn)
         admin_user_id = _resolve_admin_user_id(conn, user)
         window = _get_enforced_window(conn, admin_user_id)
     finally:
@@ -1026,8 +1021,6 @@ def enforce_plan_limit(user: UserRecord, pending_tokens: int = 0, reserve: Optio
     if not conn:
         return None
     try:
-        _ensure_tables(conn)
-        _ensure_usage_tables(conn)
         admin_user_id = _resolve_admin_user_id(conn, user)
         window = _get_enforced_window(conn, admin_user_id)
         if not window:
@@ -1062,8 +1055,6 @@ def enforce_member_allocation(user: UserRecord, pending_tokens: int = 0, reserve
     if not conn:
         return None
     try:
-        _ensure_tables(conn)
-        _ensure_usage_tables(conn)
         allocation = _get_user_allocation(conn, user)
         if allocation is None:
             return None
@@ -1131,7 +1122,6 @@ def log_token_usage(
         logger.warning("payment: log_token_usage skipped, no DB connection")
         return
     try:
-        _ensure_usage_tables(conn)
         with conn.cursor() as cur:
             cur.execute("SELECT role, created_by FROM users WHERE user_id = %s", (user_id,))
             row = cur.fetchone()
@@ -1164,8 +1154,6 @@ def get_usage_snapshot(user: UserRecord) -> Optional[dict]:
     if not conn:
         return None
     try:
-        _ensure_tables(conn)
-        _ensure_usage_tables(conn)
         admin_user_id = _resolve_admin_user_id(conn, user)
         window = _get_enforced_window(conn, admin_user_id)
         if not window:
@@ -1222,7 +1210,6 @@ async def create_checkout_session(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
     payment_id = f"pay_{uuid.uuid4().hex}"
 
     try:
@@ -1294,7 +1281,6 @@ async def stripe_webhook(request: Request):
         # Let Stripe retry rather than silently losing the event.
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
     try:
         event_type = event["type"]
         # stripe-python 15.x's typed objects (e.g. Session) support [] item
@@ -1343,7 +1329,6 @@ async def get_payment_by_session(session_id: str):
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -1370,8 +1355,6 @@ async def get_my_usage(user: UserRecord = Depends(get_current_user)):
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
-    _ensure_usage_tables(conn)
     try:
         admin_user_id = _resolve_admin_user_id(conn, user)
         window = _get_enforced_window(conn, admin_user_id)
@@ -1411,8 +1394,6 @@ async def get_members_usage(admin: UserRecord = Depends(require_role("admin"))):
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
-    _ensure_usage_tables(conn)
     try:
         window = _get_latest_plan_window(conn, admin.user_id)
         subscription = _build_subscription_usage(conn, admin.user_id, window=window)
@@ -1487,8 +1468,6 @@ async def cancel_subscription(admin: UserRecord = Depends(require_role("admin"))
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
-    _ensure_usage_tables(conn)
     try:
         window = _get_latest_plan_window(conn, admin.user_id)
         if not window or window.status != "active" or window.payment_id is None:
@@ -1514,8 +1493,6 @@ async def resume_subscription(admin: UserRecord = Depends(require_role("admin"))
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
-    _ensure_usage_tables(conn)
     try:
         window = _get_latest_plan_window(conn, admin.user_id)
         if not window or window.status != "active":
@@ -1551,8 +1528,6 @@ async def set_member_allocation(
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
-    _ensure_usage_tables(conn)
     try:
         if body.user_id == admin.user_id:
             member_row = {"user_id": admin.user_id, "email": admin.email}
@@ -1652,7 +1627,6 @@ async def get_workspace_token_settings(admin: UserRecord = Depends(require_role(
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_usage_tables(conn)
     try:
         return WorkspaceTokenSettings(default_member_allocation=_get_default_allocation(conn, admin.user_id))
     finally:
@@ -1671,8 +1645,6 @@ async def update_workspace_token_settings(
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
-    _ensure_usage_tables(conn)
     try:
         window = _get_enforced_window(conn, admin.user_id)
         if window and body.default_member_allocation > window.plan["token_limit"]:
@@ -1760,7 +1732,6 @@ async def get_my_rate_limit(user: UserRecord = Depends(get_current_user)):
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_usage_tables(conn)
     try:
         return _get_rate_limit_status(conn, user.user_id)
     finally:
@@ -1782,7 +1753,6 @@ async def get_my_efficient_mode_stats(user: UserRecord = Depends(get_current_use
         # DDL failure in here — permissions, a concurrent migration, a
         # lock timeout — still reaches the finally below instead of
         # leaking this connection.
-        _ensure_usage_tables(conn)
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -1826,7 +1796,6 @@ async def request_more_tokens(
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_usage_tables(conn)
     try:
         admin_user_id = _resolve_admin_user_id(conn, user)
         with conn.cursor() as cur:
@@ -1874,7 +1843,6 @@ async def list_token_requests(admin: UserRecord = Depends(require_role("admin"))
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_usage_tables(conn)
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -1916,7 +1884,6 @@ async def dismiss_token_request(request_id: str, admin: UserRecord = Depends(req
     conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_usage_tables(conn)
     try:
         with conn.cursor() as cur:
             cur.execute(

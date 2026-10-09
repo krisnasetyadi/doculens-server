@@ -56,3 +56,26 @@ in alternating order, timing the first query each time:
 Median: 9.9 s before, 7.6 s after. The time is mostly Gemini's response time,
 which ranges from 7 to 12 s between runs, so the one-sample difference was
 noise.
+
+## Tables created at startup (schema.py)
+
+Table creation moved from request handlers to one call at startup. Before,
+every login, register and admin call ran `_ensure_users_table`: four
+`ALTER TABLE users` statements, each taking an ACCESS EXCLUSIVE lock on
+`users` (1.4 ms locally per call, plus one round trip to a cloud database).
+The other domains ran their DDL once per process, on the first request.
+
+`perf_baseline.py` could not be used for this step: during the run the
+machine had 0.8 GB of free RAM and 100% CPU from other applications, and
+every path, including ones this change doesn't touch, came out slower. So
+the previous commit (pool only) and this one were run alternately, three
+rounds each, under the same load (medians of 20 requests):
+
+| round | pool only: sessions / admin users / PDF sources | schema at startup |
+|---|---|---|
+| 1 | 10.4 / 9.8 / 8.6 ms | 10.7 / 8.0 / 9.8 ms |
+| 2 | 8.6 / 6.8 / 13.6 ms | 10.0 / 7.5 / 7.7 ms |
+| 3 | 10.2 / 10.3 / 8.2 ms | 11.8 / 4.1 / 5.0 ms |
+
+No path is slower beyond the round-to-round noise. The contract snapshot
+(`contract/after-schema/`) shows no difference from `before`.

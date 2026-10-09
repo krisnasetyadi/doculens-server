@@ -443,7 +443,6 @@ async def resolve_active_public_link_sources(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
     selected_ids = set(link_ids or [])
 
     try:
@@ -491,7 +490,6 @@ async def list_public_links(user: UserRecord = Depends(get_current_user)):
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             raw_links = _fetch_links(cur, user.user_id, user.role == "admin")
@@ -516,7 +514,6 @@ async def create_public_link(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
 
     title = (body.title or "").strip() or _derive_title(body.url)
     link_id = str(uuid.uuid4())
@@ -599,7 +596,6 @@ async def set_public_link_active(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
 
     try:
         with conn.cursor() as cur:
@@ -644,7 +640,6 @@ async def delete_public_link(link_id: str, user: UserRecord = Depends(get_curren
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
-    _ensure_tables(conn)
 
     try:
         with conn.cursor() as cur:

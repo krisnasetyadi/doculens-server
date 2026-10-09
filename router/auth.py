@@ -455,7 +455,6 @@ async def register(body: RegisterRequest):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
-        _ensure_users_table(conn)
         with conn.cursor() as cur:
             # Check email already exists
             cur.execute("SELECT user_id FROM users WHERE email = %s", (body.email,))
@@ -510,7 +509,6 @@ async def login(body: LoginRequest, request: Request):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
-        _ensure_users_table(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT user_id, email, password_hash, role, is_active, name FROM users WHERE email = %s",
@@ -554,7 +552,6 @@ async def me(user: UserRecord = Depends(get_current_user)):
     if not conn:
         return user
     try:
-        _ensure_users_table(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT user_id, email, role, is_active, name, avatar_url FROM users WHERE user_id = %s",
@@ -579,7 +576,6 @@ async def update_profile(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
-        _ensure_users_table(conn)
         set_clauses = []
         params = []
         if body.name is not None:
@@ -686,7 +682,6 @@ async def list_admin_users(admin: UserRecord = Depends(require_role("admin"))):
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
-        _ensure_users_table(conn)
         with conn.cursor() as cur:
             cur.execute("SELECT max_sub_users FROM users WHERE user_id = %s", (admin.user_id,))
             admin_row = cur.fetchone()
@@ -721,7 +716,6 @@ async def add_admin_user(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
-        _ensure_users_table(conn)
         with conn.cursor() as cur:
             cur.execute("SELECT user_id FROM users WHERE email = %s", (body.email,))
             if cur.fetchone():
@@ -781,7 +775,6 @@ async def set_admin_user_status(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
-        _ensure_users_table(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT user_id FROM users WHERE user_id = %s AND created_by = %s",
@@ -819,7 +812,6 @@ async def update_admin_user(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
-        _ensure_users_table(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT user_id FROM users WHERE user_id = %s AND created_by = %s",
@@ -866,7 +858,6 @@ async def delete_admin_user(
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
-        _ensure_users_table(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT user_id FROM users WHERE user_id = %s AND created_by = %s",

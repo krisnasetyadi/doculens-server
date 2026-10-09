@@ -12,7 +12,7 @@ Credentials (set in .env / HF Space secrets):
 DATABASE_URL is used for the metadata table `collections` (kind='pdf'|'chat',
 unified in MS-274 — see storage.py::ensure_schema()). Auto-migration creates
 it, plus a one-time idempotent backfill from the legacy pdf_collections /
-chat_collections tables, on first run.
+chat_collections tables, at application startup (schema.py).
 
 Buckets (create once in Supabase Dashboard -> Storage):
   pdf-uploads    raw PDF files
@@ -687,7 +687,6 @@ def register_collection(
     owner_id: Optional[str] = None,
     size_bytes: int = 0,
 ) -> bool:
-    ensure_schema()
     logger.info("register_collection: collection_id=%s, has_db=%s", collection_id, has_database())
     conn = db.get_conn("storage")
     if not conn:
@@ -717,7 +716,6 @@ def register_collection(
 
 
 def delete_collection_from_db(collection_id: str) -> bool:
-    ensure_schema()
     conn = db.get_conn("storage")
     if conn:
         try:
@@ -754,7 +752,6 @@ def delete_collection_from_db(collection_id: str) -> bool:
 
 
 def list_collections() -> List[Dict[str, Any]]:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return []
@@ -773,7 +770,6 @@ def list_collections() -> List[Dict[str, Any]]:
 
 
 def get_collection(collection_id: str) -> Optional[Dict[str, Any]]:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return None
@@ -797,7 +793,6 @@ def list_collection_ids_for_user(user_id: str, is_admin: bool) -> List[str]:
     collections have no per-row ownership and stay admin-gated at the route
     layer (router/chat.py), so they must never leak into this pdf-scoped list
     now that both kinds share one table (MS-274)."""
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return []
@@ -824,7 +819,6 @@ def list_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[
     chat router can name/scope a user's collections without reading every
     tenant's rows (list_collections) on each message. Display title falls
     back to the first file name, then the id, like the chat UI does."""
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return []
@@ -853,7 +847,6 @@ def list_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[
 
 
 def set_collection_status(collection_id: str, active: bool) -> bool:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return False
@@ -887,7 +880,6 @@ def create_gap_analysis_run(
     owner_id: Optional[str] = None,
     status: str = "completed",
 ) -> bool:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         logger.warning("create_gap_analysis_run: no DB connection, skipping insert")
@@ -914,7 +906,6 @@ def create_gap_analysis_run(
 def save_gap_analysis_items(run_id: str, items: List[Dict[str, Any]]) -> bool:
     """items: dicts with keys label, status, evidence, source_citation,
     recommendation, target_collection_id (which target this item was checked against)."""
-    ensure_schema()
     if not items:
         return True
     conn = db.get_conn("storage")
@@ -945,7 +936,6 @@ def save_gap_analysis_items(run_id: str, items: List[Dict[str, Any]]) -> bool:
 
 
 def list_gap_analysis_runs(owner_id: Optional[str] = None, is_admin: bool = False) -> List[Dict[str, Any]]:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return []
@@ -972,7 +962,6 @@ def list_gap_analysis_runs(owner_id: Optional[str] = None, is_admin: bool = Fals
 
 
 def get_gap_analysis_run(run_id: str) -> Optional[Dict[str, Any]]:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return None
@@ -992,7 +981,6 @@ def get_gap_analysis_run(run_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_gap_analysis_items(run_id: str) -> List[Dict[str, Any]]:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return []
@@ -1013,7 +1001,6 @@ def get_gap_analysis_items(run_id: str) -> List[Dict[str, Any]]:
 def delete_gap_analysis_run(run_id: str) -> bool:
     """Deletes the run row; gap_analysis_items cascade-delete via the FK
     (ON DELETE CASCADE), so no separate items cleanup is needed here."""
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         logger.warning("delete_gap_analysis_run: no DB connection, skipping delete")
@@ -1065,7 +1052,6 @@ def create_skill(
     description: str = "",
     scope: str = "personal",
 ) -> bool:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         logger.warning("create_skill: no DB connection, skipping insert")
@@ -1088,7 +1074,6 @@ def create_skill(
 def list_skills_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
     """Skills this account may use: its own personal ones, plus the team skills
     of the admin it belongs to."""
-    ensure_schema()
     admin_id = _team_admin_id(user_id, is_admin)
     conn = db.get_conn("storage")
     if not conn:
@@ -1115,7 +1100,6 @@ def get_skill_for_user(skill_id: str, user_id: str, is_admin: bool) -> Optional[
     """One skill, but only if this account may use it — same visibility rule as
     list_skills_for_user. Returns None when it does not exist OR is not visible,
     so callers cannot tell the two apart."""
-    ensure_schema()
     admin_id = _team_admin_id(user_id, is_admin)
     conn = db.get_conn("storage")
     if not conn:
@@ -1141,7 +1125,6 @@ def get_skill_for_user(skill_id: str, user_id: str, is_admin: bool) -> Optional[
 def update_skill(skill_id: str, owner_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """Partial update, owner-only. Returns the updated row, or None if the skill
     does not exist or belongs to someone else."""
-    ensure_schema()
     allowed = ("name", "slash_command", "description", "instruction", "scope")
     sets = [(k, v) for k, v in fields.items() if k in allowed and v is not None]
     if not sets:
@@ -1170,7 +1153,6 @@ def update_skill(skill_id: str, owner_id: str, fields: Dict[str, Any]) -> Option
 def delete_skill(skill_id: str, owner_id: str) -> bool:
     """Owner-only hard delete, matching how collections and gap-analysis runs are
     removed. Returns False when nothing matched (missing, or not the owner)."""
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return False
@@ -1204,7 +1186,6 @@ def register_chat_collection(
     owner_id: Optional[str] = None,
     size_bytes: int = 0,
 ) -> bool:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return False
@@ -1243,7 +1224,6 @@ def register_chat_collection(
 
 
 def list_chat_collections() -> List[Dict[str, Any]]:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return []
@@ -1290,7 +1270,6 @@ def list_chat_collections() -> List[Dict[str, Any]]:
 
 
 def get_chat_collection(collection_id: str) -> Optional[Dict[str, Any]]:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return None
@@ -1309,7 +1288,6 @@ def get_chat_collection(collection_id: str) -> Optional[Dict[str, Any]]:
 
 
 def set_chat_collection_status(collection_id: str, active: bool) -> bool:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return False
@@ -1328,7 +1306,6 @@ def set_chat_collection_status(collection_id: str, active: bool) -> bool:
 
 
 def delete_chat_collection_from_db(collection_id: str) -> bool:
-    ensure_schema()
     conn = db.get_conn("storage")
     if conn:
         try:
@@ -1405,7 +1382,6 @@ def _validate_folder_parent(
 def create_folder(
     folder_id: str, name: str, owner_id: str, parent_folder_id: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         logger.warning("create_folder: no DB connection, skipping insert")
@@ -1441,7 +1417,6 @@ def create_folder(
 def list_folders_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
     """Folders a given user is allowed to see: all of them for admins, only
     their own (owner_id match) for everyone else — same rule as collections."""
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return []
@@ -1466,7 +1441,6 @@ def list_folders_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
 
 
 def get_folder(folder_id: str) -> Optional[Dict[str, Any]]:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return None
@@ -1487,7 +1461,6 @@ def get_folder(folder_id: str) -> Optional[Dict[str, Any]]:
 def rename_folder(
     folder_id: str, name: str, parent_folder_id: Optional[str]
 ) -> Optional[Dict[str, Any]]:
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return None
@@ -1528,7 +1501,6 @@ def rename_folder(
 
 def delete_folder(folder_id: str) -> bool:
     """Move direct children and files to the parent before deleting a folder."""
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return False
@@ -1569,7 +1541,6 @@ def set_collection_folder(collection_id: str, folder_id: Optional[str]) -> bool:
     either kind, since folder_id lives on the unified `collections` table.
     Which kinds a caller is allowed to move is enforced by the router layer
     (owner-gated for pdf, admin-gated for chat), not here."""
-    ensure_schema()
     conn = db.get_conn("storage")
     if not conn:
         return False

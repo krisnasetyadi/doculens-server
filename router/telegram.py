@@ -234,7 +234,6 @@ def _get_connection_row(connection_id: str) -> Optional[Dict[str, Any]]:
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -250,7 +249,6 @@ def _upsert_selected_chat(connection_id: str, dialog_id: str, title: str, dialog
     conn = db.get_conn("telegram")
     if not conn:
         return
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -275,7 +273,6 @@ def _get_selected_chat_collection_id(connection_id: str, dialog_id: str) -> Opti
     conn = db.get_conn("telegram")
     if not conn:
         return None
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -410,7 +407,6 @@ async def telegram_connect_verify(
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
     connection_id = str(uuid.uuid4())
     label = entry["label"] or f"Telegram ({_mask_phone(entry['phone'])})"
     try:
@@ -452,7 +448,6 @@ async def list_telegram_connections(_: UserRecord = Depends(require_role("admin"
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -645,7 +640,6 @@ async def set_telegram_connection_active(
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -677,7 +671,6 @@ async def delete_telegram_connection(
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
-    _ensure_tables(conn)
     try:
         with conn.cursor() as cur:
             cur.execute(
