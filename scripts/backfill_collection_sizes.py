@@ -19,6 +19,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 
 import storage
+from schema import storage as storage_schema
 
 BUCKET_BY_KIND = {"pdf": "pdf-uploads", "chat": "chat-uploads"}
 
@@ -55,7 +56,7 @@ def main() -> None:
     if not s3:
         raise SystemExit("Supabase S3 credentials are not configured")
 
-    storage.ensure_schema()
+    storage_schema.ensure()
     conn = psycopg2.connect(_database_url(), cursor_factory=RealDictCursor, connect_timeout=10)
     conn.autocommit = True
     filled = 0
