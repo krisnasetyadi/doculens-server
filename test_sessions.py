@@ -77,7 +77,7 @@ class UpsertTest(SessionsTestCase):
         created = self.create(owner, chats(1), title="Mine")
         resp = self.client(stranger).post("/api/v1/sessions", json={
             "session_id": created["session_id"], "title": "Taken", "messages": []})
-        self.assertNotEqual(resp.status_code, 200)
+        self.assertEqual(resp.status_code, 403)
         reloaded = self.client(owner).get(f"/api/v1/sessions/{created['session_id']}").json()
         self.assertEqual(reloaded["title"], "Mine")
 
@@ -170,7 +170,8 @@ class RenameDeleteTest(SessionsTestCase):
     def test_delete_removes_messages_and_refuses_strangers(self):
         owner, stranger = user(), user()
         sid = self.create(owner, chats(2))["session_id"]
-        self.assertNotEqual(self.client(stranger).delete(f"/api/v1/sessions/{sid}").status_code, 200)
+        self.assertEqual(self.client(stranger).delete(f"/api/v1/sessions/{sid}").status_code, 403)
+        self.assertEqual(self.client(owner).delete("/api/v1/sessions/nope").status_code, 404)
         self.assertEqual(self.client(owner).get(f"/api/v1/sessions/{sid}").status_code, 200)
         self.assertEqual(self.client(owner).delete(f"/api/v1/sessions/{sid}").json(),
                          {"status": "deleted", "session_id": sid})

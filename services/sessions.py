@@ -235,6 +235,8 @@ def upsert_session(body: UpsertSessionRequest, user: UserRecord):
             chat_collections=list(session_row["chat_collections"] or []),
             total_user_turns=sum(1 for r in msg_rows if r["role"] == "user"),
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("sessions upsert DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to persist session")
@@ -625,6 +627,8 @@ def delete_session(session_id: str, user: UserRecord):
                 raise HTTPException(status_code=403, detail="Not allowed to delete this session")
             cur.execute("DELETE FROM chat_sessions WHERE session_id = %s", (session_id,))
         return {"status": "deleted", "session_id": session_id}
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error("sessions delete DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to delete session")
