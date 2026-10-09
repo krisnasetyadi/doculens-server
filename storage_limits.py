@@ -1,7 +1,7 @@
 """MS-504: upload size, batch size and workspace storage quota.
 
 Three limits, all resolved per workspace plan (PLAN_QUOTAS in
-router/payment.py) and all checked here on the server, whatever the client
+billing/plans.py) and all checked here on the server, whatever the client
 already checked:
 
   * max_file_bytes       -- one file

@@ -9,7 +9,7 @@ of this text means the LLM has nothing to leak even if the guard misses one.
 
 Plan details mirror chat-ui's lib/pricing-plans.ts (prices/limits shown on
 the pricing page) — update both together. Token quotas mirror
-router/payment.py PLAN_QUOTAS, but are deliberately left out: users see
+billing/plans.py PLAN_QUOTAS, but are deliberately left out: users see
 token usage through /usage and the live snapshot passed per request, not
 through hardcoded numbers that can drift.
 """

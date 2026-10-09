@@ -20,6 +20,8 @@ from reportlab.pdfgen import canvas
 import storage_limits
 from config import config
 from processor import processor
+import db
+from billing import plans
 from router import chat, payment, upload
 from router.auth import get_current_user, UserRecord
 from storage_limits import GB, MB, StorageLimits
@@ -324,8 +326,8 @@ class UsageEndpointTests(unittest.TestCase):
         self.client = TestClient(self.app)
 
     def usage(self, used: int, limits: StorageLimits = StorageLimits("Team", 5 * GB, 50 * MB, 10)):
-        with patch.object(payment, "resolve_storage_limits", lambda user: (limits, "admin-1")), \
-             patch.object(payment.db, "get_conn", lambda source="": FakeConn(used)):
+        with patch.object(plans, "resolve_storage_limits", lambda user: (limits, "admin-1")), \
+             patch.object(db, "get_conn", lambda source="": FakeConn(used)):
             return self.client.get("/api/v1/payments/storage/usage")
 
     def test_ts04_reports_used_against_the_limit(self):
@@ -349,7 +351,7 @@ class UsageEndpointTests(unittest.TestCase):
         self.assertEqual((body["used_bytes"], body["usage_percent"], body["blocked"]), (0, 0.0, False))
 
     def test_every_plan_carries_the_three_limits(self):
-        for plan in payment.PLAN_QUOTAS.values():
+        for plan in plans.PLAN_QUOTAS.values():
             self.assertGreater(plan["storage_limit_bytes"], 0)
             self.assertGreater(plan["max_file_bytes"], 0)
             self.assertGreater(plan["max_batch_files"], 0)

@@ -22,7 +22,7 @@ from text_source_preview import read_text_source_page
 from chat_ingest import ingest_chat_messages
 from processor import processor
 from router.auth import require_role, UserRecord
-from router.payment import resolve_storage_limits
+from billing.plans import resolve_storage_limits
 from upload_progress import ProgressCallback, progress_response, upload_progress_store
 
 router = APIRouter()

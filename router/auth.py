@@ -257,7 +257,7 @@ class AdminCreateUserRequest(BaseModel):
     email: EmailStr
     password: str
     # MS-402: optional custom token cap; omitted -> the workspace's Default
-    # Token Allocation (router/payment.py::assign_initial_allocation).
+    # Token Allocation (billing/allocation.py::assign_initial_allocation).
     allocated_tokens: Optional[int] = Field(default=None, ge=0)
 
     @field_validator("email")
@@ -714,9 +714,9 @@ async def add_admin_user(
                 (user_id, body.email, hashed, admin.user_id),
             )
             row = cur.fetchone()
-        # Imported here: router.payment imports get_current_user from this
-        # module, so a top-level import would be circular.
-        from router.payment import assign_initial_allocation
+        # Imported here: billing imports UserRecord from this module, so a
+        # top-level import would be circular.
+        from billing.allocation import assign_initial_allocation
 
         member = TeamMember(**row)
         allocation = assign_initial_allocation(admin.user_id, user_id, body.allocated_tokens)
@@ -839,7 +839,7 @@ async def delete_admin_user(
             cur.execute("DELETE FROM chat_sessions WHERE owner_id = %s", (user_id,))
             cur.execute("DELETE FROM users WHERE user_id = %s", (user_id,))
         # MS-402: hand their token slice back to the workspace pool.
-        from router.payment import release_member_allocation
+        from billing.allocation import release_member_allocation
 
         release_member_allocation(user_id)
         return {"status": "success", "user_id": user_id}

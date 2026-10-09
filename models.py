@@ -172,7 +172,7 @@ class PaymentResponse(BaseModel):
 # ===================== TOKEN USAGE & ALLOCATION (MS-248) =====================
 # Workspace-level subscription usage plus, on top of it, per-member token
 # allocations that an admin distributes out of the workspace's token_limit
-# (see router/payment.py for how these are computed/persisted).
+# (see billing/allocation.py for how these are computed/persisted).
 
 class SubscriptionUsage(BaseModel):
     plan_name: str
@@ -221,7 +221,7 @@ class MemberTokenUsage(BaseModel):
 class MyMemberUsageResponse(BaseModel):
     usage: Optional[MemberTokenUsage] = None
     # Whether this user's workspace plan includes Compliance Gap Check
-    # (payment.GAP_CHECK_PLAN_IDS) — chat-ui hides the feature when False
+    # (billing.plans.GAP_CHECK_PLAN_IDS) — chat-ui hides the feature when False
     # instead of letting the user hit the 403 from enforce_gap_check_plan.
     gap_check_available: bool = False
 
@@ -275,7 +275,7 @@ class StorageUsageResponse(BaseModel):
 
 
 # Flat, plan-independent safety-net rate limit (same for every user) — see
-# router/payment.py::_get_rate_limit_status. Separate from SubscriptionUsage
+# billing/ledger.py::get_rate_limit_status. Separate from SubscriptionUsage
 # / MemberTokenUsage above, which track the per-plan/per-member allocation.
 class RateLimitStatus(BaseModel):
     used_tokens: int

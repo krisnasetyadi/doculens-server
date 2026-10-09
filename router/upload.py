@@ -29,7 +29,7 @@ from config import config
 import logging
 import storage as supabase_storage
 import storage_limits
-from router.payment import resolve_storage_limits
+from billing.plans import resolve_storage_limits
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

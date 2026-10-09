@@ -21,18 +21,9 @@ from config import config
 from processor import processor
 import storage as supabase_storage
 from router.auth import get_current_user, UserRecord
-from router.payment import (
-    log_token_usage,
-    enforce_rate_limit,
-    enforce_member_allocation,
-    enforce_plan_limit,
-    resolve_workspace_id,
-    get_workspace_lock,
-    in_flight_tokens,
-    begin_in_flight,
-    end_in_flight,
-    enforce_gap_check_plan,
-)
+from billing.enforcement import enforce_gap_check_plan, enforce_member_allocation, enforce_plan_limit
+from billing.inflight import begin_in_flight, end_in_flight, get_workspace_lock, in_flight_tokens, resolve_workspace_id
+from billing.ledger import enforce_rate_limit, log_token_usage
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -96,7 +87,7 @@ async def run_gap_analysis(
 
     if body.skill_id == "compliance_gap_check":
         # Paid-plan feature (a run costs 130k-260k tokens) — checked first,
-        # before any validation or LLM work. See payment.GAP_CHECK_PLAN_IDS.
+        # before any validation or LLM work. See billing.plans.GAP_CHECK_PLAN_IDS.
         await asyncio.to_thread(enforce_gap_check_plan, user)
         if not body.target_collection_ids:
             raise HTTPException(
@@ -112,7 +103,7 @@ async def run_gap_analysis(
         # The lock is held only for the check: the run then reserves
         # config.gap_check_token_reserve tokens as in-flight and executes
         # outside the lock, so a multi-minute gap check no longer freezes
-        # every other chat in the workspace (see payment.begin_in_flight).
+        # every other chat in the workspace (see billing.inflight.begin_in_flight).
         workspace_id = await asyncio.to_thread(resolve_workspace_id, user)
         reserve = config.gap_check_token_reserve
         async with get_workspace_lock(workspace_id):

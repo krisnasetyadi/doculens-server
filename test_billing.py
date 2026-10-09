@@ -5,7 +5,6 @@ skipped when no database is reachable."""
 import os
 import unittest
 import uuid
-from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -16,6 +15,7 @@ from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from config import config
+from billing import allocation, enforcement, inflight, ledger, plans, quotas
 from router import payment
 from router.auth import UserRecord, get_current_user
 from testing_db import IsolatedSchemaTestCase
@@ -25,8 +25,8 @@ FREE_LIMIT = config.free_plan_token_limit
 
 class BillingTestCase(IsolatedSchemaTestCase):
     def setUp(self):
-        payment._in_flight_workspace_tokens.clear()
-        payment._in_flight_user_tokens.clear()
+        inflight._in_flight_workspace_tokens.clear()
+        inflight._in_flight_user_tokens.clear()
 
     # --- data -------------------------------------------------------------
 
@@ -94,7 +94,7 @@ class PlanWindowTest(BillingTestCase):
     def test_storage_limits_follow_the_workspace_plan(self):
         admin = self.make_admin()
         member = self.make_member(admin)
-        limits, workspace = payment.resolve_storage_limits(member)
+        limits, workspace = plans.resolve_storage_limits(member)
         self.assertEqual((limits.plan_name, workspace), ("Free", admin.user_id))
 
 
@@ -102,14 +102,14 @@ class UsageLedgerTest(BillingTestCase):
     def test_member_usage_is_logged_against_the_workspace(self):
         admin = self.make_admin()
         member = self.make_member(admin)
-        payment.log_token_usage(member.user_id, 1234)
+        ledger.log_token_usage(member.user_id, 1234)
         rows = self.sql("SELECT admin_user_id, tokens FROM token_usage WHERE user_id = %s", (member.user_id,))
         self.assertEqual([(r["admin_user_id"], r["tokens"]) for r in rows], [(admin.user_id, 1234)])
 
     def test_zero_tokens_are_not_logged_unless_efficient_mode(self):
         admin = self.make_admin()
-        payment.log_token_usage(admin.user_id, 0)
-        payment.log_token_usage(admin.user_id, 0, efficient_mode=True, raw_tokens_est=10, final_tokens_est=5)
+        ledger.log_token_usage(admin.user_id, 0)
+        ledger.log_token_usage(admin.user_id, 0, efficient_mode=True, raw_tokens_est=10, final_tokens_est=5)
         rows = self.sql("SELECT efficient_mode FROM token_usage WHERE user_id = %s", (admin.user_id,))
         self.assertEqual([r["efficient_mode"] for r in rows], [True])
 
@@ -119,9 +119,9 @@ class UsageLedgerTest(BillingTestCase):
         with patch.object(config, "rate_limit_token_cap", 1000):
             body = self.client(admin).get("/api/v1/payments/rate-limit/me").json()
             self.assertEqual((body["used_tokens"], body["cap_tokens"], body["blocked"]), (700, 1000, False))
-            payment.enforce_rate_limit(admin.user_id)
+            ledger.enforce_rate_limit(admin.user_id)
             with self.assertRaises(HTTPException) as raised:
-                payment.enforce_rate_limit(admin.user_id, pending_tokens=300)
+                ledger.enforce_rate_limit(admin.user_id, pending_tokens=300)
             self.assertEqual(raised.exception.status_code, 429)
             self.use(admin, admin, 300)
             body = self.client(admin).get("/api/v1/payments/rate-limit/me").json()
@@ -141,8 +141,8 @@ class UsageLedgerTest(BillingTestCase):
         admin = self.make_admin()
         member = self.make_member(admin)
         self.use(member, admin, 500)
-        member_view = payment.get_usage_snapshot(member)
-        admin_view = payment.get_usage_snapshot(admin)
+        member_view = allocation.get_usage_snapshot(member)
+        admin_view = allocation.get_usage_snapshot(admin)
         self.assertEqual(member_view["my_token_used"], 500)
         self.assertNotIn("workspace_token_used", member_view)
         self.assertEqual(admin_view["workspace_token_used"], 500)
@@ -151,34 +151,34 @@ class UsageLedgerTest(BillingTestCase):
 class EnforcementTest(BillingTestCase):
     def test_workspace_plan_limit(self):
         admin = self.make_admin()
-        self.assertEqual(payment.enforce_plan_limit(admin, reserve=0), FREE_LIMIT)
+        self.assertEqual(enforcement.enforce_plan_limit(admin, reserve=0), FREE_LIMIT)
         self.use(admin, admin, FREE_LIMIT)
         with self.assertRaises(HTTPException) as raised:
-            payment.enforce_plan_limit(admin, reserve=0)
+            enforcement.enforce_plan_limit(admin, reserve=0)
         self.assertEqual(raised.exception.status_code, 402)
 
     def test_gap_check_needs_a_paid_plan(self):
         admin = self.make_admin()
         with self.assertRaises(HTTPException) as raised:
-            payment.enforce_gap_check_plan(admin)
+            enforcement.enforce_gap_check_plan(admin)
         self.assertEqual(raised.exception.status_code, 403)
         self.pay(admin, "individual")
-        payment.enforce_gap_check_plan(admin)
+        enforcement.enforce_gap_check_plan(admin)
         self.assertTrue(self.client(admin).get("/api/v1/payments/subscription/me").json()["gap_check_available"])
 
     def test_member_without_a_row_is_capped_at_the_workspace_default(self):
         admin = self.make_admin()
         member = self.make_member(admin)
         default = config.default_member_token_allocation
-        self.assertEqual(payment.enforce_member_allocation(member, reserve=0), default)
+        self.assertEqual(enforcement.enforce_member_allocation(member, reserve=0), default)
         self.use(member, admin, default)
         with self.assertRaises(HTTPException) as raised:
-            payment.enforce_member_allocation(member, reserve=0)
+            enforcement.enforce_member_allocation(member, reserve=0)
         self.assertEqual(raised.exception.status_code, 403)
 
     def test_admin_without_a_row_is_uncapped(self):
         admin = self.make_admin()
-        self.assertIsNone(payment.enforce_member_allocation(admin))
+        self.assertIsNone(enforcement.enforce_member_allocation(admin))
 
 
 class AllocationTest(BillingTestCase):
@@ -226,7 +226,7 @@ class AllocationTest(BillingTestCase):
         self.assertTrue(tiers["daily"]["blocked"])
         self.assertFalse(tiers["weekly"]["blocked"])
         with self.assertRaises(HTTPException) as raised:
-            payment.enforce_member_allocation(member)
+            enforcement.enforce_member_allocation(member)
         self.assertIn("Daily", raised.exception.detail)
 
     def test_default_allocation_setting(self):
@@ -242,13 +242,13 @@ class AllocationTest(BillingTestCase):
     def test_initial_allocation_is_clamped_to_the_pool_and_released_on_delete(self):
         admin = self.make_admin()
         member = self.make_member(admin)
-        self.assertEqual(payment.assign_initial_allocation(admin.user_id, member.user_id, FREE_LIMIT * 2),
+        self.assertEqual(allocation.assign_initial_allocation(admin.user_id, member.user_id, FREE_LIMIT * 2),
                          (FREE_LIMIT, True))
         row = self.sql("SELECT daily_token_quota, weekly_token_quota FROM token_allocations WHERE user_id = %s",
                        (member.user_id,))[0]
         self.assertEqual((row["daily_token_quota"], row["weekly_token_quota"]),
-                         payment.default_quota_limits(FREE_LIMIT))
-        payment.release_member_allocation(member.user_id)
+                         quotas.default_quota_limits(FREE_LIMIT))
+        allocation.release_member_allocation(member.user_id)
         self.assertEqual(self.sql("SELECT * FROM token_allocations WHERE user_id = %s", (member.user_id,)), [])
 
 
@@ -329,7 +329,7 @@ class StripeCheckoutTest(BillingTestCase):
         resp, create = self.checkout(admin, session_id)
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(create.call_args.kwargs["line_items"][0]["price_data"]["unit_amount"],
-                         payment.PLAN_PRICES["team"]["amount"])
+                         plans.PLAN_PRICES["team"]["amount"])
         record = self.client(admin).get(f"/api/v1/payments/session/{session_id}").json()["payment"]
         self.assertEqual(record["status"], "pending")
 

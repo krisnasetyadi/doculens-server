@@ -1,4 +1,4 @@
-"""MS-402: pure token-allocation rules in router/payment.py.
+"""MS-402: pure token-allocation rules in billing/.
 
 Run: python -m unittest test_token_allocation
 """
@@ -12,13 +12,8 @@ os.environ.setdefault("JWT_SECRET", "test-only-secret")
 
 from datetime import datetime, timedelta, timezone
 
-from router.payment import (
-    SUBSCRIPTION_PERIOD_DAYS,
-    _free_window,
-    clamp_to_pool,
-    effective_allocations,
-    exceeds_cap,
-)
+from billing.allocation import clamp_to_pool, effective_allocations, exceeds_cap
+from billing.plans import SUBSCRIPTION_PERIOD_DAYS, free_window
 
 
 class ExceedsCapTest(unittest.TestCase):
@@ -68,13 +63,13 @@ class FreeWindowTest(unittest.TestCase):
     def test_window_contains_now_and_starts_on_a_period_boundary(self):
         now = datetime.now(timezone.utc)
         anchor = now - timedelta(days=SUBSCRIPTION_PERIOD_DAYS * 2 + 3)
-        window = _free_window(anchor)
+        window = free_window(anchor)
         self.assertLessEqual(window.period_start, now)
         self.assertLess(now, window.period_end)
         self.assertEqual((window.period_start - anchor) % timedelta(days=SUBSCRIPTION_PERIOD_DAYS), timedelta(0))
 
     def test_uses_free_quota_and_is_active(self):
-        window = _free_window(datetime.now(timezone.utc) - timedelta(days=2))
+        window = free_window(datetime.now(timezone.utc) - timedelta(days=2))
         self.assertEqual(window.plan["name"], "Free")
         self.assertEqual(window.status, "active")
         self.assertIsNone(window.payment_id)
