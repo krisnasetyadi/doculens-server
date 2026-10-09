@@ -25,6 +25,7 @@ import json
 import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
+import db
 from config import config
 from utils import DOCUMENT_EXTRACTORS, CONTENT_TYPE_BY_EXT
 
@@ -437,18 +438,7 @@ def has_database() -> bool:
 # ---------------------------------------------------------------------------
 
 def _db_conn():
-    url = _database_url()
-    if not url:
-        return None
-    try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        conn = psycopg2.connect(url, cursor_factory=RealDictCursor)
-        conn.autocommit = True
-        return conn
-    except Exception as e:
-        logger.warning("DB connection failed: %s", e)
-        return None
+    return db.get_conn("storage")
 
 
 # ---------------------------------------------------------------------------

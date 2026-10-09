@@ -42,6 +42,8 @@ from fastapi import APIRouter, HTTPException, Depends, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+import db
+
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
@@ -307,22 +309,7 @@ class TeamMembersResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _get_conn():
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        return None
-    try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        url = database_url
-        if "sslmode=" not in url:
-            sep = "&" if "?" in url else "?"
-            url = url + sep + "sslmode=require"
-        conn = psycopg2.connect(url, cursor_factory=RealDictCursor, connect_timeout=10)
-        conn.autocommit = True
-        return conn
-    except Exception as e:
-        logger.warning("auth: DB connection failed: %s", e)
-        return None
+    return db.get_conn("auth")
 
 
 def _ensure_users_table(conn):

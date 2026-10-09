@@ -16,7 +16,6 @@ from datetime import datetime, timezone
 import logging
 import re
 import uuid
-import os
 
 # MS-237: how many *chats* GET /sessions/{id} returns per page. One chat is
 # one question plus the answer(s) that followed it — not one message row — so
@@ -37,6 +36,7 @@ QUESTION_INDEX_LIMIT = 1000
 SNIPPET_LENGTH = 120
 SNIPPET_LEAD = 40
 
+import db
 from router.auth import get_current_user, UserRecord
 
 router = APIRouter()
@@ -118,24 +118,8 @@ class RenameSessionRequest(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _get_conn():
-    """Return a psycopg2 RealDictCursor connection or None if unavailable."""
-    database_url = os.getenv("DATABASE_URL")
-    if not database_url:
-        return None
-    try:
-        import psycopg2
-        from psycopg2.extras import RealDictCursor
-        # Embed sslmode in URL to avoid kwarg conflict with Supabase pooler DSN
-        url = database_url
-        if "sslmode=" not in url:
-            sep = "&" if "?" in url else "?"
-            url = url + sep + "sslmode=require"
-        conn = psycopg2.connect(url, cursor_factory=RealDictCursor, connect_timeout=10)
-        conn.autocommit = True
-        return conn
-    except Exception as e:
-        logger.warning("sessions: DB connection failed: %s", e)
-        return None
+    """A pooled RealDictCursor connection, or None if unavailable."""
+    return db.get_conn("sessions")
 
 
 _tables_ensured = False

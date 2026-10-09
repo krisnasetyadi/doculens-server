@@ -48,6 +48,12 @@ async def startup_event():
         raise
 
 
+@app.on_event("shutdown")
+async def shutdown_event():
+    import db
+    db.close_pool()
+
+
 @app.get("/health")
 async def health_check():
     """Comprehensive health check including database status"""

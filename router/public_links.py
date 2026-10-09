@@ -10,6 +10,7 @@ import uuid
 import re
 from html import unescape
 import httpx
+import db
 from config import config
 from ssrf_guard import assert_public_url_safe
 from router.auth import get_current_user, UserRecord
@@ -254,25 +255,7 @@ def _fetch_link_detail(cur, link_id: str, user_id: str, is_admin: bool = False) 
 
 
 def _get_conn():
-    database_url = _database_url()
-    if not database_url:
-        return None
-    try:
-        psycopg2 = __import__("psycopg2")
-        extras = __import__("psycopg2.extras", fromlist=["RealDictCursor"])
-        real_dict_cursor = getattr(extras, "RealDictCursor")
-
-        url = database_url
-        if "sslmode=" not in url:
-            sep = "&" if "?" in url else "?"
-            url = url + sep + "sslmode=require"
-
-        conn = psycopg2.connect(url, cursor_factory=real_dict_cursor, connect_timeout=10)
-        conn.autocommit = True
-        return conn
-    except Exception as exc:
-        logger.warning("public_links: DB connection failed: %s", exc)
-        return None
+    return db.get_conn("public_links")
 
 
 def _ensure_tables(conn) -> None:
