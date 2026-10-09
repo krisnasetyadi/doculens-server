@@ -1,0 +1,707 @@
+
+
+
+
+
+
+
+
+
+
+
+ISO 27001:2022
+SISTEM MANAJEMEN KEAMANAN INFORMASI - PERSYARATAN
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+(Untuk kalangan sendiri, penggunaan terbatas di internal PT MOONLAY TECHNOLOGIES)
+
+RUANG LINGKUP
+Dokumen ini menentukan persyaratan untuk menetapkan, mengimplementasikan, memelihara dan secara berkelanjutan memperbaiki Sistem Manajemen Keamanan Informasi (SMKI) dalam konteks organisasi. Dokumen ini juga mencakup persyaratan untuk asesmen dan penanganan risiko keamanan informasi disesuaikan dengan kebutuhan organisasi. Persyaratan yang ditetapkan dalam dokumen ini bersifat generik dan dimaksudkan untuk dapat diterapkan pada semua organisasi, terlepas dari jenis, ukuran atau sifat organisasi. Setiap persyaratan yang ditentukan dalam Pasal 4 hingga 10 tidak dapat dikecualikan bila organisasi mengeklaim kesesuaian terhadap dokumen ini.
+
+ACUAN NORMATIF
+Dokumen berikut ini diacu dalam teks sedemikian rupa sehingga sebagian atau seluruh kontennya menjadi persyaratan dalam dokumen ini. Untuk acuan bertanggal, hanya berlaku edisi yang disebutkan. Untuk acuan tidak bertanggal, berlaku edisi terakhir dari dokumen acuan (termasuk setiap amandemen). 
+ISO/IEC 27000 Teknologi informasi – Teknik Keamanan – Sistem manajemen keamanan informasi – Gambaran umum dan kosakata
+
+ISTILAH DAN DEFINISI
+Untuk tujuan dokumen ini, berlaku istilah dan definisi yang diberikan dalam ISO/IEC 27000. ISO dan IEC memelihara basis data istilah untuk digunakan dalam standardisasi di alamat berikut:
+ISO Online Browsing Platform : tersedia di https://www.iso.org/obp 
+IEC Electropedia: tersedia di https://www.electropedia.org/
+
+KONTEKS ORGANISASI
+Memahami organisasi dan konteksnya
+Organisasi harus menentukan isu eksternal dan internal yang relevan dengan tujuannya dan yang mempengaruhi kemampuannya untuk mencapai manfaat yang diharapkan dari sistem manajemen keamanan informasi organisasi. 
+CATATAN Penentuan isu ini mengacu ke penetapan konteks eksternal dan internal dari organisasi yang dipertimbangkan dalam Pasal 5.4.1 dari ISO 31000:2018.
+
+Memahami kebutuhan dan ekspektasi dari pihak berkepentingan
+Organisasi harus menentukan:
+pihak yang berkepentingan yang relevan dengan sistem manajemen keamanan informasi;
+persyaratan yang relevan dari pihak yang berkepentingan tersebut; 
+persyaratan yang mana yang akan ditangani melalui sistem manajemen keamanan informasi
+CATATAN Persyaratan dari pihak yang berkepentingan tersebut dapat mencakup persyaratan legal dan regulatori serta obligasi kontraktual.
+
+Menentukan ruang lingkup sistem manajemen keamanan informasi
+Organisasi harus menentukan batasan dan aplikabilitas dari sistem manajemen keamanan informasi untuk menetapkan ruang lingkupnya.
+Ketika menentukan ruang lingkup ini, organisasi harus mempertimbangkan:
+isu eksternal dan internal seperti yang dimaksud pada 4.1; 
+persyaratan seperti yang dimaksud pada 4.2; dan 
+antarmuka dan dependensi antara aktivitas yang dilakukan oleh organisasi, dan aktivitas yang dilakukan oleh organisasi lain. 
+Ruang lingkup tersebut harus tersedia sebagai informasi yang terdokumentasi.
+
+ Sistem manajemen keamanan informasi
+Organisasi harus menetapkan, mengimplementasikan, memelihara dan meningkatkan secara berkelanjutan sistem manajemen keamanan informasi, termasuk proses-proses yang diperlukan dan interaksinya, berdasarkan persyaratan pada dokumen ini.
+
+KEPEMIMPINAN
+Kepemimpinan dan komitmen
+Manajemen puncak harus menunjukkan kepemimpinan dan komitmen atas sistem manajemen keamanan informasi dengan cara:
+memastikan kebijakan keamanan informasi dan sasaran keamanan informasi ditetapkan dan kompatibel dengan arah strategis organisasi; 
+memastikan persyaratan sistem manajemen keamanan informasi terintegrasi ke dalam proses organisasi; 
+memastikan tersedianya sumber daya yang dibutuhkan untuk sistem manajemen keamanan informasi; 
+mengomunikasikan pentingnya manajemen keamanan informasi yang efektif dan kesesuaian dengan persyaratan sistem manajemen keamanan informasi; 
+memastikan bahwa sistem manajemen keamanan informasi mencapai manfaat yang diintensikan; 
+mengarahkan dan mendukung person-person untuk berkontribusi dalam efektivitas sistem manajemen keamanan informasi; 
+mempromosikan peningkatan berkelanjutan; dan 
+mendukung peran manajemen yang relevan lainnya untuk menunjukkan kepemimpinannya sebagaimana hal ini menjadi wilayah tanggung jawabnya. 
+CATATAN Yang dimaksud dengan "bisnis" dalam dokumen ini dapat diinterpretasikan secara luas dalam artian berbagai aktivitas yang menjadi inti dari tujuan dari keberadaan organisasi. 
+
+Kebijakan 
+Manajemen puncak harus menetapkan kebijakan keamanan informasi yang: 
+tepat dengan tujuan organisasi; 
+mencakup sasaran keamanan informasi (lihat 6.2) atau menyediakan kerangka kerja untuk menetapkan sasaran keamanan informasi; 
+mencakup komitmen untuk memenuhi persyaratan yang aplikabel terkait dengan keamanan informasi; 
+mencakup komitmen untuk peningkatan berkelanjutan terhadap sistem manajemen keamanan informasi. 
+Kebijakan keamanan informasi harus: 
+tersedia sebagai informasi yang terdokumentasi; 
+terkomunikasikan dalam organisasi; dan 
+tersedia untuk pihak yang berkepentingan, jika tepat. 
+
+Peran, tanggung jawab dan wewenang organisasional 
+Manajemen puncak harus memastikan bahwa tanggung jawab dan wewenang untuk peran-peran yang relevan dengan keamanan informasi telah ditugaskan dan dikomunikasikan dalam organisasi. 
+Manajemen puncak harus menugaskan tanggung jawab dan wewenang untuk: 
+memastikan bahwa sistem manajemen keamanan informasi sesuai dengan persyaratan dari dokumen ini; 
+melaporkan kinerja sistem manajemen keamanan informasi kepada manajemen puncak.
+CATATAN Manajemen puncak juga dapat menugaskan tanggung jawab dan wewenang untuk melaporkan kinerja sistem manajemen keamanan informasi dalam organisasi.
+
+PERENCANAAN
+Tindakan untuk menangani risiko dan peluang
+Umum 
+Ketika merencanakan sistem manajemen keamanan informasi, organisasi harus mempertimbangkan isu yang dimaksud dalam 4.1 dan persyaratan yang dimaksud dalam 4.2 serta menentukan risiko dan peluang yang perlu ditangani untuk:
+memastikan sistem manajemen keamanan informasi dapat mencapai manfaat yang diharapkan;
+mencegah, atau mengurangi, efek yang tidak diinginkan; 
+mencapai peningkatan berkelanjutan. Organisasi harus merencanakan: 
+tindakan untuk menangani risiko dan peluang; dan 
+bagaimana cara: 
+1) mengintegrasikan dan mengimplementasikan tindakan ke dalam proses sistem manajemen keamanan informasi; dan 
+2) mengevaluasi efektivitas tindakan tersebut. 
+
+Asesmen risiko keamanan informasi
+Organisasi harus mendefinisikan dan mengaplikasikan proses asesmen risiko keamanan informasi yang:
+menetapkan dan memelihara kriteria risiko keamanan informasi yang meliputi: 
+1) kriteria akseptasi risiko; dan 
+2) kriteria untuk melakukan asesmen risiko keamanan informasi; 
+memastikan bahwa asesmen risiko keamanan informasi yang berulang memberikan hasil yang konsisten, valid dan dapat dibandingkan; 
+mengidentifikasi risiko keamanan informasi: 
+1) mengaplikasikan proses asesmen risiko keamanan informasi untuk mengidentifikasi risiko yang terkait dengan hilangnya konfidensialitas, integritas dan availabilitas informasi dalam ruang lingkup sistem manajemen keamanan informasi; dan 
+2) mengidentifikasi pemilik risiko; 
+menganalisis risiko keamanan informasi:
+1) melakukan asesmen konsekuensi potensial yang akan dihasilkan jika risiko yang teridentifikasi pada 6.1.2 c) 1) terwujud;
+2) melakukan asesmen kemungkinan realistis terjadinya risiko yang teridentifikasi pada 6.1.2 c) 1); dan 
+3) menentukan level risiko;
+mengevaluasi risiko keamanan informasi: 
+1) melakukan komparasi hasil dari analisis risiko dengan kriteria risiko yang ditetapkan pada 6.1.2 a); dan 
+2) memprioritaskan risiko yang telah dianalisis untuk penanganan risiko. 
+Organisasi harus menyimpan informasi yang terdokumentasi tentang proses asesmen risiko keamanan informasi. 
+
+Penanganan risiko keamanan informasi
+Organisasi harus mendefinisikan dan mengaplikasikan proses penanganan risiko keamanan informasi untuk: 
+memilih opsi penanganan risiko keamanan informasi yang tepat, dengan mempertimbangkan hasil asesmen risiko; 
+menentukan semua kontrol yang diperlukan untuk mengimplementasikan opsi penanganan risiko keamanan informasi yang dipilih; 
+CATATAN 1 Organisasi dapat mendesain kontrol yang disyaratkan, atau mengidentifikasi kontrol dari sumber manapun. 
+melakukan komparasi kontrol yang ditentukan pada 6.1.3 b) di atas kontrol dalam Lampiran A dan memverifikasi bahwa tidak ada kontrol yang diperlukan terhilangkan; 
+CATATAN 2 Lampiran A berisi daftar kontrol keamanan informasi yang dimungkinkan. Pengguna dokumen ini diarahkan ke Lampiran A untuk memastikan bahwa ada kontrol keamanan informasi yang diperlukan terabaikan.
+CATATAN 3 Kontrol keamanan informasi yang tercantum dalam Lampiran A tidak bersifat keseluruhan dan kontrol keamanan informasi dapat ditambahkan jika dibutuhkan. 
+menghasilkan Penyataan Aplikabilitas yang berisi: 
+– kontrol yang diperlukan (lihat 6.1.3 b) dan c)); 
+– justifikasi inklusinya; 
+– apakah kontrol yang diperlukan tersebut telah diimplementasikan atau tidak; dan 
+– justifikasi eksklusi dari kontrol Lampiran A; 
+memformulasi rencana penanganan risiko keamanan informasi; dan 
+mendapatkan persetujuan pemilik risiko terhadap rencana penanganan risiko keamanan informasi dan akseptasi risiko keamanan informasi residual. 
+Organisasi harus menyimpan informasi yang terdokumentasi tentang proses penanganan risiko keamanan informasi. 
+CATATAN 4 Proses asesmen dan penanganan risiko keamanan informasi dalam dokumen ini selaras dengan prinsip dan pedoman umum yang tersedia dalam ISO 31000.
+
+Sasaran keamanan informasi dan perencanaan untuk mencapainya
+Organisasi harus menetapkan sasaran keamanan informasi pada fungsi dan level yang relevan. Sasaran keamanan informasi harus:
+konsisten dengan kebijakan keamanan informasi; 
+dapat diukur (jika dapat dipraktikkan); 
+mempertimbangkan persyaratan keamanan informasi yang dapat diaplikasikan, dan hasil dari asesmen risiko dan penanganan risiko; 
+termonitorkan; 
+terkomunikasikan; 
+termutakhirkan dengan tepat; 
+tersedia sebagai informasi terdokumentasi
+Organisasi harus menyimpan informasi terdokumentasi mengenai sasaran keamanan informasi.
+Ketika merencanakan bagaimana mencapai sasaran keamanan informasinya, organisasi harus menentukan: 
+apa yang akan dilakukan; 
+sumber daya apa yang akan dipersyaratkan; 
+siapa yang akan bertanggung jawab; 
+kapan akan diselesaikan; dan 
+bagaimana hasilnya akan dievaluasi. 
+
+Perencanaan perubahan 
+Ketika organisasi menentukan kebutuhan perubahan atas sistem manajemen keamanan informasi, perubahan tersebut harus dilakukan dengan cara yang terencana.
+
+Dukungan
+Sumber daya
+Organisasi harus menentukan dan menyediakan sumber daya yang dibutuhkan untuk penetapan, implementasi, pemeliharaan dan peningkatan berkelanjutan dari suatu sistem manajemen keamanan informasi.
+
+Kompetensi
+Organisasi harus:
+menentukan kompetensi yang diperlukan untuk person yang melakukan pekerjaan yang di bawah kontrolnya yang mempengaruhi kinerja keamanan informasinya; 
+memastikan bahwa person ini kompeten berdasarkan edukasi, pelatihan, atau pengalaman yang tepat; 
+jika dapat diaplikasikan, mengambil tindakan untuk memperoleh kompetensi yang diperlukan, dan mengevaluasi efektivitas tindakan yang diambil; dan 
+menyimpan informasi terdokumentasi yang tepat sebagai eviden dari kompetensi.
+CATATAN Tindakan yang dapat diaplikasikan dapat meliputi, sebagai contoh: penyediaan pelatihan, mentoring, atau penugasan kembali karyawan yang ada; atau merekrut atau mengontrak person yang kompeten.
+
+Kesadaran
+Person yang bekerja di bawah kontrol organisasi harus memiliki kesadaran akan: 
+kebijakan keamanan informasi; 
+kontribusi mereka terhadap efektivitas sistem manajemen keamanan informasi, termasuk keuntungan dari peningkatan kinerja keamanan informasi; dan 
+implikasi dari ketidaksesuaian dengan persyaratan sistem manajemen keamanan informasi. 
+
+Komunikasi
+Organisasi harus menentukan kebutuhan komunikasi internal dan eksternal yang relevan dengan sistem manajemen keamanan informasi yang mencakup: 
+apa yang dikomunikasikan; 
+kapan dikomunikasikan; 
+dengan siapa dikomunikasikan; 
+bagaimana mengomunikasikan 
+
+Informasi terdokumentasi
+Umum
+Sistem manajemen keamanan informasi organisasi harus mencakup: 
+informasi terdokumentasi yang disyaratkan oleh dokumen ini; dan 
+informasi terdokumentasi yang ditentukan oleh organisasi sebagai sesuatu yang diperlukan untuk efektivitas dari sistem manajemen keamanan informasi. 
+CATATAN Keluasan informasi terdokumentasi untuk suatu sistem manajemen keamanan informasi dapat berbeda dari satu organisasi dengan organisasi yang lain karena: 
+1) ukuran organisasi dan jenis aktivitas, proses, produk dan layanannya; 
+2) kompleksitas proses dan interaksinya; dan 
+3) kompetensi dari person. 
+
+Pembuatan dan pemutakhiran
+Ketika membuat dan memutakhirkan informasi terdokumentasi organisasi harus memastikan ketepatan: 
+identifikasi dan deskripsi (misal judul, tanggal, penulis, atau nomor acuan); 
+format (misal bahasa, versi perangkat lunak, grafis) dan media (misal kertas, elektronik); dan
+reviu dan persetujuan untuk kecocokan dan kecukupan.
+
+Pengontrolan informasi terdokumentasi
+Informasi terdokumentasi yang disyaratkan oleh sistem manajemen keamanan informasi dan dokumen ini harus dikontrol untuk memastikan: 
+tersedia dan cocok untuk digunakan, di mana dan kapan dibutuhkan; dan 
+cukup terproteksi (misal dari hilang konfidensialitas, penggunaan yang taklayak, atau hilangnya integritas). 
+Untuk kontrol informasi terdokumentasi, organisasi harus menangani aktivitas berikut, jika dapat diaplikasikan: 
+distribusi, akses, pengambilan dan penggunaan; 
+penyimpanan dan preservasi, termasuk preservasi keterbacaan; 
+pengontrolan dari perubahan, (misal kontrol versi); dan 
+retensi dan disposisi. 
+Informasi terdokumentasi yang berasal dari eksternal, yang ditentukan oleh organisasi sebagai sesuatu yang diperlukan untuk perencanaan dan operasi dari sistem manajemen keamanan informasi, harus diidentifikasi dengan tepat dan dikontrol.
+CATATAN Akses dapat berarti suatu keputusan terkait izin untuk melihat informasi terdokumentasi saja, atau izin dan otoritas untuk melihat dan mengubah informasi terdokumentasi, dll. 
+OPERASI
+Perencanaan dan pengontrolan operasional
+Organisasi harus merencanakan, mengimplementasi dan mengontrol proses yang dibutuhkan untuk memenuhi persyaratan, dan untuk mengimplementasikan tindakan yang ditentukan dalam Pasal 6, dengan: 
+menetapkan kriteria untuk proses;
+mengimplementasikan kontrol atas proses berdasarkan kriteria 
+Organisasi harus menyimpan informasi terdokumentasi sejauh yang diperlukan untuk memiliki keyakinan bahwa proses telah dilakukan seperti yang direncanakan.
+Organisasi harus mengontrol perubahan yang direncanakan dan mereviu konsekuensi dari perubahan yang tidak diinginkan, mengambil tindakan untuk memitigasi efek buruk, sebagaimana diperlukan.
+Organisasi harus memastikan bahwa proses, produk, atau layanan yang disediakan secara eksternal yang relevan terhadap sistem manajemen keamanan informasi telah dikontrol.
+
+Asesmen risiko keamanan informasi
+Organisasi harus melakukan asesmen risiko keamanan informasi pada interval terencana atau ketika perubahan signifikan diusulkan atau terjadi, dengan mempertimbangkan kriteria yang ditetapkan dalam 6.1.2 a).
+Organisasi harus menyimpan informasi terdokumentasi dari hasil asesmen risiko keamanan informasi. 
+
+Penanganan risiko keamanan informasi
+Organisasi harus mengimplementasikan rencana penanganan risiko keamanan informasi. Organisasi harus menyimpan informasi terdokumentasi hasil penanganan risiko keamanan informasi.
+
+Evaluasi kinerja 
+Pemonitoran, pengukuran, analisis dan evaluasi
+Organisasi harus menentukan: 
+apa yang perlu dimonitor dan diukur, termasuk proses dan dan kontrol keamanan informasi;
+metode untuk pemonitoran, pengukuran, analisis dan evaluasi, jika dapat diaplikasikan, untuk memastikan hasil yang valid. Metode yang dipilih sebaiknya memberikan hasil yang dapat dibandingkan dan dapat direproduksi untuk dapat dianggap valid. 
+kapan pemonitoran dan pengukuran harus dilakukan; 
+siapa yang harus memonitor dan mengukur; 
+kapan hasil dari pemonitoran dan pengukuran harus dianalisis dan dievaluasi; dan 
+siapa yang harus menganalisis dan mengevaluasi hasil tersebut. 
+Informasi terdokumentasi harus tersedia sebagai bukti dari hasil tersebut. 
+Organisasi harus mengevaluasi kinerja keamanan informasi dan efektivitas dari sistem manajemen keamanan informasi.
+
+Audit internal 
+Umum
+Organisasi harus melakukan audit internal pada interval terencana untuk menyediakan informasi apakah sistem manajemen keamanan informasi : 
+sesuai dengan 
+1) persyaratan organisasi sendiri untuk sistem manajemen keamanan informasinya; 
+2) persyaratan dari dokumen ini; 
+diimplementasikan dan dipelihara secara efektif. 
+
+Program audit internal
+Organisasi harus merencanakan, menetapkan, mengimplementasikan dan memelihara program audit, termasuk frekuensi, metodologi, tanggung jawab, persyaratan dan pelaporan perencanaan.
+Ketika menetapkan program audit internal, organisasi harus mempertimbangkan pentingnya proses yang bersangkutan dan hasil audit sebelumnya; 
+Organisasi harus:
+mendefinisikan kriteria audit dan ruang lingkup untuk setiap audit; 
+memilih auditor dan melakukan audit yang menjamin objektivitas dan imparsialitas dari proses audit; 
+memastikan bahwa hasil audit tersebut dilaporkan kepada manajemen yang relevan.
+Informasi terdokumentasi harus tersedia sebagai bukti dari implementasi program audit dan hasil audit. 
+
+Reviu manajemen
+Umum
+Manajemen puncak harus mereviu sistem manajemen keamanan informasi organisasi pada interval terencana untuk memastikan kecocokan, kecukupan dan efektivitas. 
+
+Masukan reviu manajemen 
+Reviu manajemen harus mencakup pertimbangan atas: 
+status tindakan dari reviu manajemen sebelumnya; 
+perubahan dalam isu eksternal dan internal yang relevan dengan sistem manajemen keamanan informasi; 
+perubahan dalam kebutuhan dan ekspektasi dari pihak yang berkepentingan yang relevan dengan sistem manajemen keamanan informasi; 
+umpan balik dari kinerja keamanan informasi, termasuk tren dalam hal: 
+1) ketidaksesuaian dan tindakan korektif; 
+2) hasil pemonitoran dan pengukuran; 
+3) hasil audit; dan 
+4) pemenuhan terhadap sasaran keamanan informasi; 
+umpan balik dari pihak yang berkepentingan; 
+hasil asesmen risiko dan status rencana penanganan risiko; 
+peluang untuk peningkatan berkelanjutan. 
+
+Hasil reviu manajemen
+Hasil dari reviu manajemen harus mencakup keputusan yang berkaitan dengan peluang peningkatan berkelanjutan dan setiap kebutuhan untuk perubahan atas sistem manajemen keamanan informasi. 
+Organisasi harus menyimpan informasi terdokumentasi sebagai bukti hasil reviu manajemen.
+
+Peningkatan 
+Peningkatan berkelanjutan 
+Organisasi harus secara berkelanjutan meningkatkan kecocokan, kecukupan dan efektivitas dari sistem manajemen keamanan informasi. 
+
+Ketidaksesuaian dan tindakan korektif 
+Jika terjadi ketidaksesuaian, organisasi harus: 
+bereaksi terhadap ketidaksesuaian, dan jika dapat diaplikasikan: 
+1) mengambil tindakan untuk mengontrol dan mengoreksinya; 
+2) menangani konsekuensinya; 
+mengevaluasi kebutuhan tindakan untuk mengeliminasi penyebab ketidaksesuaian, agar hal itu tidak terulang atau terjadi di tempat lain, dengan: 
+1) mereviu ketidaksesuaian; 
+2) menentukan penyebab ketidaksesuaian; dan 
+3) menentukan apakah ada ketidaksesuaian serupa, atau berpotensi terjadi; 
+mengimplementasikan tindakan apapun yang diperlukan; 
+mereviu efektivitas tindakan korektif apapun yang diambil; dan 
+membuat perubahan pada sistem manajemen keamanan informasi, jika diperlukan.
+Tindakan korektif harus tepat dengan efek dari ketidaksesuaian yang ditemui. Organisasi harus menyimpan informasi terdokumentasi sebagai bukti dari: 
+sifat dari ketidaksesuaian dan setiap tindakan berikutnya yang diambil, dan 
+hasil dari setiap tindakan korektif
+LAMPIRAN A
+(normatif)
+Acuan kontrol keamanan informasi
+
+Kontrol keamanan informasi yang tercantum di Tabel di bawah ini diturunkan secara langsung dari dan diselaraskan dengan yang tercantum dalam Pedoman Keamanan Informasi, Klausul 5 sampai 8, dan  digunakan dalam konteks dengan 6.1.3.
+
+Tabel A.1 — Kontrol Keamanan Informasi
+
+5
+Kontrol Organisasi
+5.1
+Kebijakan keamanan informasi
+Kontrol
+Kebijakan keamanan informasi dan kebijakan topik spesifik harus didefinisikan, disetujui oleh manajemen, dipublikasikan, dikomunikasikan, dan diakui oleh personel terkait dan pihak berkepentingan terkait, dan direviu secara berkala sesuai rencana dan jika terjadi perubahan yang signifikan.
+5.2
+Peran dan tanggung jawab keamanan informasi
+Kontrol
+Peran dan tanggung jawab keamanan informasi harus didefinisikan dan dialokasikan sesuai dengan kebutuhan organisasi.
+5.3
+Segregasi tugas
+Kontrol
+Tugas yang bertentangan dan bidang tanggung jawab yang bertentangan harus dipisahkan.
+5.4
+Tanggung jawab manajemen
+Kontrol
+Manajemen harus mensyaratkan semua personel untuk menerapkan keamanan informasi sesuai dengan kebijakan keamanan informasi, kebijakan topik spesifik, dan prosedur organisasi yang ditetapkan.
+5.5
+Kontak dengan otoritas
+Kontrol
+Organisasi harus menjalin dan memelihara kontak dengan otoritas terkait.
+5.6
+Kontak dengan kelompok kepentingan khusus
+Kontrol
+Organisasi harus menjalin dan memelihara kontak dengan kelompok kepentingan spesial atau forum keamanan spesialis lainnya dan asosiasi profesional.
+5.7
+Intelijen ancaman
+Kontrol
+Informasi yang berkaitan dengan ancaman keamanan informasi harus dikumpulkan dan dianalisis untuk menghasilkan intelijen ancaman.
+5.8
+Keamanan informasi dalam manajemen proyek
+Kontrol
+Keamanan informasi harus diintegrasikan ke dalam manajemen proyek.
+5.9
+Inventarisasi informasi dan aset terkait lainnya
+Kontrol
+Suatu inventori informasi dan aset terkait lainnya, termasuk pemiliknya, harus dikembangkan dan dipelihara.
+5.10
+Penggunaan yang akseptabel dari informasi dan aset terkait lainnya
+Kontrol
+Aturan penggunaan yang akseptabel dan prosedur untuk menangani informasi dan aset terkait lainnya harus diidentifikasi, didokumentasikan, dan diimplementasikan.
+5.11
+Pengembalian aset
+Kontrol
+Personel dan pihak berkepentingan lainnya yang tepat harus mengembalikan semua aset organisasi yang dalam kepemilikan mereka setelah perubahan atau pemutusan hubungan kerja, kontrak, atau perjanjian mereka.
+5.12
+Klasifikasi informasi
+Kontrol
+Informasi harus diklasifikasikan sesuai dengan kebutuhan keamanan informasi organisasi berdasarkan konfidensialitas, integritas, availabilitas, dan persyaratan pihak berkepentingan yang relevan.
+5.13
+Pelabelan informasi
+Kontrol
+Seperangkat prosedur yang tepat untuk pelabelan informasi harus dikembangkan dan diimplementasikan sesuai dengan skema klasifikasi informasi yang diadopsi oleh organisasi.
+5.14
+Transfer informasi
+Kontrol
+Aturan, prosedur, atau perjanjian transfer informasi harus diterapkan untuk semua tipe
+5.15
+Kontrol akses
+Kontrol	
+Aturan untuk mengontrol akses fisik dan logikal ke informasi dan aset terkait lainnya harus ditetapkan dan diimplementasikan berdasarkan persyaratan bisnis dan keamanan informasi.
+5.16
+Manajemen identitas
+Kontrol
+Siklus hidup penuh dari identitas harus dimanajemeni.
+5.17
+Informasi autentikasi
+Kontrol
+Alokasi dan manajemen informasi autentikasi harus dikontrol dengan proses manajemen, termasuk menasihati personel tentang penanganan informasi autentikasi yang tepat.
+5.18
+Hak akses
+Kontrol
+Hak akses terhadap informasi dan aset terkait lainnya harus disediakan, direviu, dimodifikasi, dan dipindahkan sesuai dengan kebijakan topik spesifik organisasi dan aturan tentang kontrol akses.
+5.19
+Keamanan informasi dalam hubungan pemasok
+Kontrol
+Proses dan prosedur harus didefinisikan dan diimplementasikan untuk memanajemeni risiko keamanan informasi yang terkait dengan penggunaan produk atau layanan pemasok.
+5.20
+Menangani keamanan informasi dalam perjanjian pemasok
+Kontrol
+Persyaratan keamanan informasi yang relevan harus ditetapkan dan disepakati dengan tiap pemasok berdasarkan tipe hubungan pemasok.
+5.21
+Memanajemeni keamanan informasi dalam rantai pasokan TIK
+Kontrol
+Proses dan prosedur harus didefinisikan dan diimplementasikan untuk memanajemeni risiko keamanan informasi yang terkait dengan rantai pasokan produk dan layanan TIK.
+5.22
+Pemonitoran, reviu, dan manajemen perubahan layanan pemasok
+Kontrol
+Organisasi harus secara reguler memonitor, mereviu, mengevaluasi, dan memanajemeni perubahan dalam praktik keamanan informasi pemasok dan penyampaian layanan.
+5.23
+Keamanan informasi untuk penggunaan layanan cloud
+Kontrol
+Proses untuk akuisisi, penggunaan, manajemen, dan keluar dari layanan cloud harus ditetapkan sesuai dengan persyaratan keamanan informasi organisasi.
+5.24
+Perencanaan dan persiapan manajemen insiden keamanan informasi
+Kontrol
+Organisasi harus merencanakan dan menyiapkan memanajemeni insiden keamanan informasi dengan mendefinisikan, menetapkan dan mengkomunikasikan proses, peran dan tanggung jawab manajemen insiden keamanan informasi.
+5.25
+Asesmen dan keputusan tentang peristiwa keamanan informasi
+Kontrol
+Organisasi harus menilai peristiwa keamanan informasi dan memutuskan apakah peristiwa tersebut akan dikategorikan sebagai insiden keamanan informasi.
+5.26
+Respons terhadap insiden keamanan informasi
+Kontrol
+Insiden keamanan informasi harus direspons sesuai dengan prosedur yang terdokumentasi.
+5.27
+Belajar dari insiden keamanan informasi
+Kontrol
+Pengetahuan yang diperoleh dari insiden keamanan informasi harus digunakan untuk memperkuat dan meningkatkan kontrol keamanan informasi.
+5.28
+Pengumpulan bukti
+Kontrol
+Organisasi harus menetapkan dan mengimplementasikan prosedur untuk identifikasi, pengumpulan, akuisisi, dan preservasi bukti yang terkait dengan peristiwa keamanan informasi.
+5.29
+Keamanan informasi selama disrupsi
+Kontrol
+Organisasi harus merencanakan bagaimana memelihara keamanan informasi pada level yang tepat selama disrupsi.
+5.30
+Kesiapan TIK untuk kontinuitas bisnis
+Kontrol
+Kesiapan TIK harus direncanakan, diimplementasikan, dipelihara, dan diuji berdasarkan sasaran kontinuitas bisnis dan persyaratan kontinuitas TIK
+5.31
+Persyaratan legal, statutori, regulatori, dan kontraktual
+Kontrol
+Persyaratan legal, statutori, regulatori, dan kontraktual yang relevan dengan keamanan informasi dan pendekatan organisasi untuk memenuhi persyaratan ini harus diidentifikasi, didokumentasikan, dan diperbarui.
+5.32
+Hak kekayaan intelektual
+Kontrol
+Organisasi harus mengimplementasikan prosedur yang tepat untuk memproteksi hak kekayaan intelektual.
+5.33
+Proteksi rekaman
+Kontrol
+Rekaman harus diproteksi dari kehilangan, perusakan, pemalsuan, akses takterotorisasi, dan rilis takterotorisasi.
+5.34
+Privasi dan proteksi personal identifiable information (PII)
+Kontrol
+Organisasi harus mengidentifikasi dan memenuhi persyaratan mengenai preservasi privasi dan proteksi PII sesuai dengan hukum dan regulasi yang berlaku dan persyaratan kontraktual.
+5.35
+Reviu independen terhadap keamanan informasi
+Kontrol
+Pendekatan organisasi untuk memanajemeni keamanan informasi dan implementasinya termasuk orang, proses, dan teknologi harus direviu secara independen pada interval yang direncanakan, atau ketika perubahan signifikan terjadi.
+5.36
+Kepatuhan terhadap kebijakan, aturan, dan standar keamanan informasi
+Kontrol
+Kepatuhan terhadap kebijakan keamanan informasi organisasi, kebijakan topik spesifik, aturan, dan standar harus direviu secara reguler.
+5.37
+Prosedur operasi terdokumentasi
+Kontrol
+Prosedur operasi untuk fasilitas pemrosesan informasi harus didokumentasikan dan tersedia untuk personel yang membutuhkannya.
+6
+Kontrol Orang
+6.1
+Skrining
+Kontrol
+Pemeriksaan verifikasi latar belakang pada semua kandidat untuk menjadi personel harus dilakukan sebelum bergabung dengan organisasi dan secara berkelanjutan dengan konsiderasi hukum, regulasi, dan etika serta proporsional dengan persyaratan bisnis, klasifikasi informasi yang akan diakses, dan risiko yang dipersepsikan.
+6.2
+Syarat dan ketentuan ketenagakerjaan
+Kontrol
+Perjanjian kontraktual kerja harus menyatakan tanggung jawab personel dan organisasi untuk keamanan informasi.
+6.3
+Kesadaran, pendidikan dan pelatihan keamanan informasi
+Kontrol
+Personel organisasi dan pihak terkait yang relevan harus menerima kesadaran keamanan informasi yang tepat, pendidikan dan pelatihan dan pembaruan reguler dari kebijakan keamanan informasi organisasi, kebijakan dan prosedur khusus topik, yang relevan untuk fungsi pekerjaannya.
+6.4
+Proses kedisiplinan
+Kontrol
+Proses disiplin harus disusun dan dikomunikasikan untuk mengambil tindakan terhadap personel dan pihak berkepentingan lain yang relevan yang telah melakukan pelanggaran kebijakan keamanan informasi.
+6.5
+Tanggung jawab setelah terminasi atau perubahan pekerjaan
+Kontrol
+Tanggung jawab dan tugas keamanan informasi yang tetap berlaku setelah terminasi atau perubahan pekerjaan harus didefinisikan, ditegakkan, dan dikomunikasikan kepada personel terkait dan pihak lain yang berkepentingan.
+6.6
+Perjanjian konfidensialitas atau nirungkap
+Kontrol
+Perjanjian konfidensialitas atau nirungkap yang merefleksikan kebutuhan organisasi untuk proteksi informasi harus diidentifikasi, didokumentasikan, direviu secara regular, dan ditandatangani oleh personel dan pihak terkait lainnya yang relevan.
+6.7
+Telekarya (Remote working)
+Kontrol
+Langkah keamanan harus diimplementasikan ketika personel bekerja dari jarak jauh untuk memproteksi informasi yang diakses, diproses, atau disimpan di luar premis organisasi.
+6.8
+Pelaporan peristiwa keamanan informasi
+Kontrol
+Organisasi harus menyediakan mekanisme bagi personel untuk melaporkan peristiwa keamanan informasi yang diamati atau dicurigai melalui saluran yang sesuai pada waktu yang tepat.
+7
+Kontrol Fisik
+7.1
+Perimeter keamanan fisik
+Kontrol
+Perimeter keamanan harus didefinisikan dan digunakan untuk memproteksi area yang berisi informasi dan aset terkait lainnya.
+7.2
+Entri fisik
+Kontrol
+Area aman harus diproteksi oleh kontrol entri dan titik akses yang tepat.
+7.3
+Mengamankan kantor, ruangan, dan fasilitas
+Kontrol
+Keamanan fisik untuk kantor, ruangan, dan fasilitas harus didesain dan diimplementasikan.
+7.4
+Pemonitoran keamanan fisik
+Kontrol
+Premis harus terus dimonitor untuk menemukan akses fisik yang takterotorisasi.
+7.5
+Memproteksi dari ancaman fisik dan lingkungan
+Kontrol
+Proteksi terhadap ancaman fisik dan lingkungan, seperti bencana alam dan ancaman fisik yang disengaja atau tidak disengaja lainnya terhadap infrastruktur harus didesain dan diimplementasikan.
+7.6
+Bekerja di area yang aman
+Kontrol
+Langkah-langkah keamanan untuk bekerja di area aman harus didesain dan diimplementasikan.
+7.7
+Meja bersih dan layar bersih
+Kontrol
+Aturan meja bersih untuk kertas dan media penyimpanan yang dapat dipindahkan serta aturan layar bersih untuk fasilitas pemrosesan informasi harus didefinisikan dan ditegakkan dengan tepat.
+7.8
+Penempatan dan proteksi peralatan
+Kontrol
+Peralatan harus ditempatkan dengan aman dan diproteksi.
+7.9
+Keamanan aset di luar lokasi
+Kontrol
+Aset di luar lokasi harus diproteksi.
+7.10
+Media penyimpanan
+Kontrol
+Media penyimpanan harus dimanajemeni melalui siklus hidup akuisisi, penggunaan, transportasi, dan pembuangan sesuai dengan skema klasifikasi organisasi dan persyaratan penanganan.
+7.11
+Utilitas pendukung
+Kontrol
+Fasilitas pemrosesan informasi harus diproteksi dari kegagalan daya dan disrupsi lain yang disebabkan oleh kegagalan dalam utilitas pendukung.
+7.12
+Keamanan perkabelan
+Kontrol
+Kabel yang menyalurkan listrik, data, atau layanan informasi pendukung harus diproteksi dari intersepsi, interferensi, atau kerusakan.
+7.13
+Pemeliharaan peralatan
+Kontrol
+Peralatan harus dipelihara dengan benar untuk memastikan availabilitas, integritas, dan konfidensialitas informasi.
+7.14
+Pemusnahan atau penggunaan kembali peralatan dengan aman
+Kontrol
+Peralatan yang berisi media penyimpanan harus diverifikasi untuk memastikan bahwa setiap data sensitif dan perangkat lunak berlisensi telah dipindahkan atau ditimpa dengan aman sebelum dimusnahkan atau digunakan kembali.
+8
+Kontrol Teknologi
+8.1
+Perangkat titik akhir pengguna
+Kontrol
+Informasi yang disimpan, diproses, atau dapat diakses melalu peranti titik akhir pengguna harus diproteksi.	
+	
+8.2
+Hak akses privilese
+Kontrol
+Alokasi dan penggunaan hak akses privilese harus dibatasi dan dimanajemeni.
+8.3
+Pembatasan akses informasi
+Kontrol
+Akses ke informasi dan aset terkait lainnya harus dibatasi sesuai dengan kebijakan topik spesifik yang ditetapkan pada kontrol akses.
+8.4
+Akses ke kode sumber
+Kontrol
+Akses untuk membaca dan menulis ke kode sumber, alat pengembangan, dan pustaka perangkat lunak harus dimanajemeni dengan tepat.
+8.5
+Autentikasi aman
+Kontrol
+Teknologi dan prosedur autentikasi yang aman harus diimplementasikan berdasarkan pembatasan akses informasi dan kebijakan topik spesifik pada kontrol akses.
+8.6
+Manajemen kapasitas
+Kontrol
+Penggunaan sumber daya harus dimonitor dan disesuaikan sejalan dengan persyaratan kapasitas saat ini dan yang diharapkan.
+8.7
+Proteksi terhadap perangkat perusak
+Kontrol
+Proteksi terhadap perangkat perusak harus diimplementasikan dan didukung oleh kesadaran pengguna yang tepat
+8.8
+Manajemen kerentanan teknis
+Kontrol
+Informasi kerentanan teknis dari sistem informasi yang sedang digunakan harus diperoleh, eksposur organisasi terhadap kerentanan tersebut harus dievaluasi, dan langkahlangkah yang tepat harus diambil.
+8.9
+Manajemen konfigurasi
+Kontrol
+Konfigurasi, termasuk konfigurasi keamanan, perangkat keras, perangkat lunak, layanan, dan jaringan harus ditetapkan, didokumentasikan, diimplementasikan, dimonitor, dan direviu.
+8.10
+Penghapusan informasi
+Kontrol
+Informasi yang disimpan dalam sistem informasi, peranti atau di media penyimpanan lainnya harus dihapus bila tidak lagi diperlukan.
+8.11
+Penyamaran (masking) data
+Kontrol
+Penyamaran data harus digunakan sesuai dengan kebijakan topik spesifik organisasi tentang kontrol akses dan kebijakan topik spesifik terkait lainnya, serta persyaratan bisnis, konsiderasi legislasi yang berlaku.
+8.12
+Pencegahan kebocoran data
+Kontrol
+Langkah-langkah pencegahan kebocoran data harus diterapkan pada sistem, jaringan, dan peranti lain yang memproses, menyimpan, atau mentransmisikan informasi sensitif.
+8.13
+Pencadangan informasi
+Kontrol
+Salinan cadangan informasi, perangkat lunak, dan sistem harus dipelihara dan diuji secara reguler sesuai dengan kebijakan topik spesifik yang disepakati tentang pencadangan
+8.14
+Redundansi fasilitas pemrosesan informasi
+Kontrol
+Fasilitas pemrosesan informasi harus diimplementasikan dengan redundansi yang cukup untuk memenuhi persyaratan availabilitas.
+8.15
+Membuat log
+Kontrol
+Log yang merekam aktivitas, eksepsi, kesalahan, dan peristiwa relevan lainnya harus diproduksi, disimpan, diproteksi, dan dianalisis.    
+8.16
+Pemonitoran aktivitas
+Kontrol
+Jaringan, sistem, dan aplikasi harus dimonitor untuk menemukan perilaku anomali dan mengambil tindakan yang tepat untuk mengevaluasi potensi insiden keamanan informasi.
+8.17
+Sinkronisasi jam
+Kontrol
+Jam sistem pemrosesan informasi yang digunakan oleh organisasi harus disinkronkan ke sumber waktu yang disetujui.
+8.18
+Penggunaan program utilitas privilese
+Kontrol
+Penggunaan program utilitas yang mampu membatalkan sistem dan kontrol aplikasi harus dibatasi dan dikontrol dengan ketat.
+8.19
+Instalasi perangkat lunak pada sistem operasional
+Kontrol
+Prosedur dan langkah-langkah harus diimplementasikan untuk memanajemeni instalasi perangkat lunak dengan aman pada sistem operasional.
+8.20
+Keamanan jaringan
+Kontrol
+Jaringan dan peranti jaringan harus diamankan, dimanajemeni, dan dikontrolkan untuk memproteksi informasi dalam sistem dan aplikasi.
+8.21
+Keamanan layanan jaringan
+Kontrol
+Mekanisme keamanan, level layanan, dan persyaratan layanan jaringan harus diidentifikasi, diimplementasikan, dan dimonitor.
+8.22
+Segregasi jaringan
+Kontrol
+Kelompok layanan informasi, pengguna, dan sistem informasi harus dipisahkan dalam jaringan organisasi.
+8.23
+Pemfilteran web
+Kontrol
+Akses ke situs web eksternal harus dimanajemeni untuk mengurangi eksposur konten berbahaya.
+8.24
+Penggunaan kriptografi
+Kontrol
+Aturan untuk penggunaan kriptografi yang efektif, termasuk manajemen kunci kriptografi, harus didefinisikan dan diimplementasikan.
+8.25
+Siklus hidup pengembangan yang aman
+Kontrol
+Aturan untuk pengembangan perangkat lunak dan sistem yang aman harus ditetapkan dan diterapkan.
+8.26
+Persyaratan keamanan aplikasi
+Kontrol
+Persyaratan keamanan informasi harus diidentifikasi, dispesifikasi, dan disetujui saat mengembangkan atau memperoleh aplikasi.
+8.27
+Prinsip-prinsip arsitektur dan rekayasa sistem yang aman
+Kontrol
+Prinsip-prinsip untuk rekayasa sistem yang aman harus ditetapkan, didokumentasikan, dipelihara, dan diterapkan pada segala aktivitas pengembangan sistem informasi.
+8.28
+Pengkodean yang aman
+Kontrol
+Prinsip pengkodean yang aman harus diterapkan pada pengembangan perangkat lunak.
+8.29
+Pengujian keamanan dalam pengembangan dan penerimaan
+Kontrol
+Proses pengujian keamanan harus didefinisikan dan diimplementasikan dalam siklus hidup pengembangan.
+8.30
+Pengembangan yang dialihdayakan
+Kontrol
+Organisasi harus mengarahkan, memonitor, dan mereviu aktivitas yang terkait dengan pengembangan sistem yang dialihdayakan.
+8.31
+Pemisahan lingkungan pengembangan, pengujian, dan produksi
+Kontrol
+Lingkungan pengembangan, pengujian, dan produksi harus dipisahkan dan diamankan.
+8.32
+Manajemen perubahan
+Kontrol
+Perubahan fasilitas pemrosesan informasi dan sistem informasi harus menjadi subyek bagi prosedur manajemen perubahan.
+8.33
+Informasi uji
+Kontrol
+Informasi uji harus dipilih, diproteksi, dan dimanajemeni secara tepat.
+8.34
+Proteksi sistem informasi selama pengujian audit
+Kontrol
+Uji audit dan aktivitas keyakinan lainnya yang melibatkan asesmen sistem operasional harus direncanakan dan disepakati antara penguji dan manajemen yang tepat.
+
+

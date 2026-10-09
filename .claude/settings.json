@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls -la \"/c/Users/RentalWorks-D5CKVT2/Documents/boilerplate/src/components/forms/\" 2>&1)",
+      "Read(//c/Users/RentalWorks-D5CKVT2/Documents/boilerplate/src/components/forms//**)",
+      "Bash(cd \"/c/Users/RentalWorks-D5CKVT2/Documents/boilerplate\" && grep -rln \"components/forms\\\\|from \\\\\"@/components/forms\\\\\"\\\\|FormField\" --include=\"*.tsx\" src 2>/dev/null | grep -v \"components/forms/form-field.tsx\")",
+      "Read(//c/Users/RentalWorks-D5CKVT2/Documents/boilerplate/**)",
+      "Read(//c/Users/RentalWorks-D5CKVT2/Documents/boilerplate/src/stories/Forms/**)",
+      "Read(//c/Users/RentalWorks-D5CKVT2/Documents/boilerplate/src/components//**)",
+      "Read(//c/Users/RentalWorks-D5CKVT2/Documents/boilerplate/src/components/fields//**)",
+      "Bash(cd \"/c/Users/RentalWorks-D5CKVT2/Documents/boilerplate\" && find . -maxdepth 3 -iname \"*CLAUDE*\" -o -iname \"*AGENT*\" -o -iname \"*.mdc\" 2>/dev/null | grep -v node_modules | grep -v \"/dist/\" *)",
+      "Read(//c/Users/RentalWorks-D5CKVT2/Documents/boilerplate/.claude/**)",
+      "Bash(xargs grep -l \"APIRouter\\\\|@router\\\\|@app\\\\.\")"
+    ]
+  }
+}

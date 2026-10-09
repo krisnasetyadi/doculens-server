@@ -1,0 +1,186 @@
+[15/12/2025, 09:15:23] Ahmad Wijaya: Tim, reminder untuk meeting standup pagi ini jam 10. Agenda: review sprint progress dan deployment plan minggu depan.
+
+[15/12/2025, 09:18:45] Sari Dewi: Siap Pak Ahmad. Saya sudah prepare update untuk requirement gathering project SAP.
+
+[15/12/2025, 09:20:12] Budi Santoso: Noted. Btw, kemarin deployment JetBrains license sudah selesai. Semua developer sudah bisa akses.
+
+[15/12/2025, 09:22:01] Maya Sari: Pak Ahmad, untuk UAT testing AWS Enterprise Support masih ada 2 bug critical yang belum resolved. Perlu eskalasi ke vendor?
+
+[15/12/2025, 09:25:30] Ahmad Wijaya: @Maya Sari iya tolong eskalasi. Kalau critical harus response 30 menit sesuai SLA. Contact vendor PM nya Andi Firmansyah.
+
+[15/12/2025, 09:28:15] Rizki Pratama: Pak, deployment Datadog Pro kemarin sukses. Monitoring sudah jalan 24 jam. Semua metrics normal.
+
+[15/12/2025, 09:30:42] Ahmad Wijaya: Good job @Rizki Pratama. Sesuai prosedur ya, code freeze H-2 dan backup database sebelum deployment production.
+
+[15/12/2025, 10:05:18] Maya Sari: Meeting dimulai ya tim 🙏
+
+[15/12/2025, 10:35:50] Sari Dewi: Update dari saya: Project SAP S/4HANA sudah masuk fase design. Timeline 2 minggu untuk TDD dan database schema.
+
+[15/12/2025, 10:37:22] Budi Santoso: Development JetBrains integration sudah 70% complete. Unit test coverage sudah mencapai 75%, lebih dari standar minimal.
+
+[15/12/2025, 10:39:45] Maya Sari: Testing selenium grid masih ongoing. Ada issue di integration testing yang perlu koordinasi sama Budi.
+
+[15/12/2025, 10:42:10] Rizki Pratama: Infrastructure ready untuk 3 environment: dev, staging, dan production. Semua sudah sesuai SOP.
+
+[15/12/2025, 10:45:33] Ahmad Wijaya: Perfect. Untuk proyek SAP yang 35 juta itu perlu approval Direktur IT ya sesuai approval matrix. Deadline 5 hari kerja.
+
+[15/12/2025, 11:02:15] Linda Permata: Halo tim IT. Saya dari Business Analysis. Mau tanya untuk proyek baru enhancement Confluence, prioritasnya medium atau low?
+
+[15/12/2025, 11:05:47] Ahmad Wijaya: @Linda Permata Kalau enhancement yang dibutuhkan biasanya medium, response time 2 minggu. Tolong isi Form FPP-01 dulu ya.
+
+[15/12/2025, 11:08:20] Linda Permata: Oke noted. Formulir bisa diakses di SharePoint kan Pak?
+
+[15/12/2025, 11:10:05] Sari Dewi: Betul Bu Linda. Di /Projects/Templates. Kalau butuh bantuan untuk requirement analysis, bisa langsung contact saya.
+
+[15/12/2025, 11:12:38] Linda Permata: Terima kasih @Sari Dewi. Nanti saya koordinasi untuk workshop requirement gathering.
+
+[15/12/2025, 14:20:15] Ir. Bambang Suryadi: Pak Ahmad, dari Finance mau konfirmasi. Order SonarQube Enterprise 3.5 juta itu statusnya masih pending ya?
+
+[15/12/2025, 14:23:42] Ahmad Wijaya: Iya Pak Bambang. Masih pending approval dari steering committee karena ada perubahan scope. Harusnya di rapat bulanan minggu depan dibahas.
+
+[15/12/2025, 14:26:18] Ir. Bambang Suryadi: Oke noted. Tolong update saya ya kalau sudah ada keputusan. Budget sudah saya alokasikan.
+
+[15/12/2025, 14:28:50] Ahmad Wijaya: Siap Pak. Akan saya informasikan segera setelah meeting.
+
+[15/12/2025, 15:45:30] Maya Sari: URGENT! Bug critical ditemukan di production environment Jira Software. System down sejak 15 menit yang lalu.
+
+[15/12/2025, 15:46:12] Ahmad Wijaya: @Maya Sari Segera buka ticket di support.tmb.co.id. Hubungi helpdesk ext 1234 atau langsung call saya di +62-812-3456-7890.
+
+[15/12/2025, 15:47:05] Rizki Pratama: Saya cek infra dulu. Kemungkinan issue dari monitoring Datadog.
+
+[15/12/2025, 15:50:33] Budi Santoso: Database connection timeout. Saya restart service sekarang.
+
+[15/12/2025, 15:52:18] Maya Sari: System sudah up. Total downtime 7 menit. Perlu root cause analysis.
+
+[15/12/2025, 15:55:40] Ahmad Wijaya: Good response team. Sesuai SLA critical: response 30 menit, resolution 4 jam. Kita resolve dalam 10 menit. Besok kita meeting RCA.
+
+[15/12/2025, 16:10:25] Dewi Anggraeni: Halo tim. Dari HR mau reminder untuk employee training Git dan security development minggu depan. Wajib untuk semua developer.
+
+[15/12/2025, 16:13:50] Budi Santoso: Noted Bu Dewi. Training security penting nih, apalagi standar baru tentang enkripsi data dan input validation.
+
+[15/12/2025, 16:16:22] Sari Dewi: Setuju. Sesuai SOP BAB 7, semua data sensitif harus dienkripsi at rest dan in transit.
+
+[15/12/2025, 16:20:15] Maya Sari: Training security testing juga perlu. Terutama untuk sistem yang handle data pribadi customer.
+
+[15/12/2025, 16:25:40] Dewi Anggraeni: Bagus tim. Materi training sudah include semua poin dari SOP keamanan. Lokasi di ruang meeting lt 3, jam 9 pagi.
+
+[16/12/2025, 08:30:15] Andi Firmansyah: Pagi Pak Ahmad. Dari vendor. Update untuk project AWS Enterprise Support: TAM sudah assign, Pak Rudi dari AWS Jakarta yang akan handle. Production workload ERP sudah stable.
+
+[16/12/2025, 08:35:22] Ahmad Wijaya: Pagi Pak Andi. Terima kasih updatenya. TAM nya Pak Rudi ya, noted. Warranty period 3 bulan ya dari go-live. Bug yang ditemukan dalam periode ini gratis fix.
+
+[16/12/2025, 08:38:45] Andi Firmansyah: Betul Pak. Sesuai kontrak. Kalau ada enhancement diluar scope awal akan kami buatkan quotation terpisah.
+
+[16/12/2025, 08:42:10] Ahmad Wijaya: Oke perfect. Tolong koordinasi dengan @Maya Sari untuk UAT schedule minggu ini.
+
+[16/12/2025, 08:45:33] Maya Sari: Siap Pak. Saya sudah prepare test cases. Butuh 1-2 minggu untuk complete UAT sesuai fase testing.
+
+[16/12/2025, 09:15:20] Rizki Pratama: Pak Ahmad, mau tanya. Untuk backup database production, schedule nya berapa kali per hari?
+
+[16/12/2025, 09:18:45] Ahmad Wijaya: Standar minimal 1x per hari di jam non-peak. Kalau system critical bisa 3x. Cek di maintenance guide ya prosedurnya.
+
+[16/12/2025, 09:22:10] Rizki Pratama: Oke noted. Saya akan setup automated backup dengan retention 30 hari.
+
+[16/12/2025, 10:40:15] Sari Dewi: Tim, hasil workshop kemarin untuk project Confluence sudah saya dokumentasikan di BRD. Silakan review di SharePoint /Projects/Confluence/02_Requirements
+
+[16/12/2025, 10:45:30] Linda Permata: Terima kasih @Sari Dewi. Saya review hari ini dan kasih feedback.
+
+[16/12/2025, 10:50:22] Ahmad Wijaya: Good job. Phase design bisa mulai setelah BRD approved. Estimasi 1-2 minggu untuk TDD dan UI mockup.
+
+[16/12/2025, 11:20:15] Budi Santoso: Pak, untuk code review kemarin ada beberapa issue. Coverage unit test masih 65%, belum memenuhi minimal 70%.
+
+[16/12/2025, 11:25:40] Ahmad Wijaya: Tolong diperbaiki dulu sebelum merge ke develop branch. Standar coding harus diikuti: Git branching main > develop > feature/*.
+
+[16/12/2025, 11:28:55] Budi Santoso: Siap Pak. Saya tambahkan test cases hari ini. Target besok sudah 75%.
+
+[16/12/2025, 14:15:30] Dr. Hendra Kusuma: Pak Ahmad, dari direksi. Mau konfirmasi total budget IT Q1 2025 untuk procurement software dan tools.
+
+[16/12/2025, 14:20:45] Ahmad Wijaya: Siap Pak Direktur. Total order completed Q1: sekitar 50 juta (SAP license, tools, monitoring). Masih ada 2 order processing: AWS support 5 juta dan Datadog 2 juta.
+
+[16/12/2025, 14:25:10] Ir. Bambang Suryadi: Konfirmasi dari Finance, total order yang sudah completed: 10 orders dengan nilai total sekitar 57 juta rupiah.
+
+[16/12/2025, 14:30:25] Dr. Hendra Kusuma: Oke noted. Untuk proyek di atas 200 juta tolong koordinasi dengan steering committee untuk approval ya.
+
+[16/12/2025, 14:35:40] Ahmad Wijaya: Siap Pak Direktur. Sesuai approval matrix di SOP. Rapat bulanan steering committee jadwalnya kapan Pak?
+
+[16/12/2025, 14:38:15] Dr. Hendra Kusuma: Akhir bulan ini. Agenda: review project pipeline dan budget planning 2026.
+
+[16/12/2025, 15:45:20] Maya Sari: Update testing: Performance testing untuk sistem SAP sudah complete. Hasil bagus, response time under 2 detik untuk semua endpoint.
+
+[16/12/2025, 15:50:35] Ahmad Wijaya: Excellent @Maya Sari. Sesuai requirement. Tahap selanjutnya UAT dengan business user. Koordinasi dengan @Linda Permata.
+
+[16/12/2025, 15:55:10] Linda Permata: Siap Pak. Saya schedule UAT session minggu depan dengan end users dari Finance dan HR department.
+
+[16/12/2025, 16:20:15] Rizki Pratama: Deployment plan untuk minggu depan: Confluence update di Kamis malam jam 22:00. Estimasi downtime 2 jam.
+
+[16/12/2025, 16:25:30] Ahmad Wijaya: Oke approved. Jangan lupa checklist deployment: code freeze H-2, backup DB, rollback plan ready, monitoring 24 jam pasca deployment.
+
+[16/12/2025, 16:28:45] Rizki Pratama: Siap Pak. Semua sudah di checklist. Deployment guide juga sudah saya update di repository dokumentasi.
+
+[16/12/2025, 16:35:20] Ahmad Wijaya: Perfect. Tim, untuk yang on-call weekend, jaga HP ya. Kalau ada urgent issue langsung hubungi helpdesk ext 1234 atau call saya +62-812-3456-7890.
+
+[16/12/2025, 16:40:15] Budi Santoso: Noted Pak. Saya on-call weekend ini bersama @Rizki Pratama.
+
+[16/12/2025, 16:45:30] Maya Sari: Saya standby juga kalau ada issue dari testing atau UAT.
+
+[16/12/2025, 16:50:10] Ahmad Wijaya: Thanks team. Good teamwork today. See you tomorrow!
+
+[17/12/2025, 08:15:20] Sari Dewi: Morning all. Quick question: untuk dokumentasi API apakah semua harus pakai Swagger/OpenAPI?
+
+[17/12/2025, 08:20:35] Ahmad Wijaya: Yes, itu standar di SOP kita BAB 3.3. Semua API harus documented dengan Swagger untuk consistency.
+
+[17/12/2025, 08:25:10] Budi Santoso: Saya sudah implement Swagger untuk semua endpoints project JetBrains. Link: http://localhost:8000/docs
+
+[17/12/2025, 08:30:45] Sari Dewi: Perfect, terima kasih. Saya akan include dalam BRD untuk project berikutnya.
+
+[17/12/2025, 09:40:15] Maya Sari: Pak Ahmad, mau tanya. Untuk security testing, tools apa yang kita gunakan?
+
+[17/12/2025, 09:45:30] Ahmad Wijaya: Kita pakai SonarQube Enterprise untuk code quality dan security scanning. Order nya 3.5 juta, masih pending approval.
+
+[17/12/2025, 09:50:20] Maya Sari: Oke noted. Sementara ini saya manual testing dulu untuk vulnerability check sesuai standar BAB 7 SOP.
+
+[17/12/2025, 09:55:45] Ahmad Wijaya: Good. Checklist security: no hardcode credentials, API authentication wajib, input validation, audit log, enkripsi data sensitif.
+
+[17/12/2025, 10:20:15] Rizki Pratama: Reminder: training Git dan security development hari ini jam 9 di ruang meeting lt 3. Jangan lupa!
+
+[17/12/2025, 10:25:30] Dewi Anggraeni: Betul, wajib hadir untuk semua developer. Materi include Git branching strategy dan security best practices.
+
+[17/12/2025, 10:30:45] Budi Santoso: Siap Bu. Materi tentang enkripsi at rest dan in transit sangat penting untuk project yang handle data confidential.
+
+[17/12/2025, 11:15:20] Ahmad Wijaya: Team update: Project priorities update
+- Critical: Bug fix Jira (sedang ongoing)
+- High: SAP S/4HANA implementation (fase design)
+- Medium: Confluence enhancement (requirement gathering)
+- Low: Nice-to-have features (backlog)
+
+[17/12/2025, 11:20:35] Linda Permata: Pak Ahmad, untuk project Confluence itu termasuk medium kan? Response time 2 minggu sesuai kriteria prioritas?
+
+[17/12/2025, 11:25:10] Ahmad Wijaya: Betul Bu Linda. Enhancement yang dibutuhkan = medium priority. Target kick-off 2 minggu dari approval.
+
+[17/12/2025, 11:30:45] Sari Dewi: Saya sudah siapkan jadwal workshop dan requirement analysis. Bisa mulai minggu depan.
+
+[17/12/2025, 14:30:15] Andi Firmansyah: Pak Ahmad, update dari vendor: License AWS Enterprise sudah aktif. TAM nya Pak Rudi dari AWS Jakarta. Contact: rudi.aws@amazon.com
+
+[17/12/2025, 14:35:30] Ahmad Wijaya: Terima kasih infonya Pak Andi. Tolong share kontak lengkap TAM ke @Rizki Pratama untuk koordinasi infrastruktur.
+
+[17/12/2025, 14:40:15] Rizki Pratama: Noted Pak. Saya akan setup meeting dengan TAM untuk discuss production workload ERP optimization.
+
+[17/12/2025, 15:20:10] Maya Sari: FYI team: UAT session untuk SAP S/4HANA dijadwalkan:
+- Rabu, 19 Des: Finance module testing
+- Kamis, 20 Des: HR module testing  
+- Jumat, 21 Des: Supply chain module testing
+
+[17/12/2025, 15:25:35] Ahmad Wijaya: Good planning @Maya Sari. Total durasi UAT 1-2 minggu sesuai fase testing. Pastikan end users sudah prepare test scenarios.
+
+[17/12/2025, 15:30:20] Linda Permata: Saya koordinasi dengan Finance dan HR department untuk assign user testers. Butuh berapa orang per module?
+
+[17/12/2025, 15:35:45] Maya Sari: Minimal 2-3 user per module Bu Linda. Total sekitar 6-9 users. Durasi testing per session 3-4 jam.
+
+[17/12/2025, 16:10:15] Ir. Bambang Suryadi: Tim Finance ready untuk UAT Rabu besok. Akan saya assign 3 orang: Lisa, Dedi, dan Ratna.
+
+[17/12/2025, 16:15:30] Dewi Anggraeni: HR juga siap. Akan saya assign: Sinta, Budi HR, dan Rani untuk testing Kamis.
+
+[17/12/2025, 16:20:45] Ahmad Wijaya: Perfect coordination. Thanks @Ir. Bambang Suryadi dan @Dewi Anggraeni. @Maya Sari tolong prepare environment UAT di staging.
+
+[17/12/2025, 16:25:10] Maya Sari: Siap Pak. Staging environment sudah ready. Access Tim IT + Tester sesuai standar di SOP.
+
+[17/12/2025, 16:50:15] Ahmad Wijaya: Great work today team! Tomorrow focus: Git training, prepare UAT, dan continue development sprint. Good night all 👍
