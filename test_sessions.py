@@ -1,4 +1,4 @@
-"""MS-657: behaviour of chat session storage (router/sessions.py) against real
+"""MS-657: behaviour of chat session storage (router/ + services/sessions.py) against real
 SQL, recorded before it is moved. Runs in a throwaway schema (testing_db);
 skipped when no database is reachable."""
 
@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from router import sessions
+from services import sessions as session_service
 from router.auth import UserRecord, get_current_user
 from testing_db import IsolatedSchemaTestCase
 
@@ -180,18 +181,18 @@ class SnippetTest(unittest.TestCase):
     """Pure text helpers; no database needed."""
 
     def test_markdown_is_stripped(self):
-        self.assertEqual(sessions._plain_text("## Title\n| a | b |\n| --- | --- |\n**bold** and `code` [link](http://x)"),
+        self.assertEqual(session_service._plain_text("## Title\n| a | b |\n| --- | --- |\n**bold** and `code` [link](http://x)"),
                          "Title a b bold and code link")
 
     def test_snake_case_survives(self):
-        self.assertEqual(sessions._plain_text("use my_var_name here"), "use my_var_name here")
+        self.assertEqual(session_service._plain_text("use my_var_name here"), "use my_var_name here")
 
     def test_short_text_is_returned_whole(self):
-        self.assertEqual(sessions._snippet_around("short answer", "answer"), "short answer")
+        self.assertEqual(session_service._snippet_around("short answer", "answer"), "short answer")
 
     def test_unmatched_query_falls_back_to_the_start(self):
         text = "word " * 60
-        snippet = sessions._snippet_around(text, "##")
+        snippet = session_service._snippet_around(text, "##")
         self.assertTrue(snippet.startswith("word") and snippet.endswith("…"))
 
 

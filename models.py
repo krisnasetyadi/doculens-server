@@ -766,3 +766,74 @@ class SkillResponse(BaseModel):
     owner_id: str
     created_at: Union[str, datetime] = ""
     updated_at: Union[str, datetime] = ""
+
+
+
+# ---------------------------------------------------------------------------
+# Chat sessions (router/sessions.py)
+# ---------------------------------------------------------------------------
+
+class StoredMessage(BaseModel):
+    id: str
+    role: str          # "user" | "assistant"
+    content: str
+    model_used: Optional[str] = None
+    created_at: str    # ISO
+
+class UpsertSessionRequest(BaseModel):
+    session_id: Optional[str] = None   # if None -> create new
+    # Optional past creation — omitted, the existing title (auto-derived or
+    # since renamed via PUT /sessions/{id}) is left untouched (MS-253).
+    title: Optional[str] = None
+    messages: List[StoredMessage]
+    pdf_collections: Optional[List[str]] = []
+    chat_collections: Optional[List[str]] = []
+
+class SessionResponse(BaseModel):
+    session_id: str
+    title: str
+    created_at: str
+    updated_at: str
+    messages: List[StoredMessage]
+    pdf_collections: List[str]
+    chat_collections: List[str]
+    # MS-237: only meaningful on the paginated GET below. POST (create/
+    # update) always returns the full list it was given, so has_more is
+    # correctly False there too — nothing more to page in.
+    has_more: bool = False
+    next_cursor: Optional[str] = None
+    # Total user-authored messages in the session (loaded or not) — lets the
+    # client draw one navigation marker per question, including ones it
+    # hasn't fetched yet.
+    total_user_turns: int = 0
+
+class SessionSummary(BaseModel):
+    session_id: str
+    title: str
+    message_count: int
+    created_at: str
+    updated_at: str
+    pdf_collections: List[str]
+    chat_collections: List[str]
+    # MS-417: set only when `q` matched inside a message and not in the title —
+    # a title match is shown by highlighting the title itself. Plain text, so
+    # the client can highlight by splitting on the query.
+    matched_snippet: Optional[str] = None
+    matched_message_id: Optional[str] = None
+
+class SessionQuestion(BaseModel):
+    """One entry in the navigation index — a question the user asked, with
+    just enough text to recognise it in a list."""
+    turn: int          # 1-based, counted from the start of the session
+    message_id: str
+    preview: str
+
+
+class SessionQuestionsResponse(BaseModel):
+    session_id: str
+    total: int         # every question in the session, even beyond the cap below
+    questions: List[SessionQuestion]
+
+
+class RenameSessionRequest(BaseModel):
+    title: str
