@@ -17,7 +17,7 @@ class TelegramChatInventoryTests(unittest.TestCase):
         connection = MagicMock()
         connection.cursor.return_value.__enter__.return_value = cursor
 
-        with patch.object(storage, "ensure_schema"), patch.object(storage, "_db_conn", return_value=connection):
+        with patch.object(storage, "ensure_schema"), patch.object(storage.db, "get_conn", return_value=connection):
             collections = storage.list_chat_collections()
 
         self.assertEqual(
@@ -35,7 +35,7 @@ class TelegramChatInventoryTests(unittest.TestCase):
         connection = MagicMock()
         connection.cursor.return_value.__enter__.return_value = cursor
 
-        with patch.object(storage, "ensure_schema"), patch.object(storage, "_db_conn", return_value=connection):
+        with patch.object(storage, "ensure_schema"), patch.object(storage.db, "get_conn", return_value=connection):
             collections = storage.list_chat_collections()
 
         self.assertEqual(collections[0]["status"], "inactive")

@@ -117,11 +117,6 @@ class RenameSessionRequest(BaseModel):
 # DB helpers
 # ---------------------------------------------------------------------------
 
-def _get_conn():
-    """A pooled RealDictCursor connection, or None if unavailable."""
-    return db.get_conn("sessions")
-
-
 _tables_ensured = False
 
 
@@ -179,7 +174,7 @@ def _ts(val) -> str:
 
 
 def _get_required_conn():
-    conn = _get_conn()
+    conn = db.get_conn("sessions")
     if not conn:
         raise HTTPException(status_code=503, detail="Session database unavailable")
     _ensure_tables(conn)

@@ -5,13 +5,11 @@ from urllib.parse import parse_qs, unquote, urlparse
 from typing import List, Dict, Any, Optional, Set
 from datetime import datetime, timezone
 import logging
-import os
 import uuid
 import re
 from html import unescape
 import httpx
 import db
-from config import config
 from ssrf_guard import assert_public_url_safe
 from router.auth import get_current_user, UserRecord
 
@@ -28,16 +26,6 @@ logger = logging.getLogger(__name__)
 
 _tables_ensured = False
 GOOGLE_DRIVE_HOSTS = {"drive.google.com", "docs.google.com"}
-
-
-def _database_url() -> str | None:
-    url = os.getenv("DATABASE_URL") or getattr(config, "database_url", None)
-    if not url:
-        return None
-    if "sslmode=" not in url:
-        sep = "&" if "?" in url else "?"
-        url = f"{url}{sep}sslmode=require"
-    return url
 
 
 def _ts(value: Any) -> str:
@@ -254,10 +242,6 @@ def _fetch_link_detail(cur, link_id: str, user_id: str, is_admin: bool = False) 
     }
 
 
-def _get_conn():
-    return db.get_conn("public_links")
-
-
 def _ensure_tables(conn) -> None:
     global _tables_ensured
     if _tables_ensured:
@@ -455,7 +439,7 @@ async def resolve_active_public_link_sources(
     user_id: Optional[str] = None,
     is_admin: bool = False,
 ) -> List[Dict[str, Any]]:
-    conn = _get_conn()
+    conn = db.get_conn("public_links")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -503,7 +487,7 @@ async def resolve_active_public_link_sources(
 
 @router.get("/public-links", response_model=PublicLinksResponse)
 async def list_public_links(user: UserRecord = Depends(get_current_user)):
-    conn = _get_conn()
+    conn = db.get_conn("public_links")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -528,7 +512,7 @@ async def create_public_link(
     _validate_url(body.url)
     assert_public_url_safe(body.url)
 
-    conn = _get_conn()
+    conn = db.get_conn("public_links")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -611,7 +595,7 @@ async def set_public_link_active(
     body: SetPublicLinkActiveRequest,
     user: UserRecord = Depends(get_current_user),
 ):
-    conn = _get_conn()
+    conn = db.get_conn("public_links")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -656,7 +640,7 @@ async def set_public_link_active(
 
 @router.delete("/public-links/{link_id}")
 async def delete_public_link(link_id: str, user: UserRecord = Depends(get_current_user)):
-    conn = _get_conn()
+    conn = db.get_conn("public_links")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 

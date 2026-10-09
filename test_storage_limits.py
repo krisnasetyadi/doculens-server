@@ -201,7 +201,7 @@ class RouteTests(unittest.TestCase):
             self.stack.enter_context(patch.object(
                 module, "resolve_storage_limits", lambda user: (self.limits, "workspace-1")))
         self.stack.enter_context(patch.object(
-            storage_limits.app_db, "get_app_conn", lambda source="": FakeConn(self.used)))
+            storage_limits.db, "get_conn", lambda source="": FakeConn(self.used)))
 
         self.app = FastAPI()
         self.app.include_router(upload.router, prefix="/api/v1")
@@ -325,7 +325,7 @@ class UsageEndpointTests(unittest.TestCase):
 
     def usage(self, used: int, limits: StorageLimits = StorageLimits("Team", 5 * GB, 50 * MB, 10)):
         with patch.object(payment, "resolve_storage_limits", lambda user: (limits, "admin-1")), \
-             patch.object(payment, "_get_app_conn", lambda: FakeConn(used)):
+             patch.object(payment.db, "get_conn", lambda source="": FakeConn(used)):
             return self.client.get("/api/v1/payments/storage/usage")
 
     def test_ts04_reports_used_against_the_limit(self):

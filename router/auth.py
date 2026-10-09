@@ -308,10 +308,6 @@ class TeamMembersResponse(BaseModel):
 # DB helpers
 # ---------------------------------------------------------------------------
 
-def _get_conn():
-    return db.get_conn("auth")
-
-
 def _ensure_users_table(conn):
     try:
         with conn.cursor() as cur:
@@ -387,7 +383,7 @@ def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     payload = _decode_token(credentials.credentials)
-    conn = _get_conn()
+    conn = db.get_conn("auth")
     if conn:
         try:
             with conn.cursor() as cur:
@@ -453,7 +449,7 @@ AdminOnly   = Depends(require_role("admin"))
 async def register(body: RegisterRequest):
     """Register a new user. First registered user becomes admin automatically."""
     pwd_ctx = _passlib()
-    conn = _get_conn()
+    conn = db.get_conn("auth")
 
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -508,7 +504,7 @@ async def login(body: LoginRequest, request: Request):
     _check_rate_limit(rl_key)
 
     pwd_ctx = _passlib()
-    conn = _get_conn()
+    conn = db.get_conn("auth")
 
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -554,7 +550,7 @@ async def login(body: LoginRequest, request: Request):
 async def me(user: UserRecord = Depends(get_current_user)):
     """Return the current user's full profile, refreshed from the DB — the
     JWT alone doesn't carry avatar_url and its is_active claim can go stale."""
-    conn = _get_conn()
+    conn = db.get_conn("auth")
     if not conn:
         return user
     try:
@@ -579,7 +575,7 @@ async def update_profile(
     remove_avatar=true to clear the avatar back to the initials fallback."""
     if body.name is None and body.avatar_url is None and not body.remove_avatar:
         raise HTTPException(status_code=400, detail="Nothing to update")
-    conn = _get_conn()
+    conn = db.get_conn("auth")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
@@ -620,7 +616,7 @@ async def change_password(
 ):
     """Change the current user's password (requires valid token)."""
     pwd_ctx = _passlib()
-    conn = _get_conn()
+    conn = db.get_conn("auth")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
@@ -656,7 +652,7 @@ async def admin_reset_password(
     admin.user_id — an admin can only reset passwords for members they
     created themselves, not any arbitrary user in the system."""
     pwd_ctx = _passlib()
-    conn = _get_conn()
+    conn = db.get_conn("auth")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
@@ -686,7 +682,7 @@ async def admin_reset_password(
 @router.get("/auth/admin/users", response_model=TeamMembersResponse)
 async def list_admin_users(admin: UserRecord = Depends(require_role("admin"))):
     """Admin-only: list the team members this admin has added, plus their quota."""
-    conn = _get_conn()
+    conn = db.get_conn("auth")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
@@ -721,7 +717,7 @@ async def add_admin_user(
 ):
     """Admin-only: add a team member under this admin, capped by max_sub_users. New members always get role 'user'."""
     pwd_ctx = _passlib()
-    conn = _get_conn()
+    conn = db.get_conn("auth")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
@@ -781,7 +777,7 @@ async def set_admin_user_status(
     Scoped to created_by = admin.user_id, so an admin can never touch a
     member outside their own team (and can never deactivate themselves,
     since their own row has no created_by pointing at themselves)."""
-    conn = _get_conn()
+    conn = db.get_conn("auth")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
@@ -819,7 +815,7 @@ async def update_admin_user(
     mutations."""
     if body.name is None:
         raise HTTPException(status_code=400, detail="Nothing to update")
-    conn = _get_conn()
+    conn = db.get_conn("auth")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
@@ -866,7 +862,7 @@ async def delete_admin_user(
     skills, and gap-analysis runs are left untouched —
     what happens to those on removal is a separate, not-yet-scoped piece
     of work, not part of this ticket."""
-    conn = _get_conn()
+    conn = db.get_conn("auth")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:

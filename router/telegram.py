@@ -45,6 +45,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 
 import app_db
+import db
 from config import config
 from models import (
     ChatMessage,
@@ -141,10 +142,6 @@ def _telegram_user_id() -> str:
     return os.getenv("DB_CONNECTIONS_USER_ID", os.getenv("DEV_USER_ID", "db-connections-local-user"))
 
 
-def _get_app_conn():
-    return app_db.get_app_conn("telegram")
-
-
 def _ensure_tables(conn) -> None:
     global _tables_ensured
     if _tables_ensured:
@@ -234,7 +231,7 @@ def _as_connection_source(cur, row: Dict[str, Any]) -> TelegramConnectionSource:
 
 
 def _get_connection_row(connection_id: str) -> Optional[Dict[str, Any]]:
-    conn = _get_app_conn()
+    conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)
@@ -250,7 +247,7 @@ def _get_connection_row(connection_id: str) -> Optional[Dict[str, Any]]:
 
 
 def _upsert_selected_chat(connection_id: str, dialog_id: str, title: str, dialog_type: str, chat_collection_id: str, message_count: int) -> None:
-    conn = _get_app_conn()
+    conn = db.get_conn("telegram")
     if not conn:
         return
     _ensure_tables(conn)
@@ -275,7 +272,7 @@ def _upsert_selected_chat(connection_id: str, dialog_id: str, title: str, dialog
 
 
 def _get_selected_chat_collection_id(connection_id: str, dialog_id: str) -> Optional[str]:
-    conn = _get_app_conn()
+    conn = db.get_conn("telegram")
     if not conn:
         return None
     _ensure_tables(conn)
@@ -292,7 +289,7 @@ def _get_selected_chat_collection_id(connection_id: str, dialog_id: str) -> Opti
 
 
 def _touch_connection_synced(connection_id: str) -> None:
-    conn = _get_app_conn()
+    conn = db.get_conn("telegram")
     if not conn:
         return
     try:
@@ -410,7 +407,7 @@ async def telegram_connect_verify(
     await client.disconnect()
     _pending_logins.pop(body.flow_id, None)
 
-    conn = _get_app_conn()
+    conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)
@@ -452,7 +449,7 @@ async def telegram_connect_verify(
 
 @router.get("/telegram-connections", response_model=TelegramConnectionsResponse)
 async def list_telegram_connections(_: UserRecord = Depends(require_role("admin"))):
-    conn = _get_app_conn()
+    conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)
@@ -645,7 +642,7 @@ async def set_telegram_connection_active(
     body: SetTelegramConnectionActiveRequest,
     _: UserRecord = Depends(require_role("admin")),
 ):
-    conn = _get_app_conn()
+    conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)
@@ -677,7 +674,7 @@ async def delete_telegram_connection(
     regular chat collections — deleting the connection only stops future
     syncing, same as deleting a database connection doesn't unsync past
     query results."""
-    conn = _get_app_conn()
+    conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)

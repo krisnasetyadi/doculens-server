@@ -8,6 +8,7 @@ import os
 import uuid
 
 import app_db
+import db
 from router.auth import require_role, UserRecord
 
 from models import (
@@ -59,11 +60,6 @@ def _redact_url(url: str) -> str:
         return url
     except Exception:
         return url
-
-
-def _get_app_conn():
-    """Connection to THIS app's own database (metadata store, not a data source)."""
-    return app_db.get_app_conn("database_connections")
 
 
 def open_external_connection(url: str, timeout: int = 10):
@@ -249,7 +245,7 @@ async def resolve_active_database_connections(
     connection_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """Used by the RAG pipeline: active connections' raw (unredacted) URLs."""
-    conn = _get_app_conn()
+    conn = db.get_conn("database_connections")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -274,7 +270,7 @@ async def resolve_active_database_connections(
 
 @router.get("/database-connections", response_model=DatabaseConnectionsResponse)
 async def list_database_connections(_: UserRecord = Depends(require_role("admin"))):
-    conn = _get_app_conn()
+    conn = db.get_conn("database_connections")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -305,7 +301,7 @@ async def create_database_connection(
     finally:
         ext_conn.close()
 
-    app_conn = _get_app_conn()
+    app_conn = db.get_conn("database_connections")
     if not app_conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -337,7 +333,7 @@ async def refresh_database_connection_tables(
     connection_id: str,
     _: UserRecord = Depends(require_role("admin")),
 ):
-    app_conn = _get_app_conn()
+    app_conn = db.get_conn("database_connections")
     if not app_conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -381,7 +377,7 @@ async def set_database_connection_active(
     body: SetDatabaseConnectionActiveRequest,
     _: UserRecord = Depends(require_role("admin")),
 ):
-    conn = _get_app_conn()
+    conn = db.get_conn("database_connections")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -425,7 +421,7 @@ async def delete_database_connection(
     connection_id: str,
     _: UserRecord = Depends(require_role("admin")),
 ):
-    conn = _get_app_conn()
+    conn = db.get_conn("database_connections")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 

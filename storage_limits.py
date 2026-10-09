@@ -32,7 +32,7 @@ from typing import BinaryIO, Optional
 
 from fastapi import HTTPException
 
-import app_db
+import db
 import storage as supabase_storage
 from config import config
 
@@ -195,7 +195,7 @@ def reserve(conn, workspace_id: str, limits: StorageLimits, size: int) -> Reserv
 
 def reserve_workspace(workspace_id: str, limits: StorageLimits, size: int) -> Reservation:
     """reserve(), opening (and closing) its own connection to the app database."""
-    conn = app_db.get_app_conn("storage_limits")
+    conn = db.get_conn("storage_limits")
     try:
         return reserve(conn, workspace_id, limits, size)
     finally:

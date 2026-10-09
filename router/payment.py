@@ -36,6 +36,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 import app_db
+import db
 import storage_limits
 from config import config
 from router.auth import get_current_user, require_role, UserRecord
@@ -122,11 +123,6 @@ SUBSCRIPTION_PERIOD_DAYS = 30
 
 _tables_ensured = False
 _usage_tables_ensured = False
-
-
-def _get_app_conn():
-    """Connection to THIS app's own database (metadata store, not a data source)."""
-    return app_db.get_app_conn("payment")
 
 
 def _ensure_tables(conn) -> None:
@@ -679,7 +675,7 @@ def assign_initial_allocation(
     all three tiers from the start. Returns (allocated, clamped),
     or None if the metering DB is unreachable; the member is then still
     capped by the default at enforcement time, so this is best-effort."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         return None
     try:
@@ -721,7 +717,7 @@ def release_member_allocation(user_id: str) -> None:
     """Called by router/auth.py when a member is deleted, so their slice
     goes back to the pool instead of staying locked by a user that no
     longer exists. Best-effort, never raises."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         return
     try:
@@ -817,7 +813,7 @@ def enforce_rate_limit(user_id: str, pending_tokens: int = 0) -> None:
     rather than swallowing it. Fails open (never blocks) if the metering DB
     itself is unreachable — a metering outage shouldn't take down chat.
     `pending_tokens`: this user's in-flight reservations (in_flight_tokens)."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         return
     try:
@@ -869,7 +865,7 @@ def resolve_workspace_id(user: UserRecord) -> str:
     the metering DB is unreachable."""
     if user.role == "admin":
         return user.user_id
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         return user.user_id
     try:
@@ -992,7 +988,7 @@ def enforce_gap_check_plan(user: UserRecord) -> None:
     GAP_CHECK_PLAN_IDS for the current (enforced) period — an expired Team
     plan has dropped back to the Free window, so it no longer qualifies.
     Fails open if the metering DB is unreachable, same as the other checks."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         return
     try:
@@ -1026,7 +1022,7 @@ def enforce_plan_limit(user: UserRecord, pending_tokens: int = 0, reserve: Optio
     this request's own headroom (defaults to config.query_token_reserve).
     Returns the workspace token_limit it enforced (None if it couldn't
     check), for begin_in_flight to clamp the reservation against."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         return None
     try:
@@ -1062,7 +1058,7 @@ def enforce_member_allocation(user: UserRecord, pending_tokens: int = 0, reserve
     `pending_tokens`: this user's in-flight reservations; `reserve`: as in
     enforce_plan_limit. Returns the allocation it enforced (None when the
     user is uncapped or it couldn't check), like enforce_plan_limit."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         return None
     try:
@@ -1130,7 +1126,7 @@ def log_token_usage(
     inserts tokens=0 (no invented cost)."""
     if tokens <= 0 and not efficient_mode:
         return
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         logger.warning("payment: log_token_usage skipped, no DB connection")
         return
@@ -1164,7 +1160,7 @@ def get_usage_snapshot(user: UserRecord) -> Optional[dict]:
     plus, for admins only, the workspace pool from Billing — a member never
     sees workspace-wide totals here, same as in the Usage tab. Best-effort:
     returns None on any failure, the assistant then points to /usage."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         return None
     try:
@@ -1222,7 +1218,7 @@ async def create_checkout_session(
     if not config.stripe_secret_key:
         raise HTTPException(status_code=503, detail="Payments are not configured")
 
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -1293,7 +1289,7 @@ async def stripe_webhook(request: Request):
         logger.warning("payment: webhook signature verification failed: %s", exc)
         raise HTTPException(status_code=400, detail="Invalid webhook signature")
 
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         # Let Stripe retry rather than silently losing the event.
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -1343,7 +1339,7 @@ async def get_payment_by_session(session_id: str):
     Authorization here is possession of the Stripe-generated session_id
     itself (only known to the browser Stripe just redirected back), the
     same trust model as a typical guest order-confirmation link."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
 
@@ -1371,7 +1367,7 @@ async def get_payment_by_session(session_id: str):
 async def get_my_usage(user: UserRecord = Depends(get_current_user)):
     """Any authenticated user — their own allocation/consumption within
     their workspace's current subscription period, for the Usage tab."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)
@@ -1412,7 +1408,7 @@ async def get_members_usage(admin: UserRecord = Depends(require_role("admin"))):
     participant in the same shared pool as their team, not a special case,
     so they can optionally cap their own usage for budget discipline and
     raise it back up themselves whenever they want."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)
@@ -1488,7 +1484,7 @@ async def cancel_subscription(admin: UserRecord = Depends(require_role("admin"))
     period_end. This just stops next_reset_date implying it'll keep going
     past that — there's no auto-renewal to actually cancel (see module
     docstring), so all this does is flag the period as non-renewable."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)
@@ -1515,7 +1511,7 @@ async def cancel_subscription(admin: UserRecord = Depends(require_role("admin"))
 async def resume_subscription(admin: UserRecord = Depends(require_role("admin"))):
     """Admin-only — undo a pending cancellation, as long as the paid period
     hasn't ended yet (matches standard "resume before it lapses" UX)."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)
@@ -1552,7 +1548,7 @@ async def set_member_allocation(
     if configuring_quotas and (body.daily_token_quota is None or body.weekly_token_quota is None):
         raise HTTPException(status_code=400, detail="Daily and weekly quotas must be configured together")
 
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)
@@ -1653,7 +1649,7 @@ async def set_member_allocation(
 @router.get("/payments/subscription/settings", response_model=WorkspaceTokenSettings)
 async def get_workspace_token_settings(admin: UserRecord = Depends(require_role("admin"))):
     """Admin-only (MS-402) — this workspace's Default Token Allocation."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_usage_tables(conn)
@@ -1672,7 +1668,7 @@ async def update_workspace_token_settings(
     get, and that members without an explicit allocation are capped at.
     Can't exceed the plan's whole token_limit — a default no single member
     could ever be granted would only ever be clamped."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_tables(conn)
@@ -1706,7 +1702,7 @@ def resolve_storage_limits(user: UserRecord) -> tuple[storage_limits.StorageLimi
     workspace's enforced plan, so an expired paid plan drops to Free like the
     token caps do. Falls back to the configured defaults, measured against the
     user's own id, if the metering database cannot be reached."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         return storage_limits.default_limits(), user.user_id
     try:
@@ -1731,7 +1727,7 @@ async def get_storage_usage(user: UserRecord = Depends(get_current_user)):
     """Workspace storage used against the plan's limit (MS-504). Members see
     their workspace's totals, since the quota is shared."""
     limits, workspace_id = resolve_storage_limits(user)
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
@@ -1761,7 +1757,7 @@ async def get_my_rate_limit(user: UserRecord = Depends(get_current_user)):
     """Any authenticated user — lets the frontend pre-emptively disable the
     chat composer (and show a reset countdown) instead of only finding out
     they're blocked after a query already 429s."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_usage_tables(conn)
@@ -1778,7 +1774,7 @@ async def get_my_efficient_mode_stats(user: UserRecord = Depends(get_current_use
     this is a personal "did toggling it on actually help" comparison, not
     a billing figure, so it doesn't need admin/workspace aggregation like
     the rest of this file's usage endpoints."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
@@ -1827,7 +1823,7 @@ async def request_more_tokens(
     Billing, via polling) — a real push-notification channel is a
     separate, larger follow-up. One pending request at a time per user;
     dismissing an old one (admin-side) frees them up to ask again."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_usage_tables(conn)
@@ -1875,7 +1871,7 @@ async def request_more_tokens(
 async def list_token_requests(admin: UserRecord = Depends(require_role("admin"))):
     """Admin-only — pending (and recently resolved) token requests from
     their team, for the Billing tab and the sidebar's pending-count badge."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_usage_tables(conn)
@@ -1917,7 +1913,7 @@ async def dismiss_token_request(request_id: str, admin: UserRecord = Depends(req
     raised the member's allocation via the allocation editor elsewhere in
     the same Billing tab) so it stops showing as pending, and frees that
     member up to send a new request later if they need to."""
-    conn = _get_app_conn()
+    conn = db.get_conn("payment")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     _ensure_usage_tables(conn)

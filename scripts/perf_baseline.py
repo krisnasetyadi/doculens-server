@@ -12,7 +12,7 @@ Paths timed (each N times, median and p95 reported):
   load_session         GET /api/v1/sessions/{first session id}
 
 It also times, in-process, how long the app takes to get a database
-connection (app_db.get_app_conn() + close()), which is the per-request
+connection (db.get_conn() + close()), which is the per-request
 cost this story removes.
 
 Usage:
@@ -58,10 +58,10 @@ def _time(fn, runs):
 def time_db_connect(runs):
     from dotenv import load_dotenv
     load_dotenv(os.path.join(ROOT, ".env"))
-    import app_db
+    import db
 
     def once():
-        conn = app_db.get_app_conn("perf_baseline")
+        conn = db.get_conn("perf_baseline")
         if conn is None:
             raise SystemExit("app database not reachable")
         with conn.cursor() as cur:

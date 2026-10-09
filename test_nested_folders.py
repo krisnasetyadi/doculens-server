@@ -42,7 +42,7 @@ class FolderHierarchyTests(unittest.TestCase):
         connection = MagicMock()
         connection.cursor.return_value.__enter__.return_value = cursor
 
-        with patch.object(storage, "ensure_schema"), patch.object(storage, "_db_conn", return_value=connection):
+        with patch.object(storage, "ensure_schema"), patch.object(storage.db, "get_conn", return_value=connection):
             self.assertTrue(storage.delete_folder("year"))
 
         statements = [call.args[0] for call in cursor.execute.call_args_list]
@@ -60,7 +60,7 @@ class FolderHierarchyTests(unittest.TestCase):
         connection = MagicMock()
         connection.cursor.return_value.__enter__.return_value = cursor
 
-        with patch.object(storage, "ensure_schema"), patch.object(storage, "_db_conn", return_value=connection):
+        with patch.object(storage, "ensure_schema"), patch.object(storage.db, "get_conn", return_value=connection):
             self.assertFalse(storage.delete_folder("year"))
 
         connection.rollback.assert_called_once()
@@ -73,7 +73,7 @@ class FolderHierarchyTests(unittest.TestCase):
         connection = MagicMock()
         connection.cursor.return_value.__enter__.return_value = cursor
 
-        with patch.object(storage, "ensure_schema"), patch.object(storage, "_db_conn", return_value=connection):
+        with patch.object(storage, "ensure_schema"), patch.object(storage.db, "get_conn", return_value=connection):
             self.assertTrue(storage.delete_folder("contracts"))
 
         self.assertEqual(cursor.execute.call_args_list[1].args[1], (None, "contracts"))
