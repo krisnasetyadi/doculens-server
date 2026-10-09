@@ -23,3 +23,5 @@ data/processed_chats/*
 *.log
 
 .PRICING_COST_MODEL.md
+# MS-657 contract snapshots: raw responses hold real user data
+perf/contract/*/raw/
