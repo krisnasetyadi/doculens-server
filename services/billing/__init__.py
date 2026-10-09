@@ -1,4 +1,4 @@
-# billing/__init__.py
+# services/billing/__init__.py
 """
 Plans, token metering and payments (moved out of router/payment.py by MS-657).
 

@@ -1,4 +1,4 @@
-# billing/enforcement.py
+# services/billing/enforcement.py
 """The checks run before an LLM call: plan limit, member allocation, gap-check plan."""
 
 from __future__ import annotations
@@ -9,10 +9,10 @@ from typing import Optional
 from fastapi import HTTPException
 
 import db
-from billing.allocation import exceeds_cap, get_user_allocation
-from billing.ledger import sum_tokens_for_admin, sum_tokens_for_user
-from billing.plans import get_enforced_window, plan_includes_gap_check, resolve_admin_user_id
-from billing.quotas import build_quota_tiers, get_quota_configs, quota_windows_for_user, sum_tokens_for_windows
+from services.billing.allocation import exceeds_cap, get_user_allocation
+from services.billing.ledger import sum_tokens_for_admin, sum_tokens_for_user
+from services.billing.plans import get_enforced_window, plan_includes_gap_check, resolve_admin_user_id
+from services.billing.quotas import build_quota_tiers, get_quota_configs, quota_windows_for_user, sum_tokens_for_windows
 from config import config
 from router.auth import UserRecord
 

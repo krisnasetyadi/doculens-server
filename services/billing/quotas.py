@@ -1,4 +1,4 @@
-# billing/quotas.py
+# services/billing/quotas.py
 """Daily / weekly / monthly quota windows for a member's allocation (MS-418)."""
 
 from __future__ import annotations

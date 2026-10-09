@@ -1,4 +1,4 @@
-# billing/token_requests.py
+# services/billing/token_requests.py
 """Members asking their workspace admin for a bigger allocation."""
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from fastapi import HTTPException
 
 import app_db
 import db
-from billing.plans import resolve_admin_user_id
+from services.billing.plans import resolve_admin_user_id
 from models import (
     CreateTokenRequestRequest,
     TokenRequestRecord,

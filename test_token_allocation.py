@@ -1,4 +1,4 @@
-"""MS-402: pure token-allocation rules in billing/.
+"""MS-402: pure token-allocation rules in services/billing/.
 
 Run: python -m unittest test_token_allocation
 """
@@ -12,8 +12,8 @@ os.environ.setdefault("JWT_SECRET", "test-only-secret")
 
 from datetime import datetime, timedelta, timezone
 
-from billing.allocation import clamp_to_pool, effective_allocations, exceeds_cap
-from billing.plans import SUBSCRIPTION_PERIOD_DAYS, free_window
+from services.billing.allocation import clamp_to_pool, effective_allocations, exceeds_cap
+from services.billing.plans import SUBSCRIPTION_PERIOD_DAYS, free_window
 
 
 class ExceedsCapTest(unittest.TestCase):

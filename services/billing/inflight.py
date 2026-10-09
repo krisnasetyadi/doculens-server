@@ -1,4 +1,4 @@
-# billing/inflight.py
+# services/billing/inflight.py
 """Workspace locks and in-flight token reservations around LLM calls."""
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 import db
-from billing.plans import resolve_admin_user_id
+from services.billing.plans import resolve_admin_user_id
 from router.auth import UserRecord
 
 

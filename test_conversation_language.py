@@ -23,7 +23,7 @@ from conversation.language import detect_reply_language, detect_text_language
 from conversation.messages import internal_refusal, no_source_selected
 from processor import processor, OFF_TOPIC_REDIRECT_EN, OFF_TOPIC_REDIRECT_ID
 import db
-from billing import allocation, enforcement, inflight, plans
+from services.billing import allocation, enforcement, inflight, plans
 from router import agnostic, payment
 from router.auth import get_current_user, UserRecord
 
@@ -531,7 +531,7 @@ class AgnosticEndpointTests(unittest.TestCase):
 
 class InFlightReservationTests(unittest.TestCase):
     """The workspace lock is held only for the quota check; the LLM call
-    runs outside it, guarded by in-flight reservations (billing/inflight.py)."""
+    runs outside it, guarded by in-flight reservations (services/billing/inflight.py)."""
 
     def tearDown(self):
         inflight._in_flight_workspace_tokens.clear()

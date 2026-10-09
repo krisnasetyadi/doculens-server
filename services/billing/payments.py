@@ -1,4 +1,4 @@
-# billing/payments.py
+# services/billing/payments.py
 """Stripe Checkout (test mode, one-time payment — MS-90) and the payments table."""
 
 from __future__ import annotations
@@ -12,8 +12,8 @@ from fastapi import HTTPException
 
 import app_db
 import db
-from billing.allocation import build_subscription_usage
-from billing.plans import PLAN_PRICES, get_latest_plan_window
+from services.billing.allocation import build_subscription_usage
+from services.billing.plans import PLAN_PRICES, get_latest_plan_window
 from config import config
 from models import (
     CheckoutSessionResponse,

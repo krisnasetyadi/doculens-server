@@ -1,4 +1,4 @@
-# billing/plans.py
+# services/billing/plans.py
 """Plans, prices and the subscription period a workspace is in."""
 
 from __future__ import annotations

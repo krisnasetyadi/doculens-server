@@ -1,4 +1,4 @@
-# billing/allocation.py
+# services/billing/allocation.py
 """Per-member token allocations carved out of the workspace pool (MS-248, MS-402)."""
 
 from __future__ import annotations
@@ -11,11 +11,11 @@ from fastapi import HTTPException
 
 import app_db
 import db
-from billing.ledger import sum_tokens_by_user, sum_tokens_for_admin, sum_tokens_for_user
-from billing.plans import (
+from services.billing.ledger import sum_tokens_by_user, sum_tokens_for_admin, sum_tokens_for_user
+from services.billing.plans import (
     PlanWindow, get_enforced_window, get_latest_plan_window, plan_includes_gap_check, resolve_admin_user_id,
 )
-from billing.quotas import (
+from services.billing.quotas import (
     build_quota_tiers, default_quota_limits, get_quota_configs, quota_windows_for_user, sum_tokens_for_windows,
 )
 from config import config

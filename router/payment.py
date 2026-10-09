@@ -1,12 +1,12 @@
 # router/payment.py
 """
-Routes for plans, token usage and payments under /payments. Each route reads
-the request and calls billing/ (see billing/__init__.py), where the rules,
-SQL and the Stripe calls live.
+Routes for plans, token usage and payments under /payments. Each route
+reads the request and calls services/billing/ (see its __init__.py), where
+the rules, SQL and the Stripe calls live.
 
 Payments are a dummy/test-mode Stripe Checkout flow (MS-90): one-time
-payments, prices defined server-side in billing/plans.py and never trusted
-from the client.
+payments, prices defined server-side in services/billing/plans.py and never
+trusted from the client.
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from billing import allocation, ledger, payments, plans, token_requests
+from services.billing import allocation, ledger, payments, plans, token_requests
 from router.auth import get_current_user, require_role, UserRecord
 from models import (
     CreateCheckoutSessionRequest,

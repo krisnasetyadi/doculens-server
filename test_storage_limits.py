@@ -21,7 +21,7 @@ import storage_limits
 from config import config
 from processor import processor
 import db
-from billing import plans
+from services.billing import plans
 from router import chat, payment, upload
 from router.auth import get_current_user, UserRecord
 from storage_limits import GB, MB, StorageLimits

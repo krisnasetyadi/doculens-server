@@ -1,6 +1,8 @@
 # Scope
 FastAPI backend for DocuLens (hybrid BM25+FAISS RAG). Routers live in `router/`, one file per domain, all mounted under `/api/v1` in `main.py`.
 
+A router file only holds routes: read the request, call a function in `services/<domain>` (e.g. `services/billing/`), return the response. Rules, SQL and outside calls (Stripe, ...) go in `services/`, never in `router/` and never as new top-level modules in the repo root. Table creation lives in `schema/<domain>.py` and runs once at startup. Get database connections only from `db.get_conn()`.
+
 # Route Convention
 Every domain gets exactly ONE base path — list/create/delete/activate/upload/etc. are sub-paths under that one prefix, not scattered across different prefixes:
 

@@ -36,10 +36,10 @@ import storage as supabase_storage
 from router.auth import get_current_user, UserRecord
 from router.public_links import resolve_active_public_link_sources
 from router.database_connections import resolve_active_database_connections
-from billing.allocation import get_usage_snapshot
-from billing.enforcement import enforce_member_allocation, enforce_plan_limit
-from billing.inflight import begin_in_flight, end_in_flight, get_workspace_lock, in_flight_tokens, resolve_workspace_id
-from billing.ledger import enforce_rate_limit, log_token_usage
+from services.billing.allocation import get_usage_snapshot
+from services.billing.enforcement import enforce_member_allocation, enforce_plan_limit
+from services.billing.inflight import begin_in_flight, end_in_flight, get_workspace_lock, in_flight_tokens, resolve_workspace_id
+from services.billing.ledger import enforce_rate_limit, log_token_usage
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["agnostic"])
@@ -331,7 +331,7 @@ async def agnostic_query(
         # registers this request's in-flight reservation, which every later
         # check counts as already spent, so the LLM call itself can run
         # outside the lock in parallel with other members' — see
-        # billing.inflight.begin_in_flight for why this replaced holding the lock
+        # services.billing.inflight.begin_in_flight for why this replaced holding the lock
         # through the whole call.
         workspace_id = await asyncio.to_thread(resolve_workspace_id, user)
         async with get_workspace_lock(workspace_id):
