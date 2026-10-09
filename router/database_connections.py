@@ -9,7 +9,8 @@ import uuid
 
 import app_db
 import db
-from router.auth import require_role, UserRecord
+from models import UserRecord
+from services.auth import require_role
 
 from models import (
     CreateDatabaseConnectionRequest,

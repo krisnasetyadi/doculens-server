@@ -20,7 +20,8 @@ from models import GapAnalysisRequest, GapAnalysisResponse, GapAnalysisRun, GapA
 from config import config
 from processor import processor
 import storage as supabase_storage
-from router.auth import get_current_user, UserRecord
+from models import UserRecord
+from services.auth import get_current_user
 from services.billing.enforcement import enforce_gap_check_plan, enforce_member_allocation, enforce_plan_limit
 from services.billing.inflight import begin_in_flight, end_in_flight, get_workspace_lock, in_flight_tokens, resolve_workspace_id
 from services.billing.ledger import enforce_rate_limit, log_token_usage

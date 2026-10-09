@@ -21,7 +21,8 @@ from reportlab.pdfgen import canvas
 
 from config import config
 from processor import processor
-from router.auth import get_current_user, UserRecord
+from models import UserRecord
+from services.auth import get_current_user
 from router import upload, chat
 from upload_progress import progress_response, upload_progress_store, _UploadProgressStore
 

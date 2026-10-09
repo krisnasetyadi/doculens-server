@@ -1,5 +1,5 @@
-"""MS-657: behaviour of authentication and team management (router/auth.py)
-against real SQL, recorded before it is moved. Real tokens go through
+"""MS-657: behaviour of authentication and team management (router/ +
+services/auth.py) against real SQL, recorded before it is moved. Real tokens go through
 get_current_user, no dependency overrides. Runs in a throwaway schema
 (testing_db); skipped when no database is reachable."""
 
@@ -13,6 +13,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from router import auth
+from services import auth as auth_service
 from testing_db import IsolatedSchemaTestCase
 
 PASSWORD = "correct-horse-1"
@@ -27,7 +28,7 @@ class AuthTestCase(IsolatedSchemaTestCase):
         cls.http = TestClient(app)
 
     def setUp(self):
-        auth._failed_login_attempts.clear()
+        auth_service._failed_login_attempts.clear()
 
     def email(self):
         return f"u{uuid.uuid4().hex[:8]}@example.com"
@@ -81,7 +82,7 @@ class RegisterLoginTest(AuthTestCase):
     def test_failed_logins_are_rate_limited(self):
         email = self.email()
         self.http.post("/api/v1/auth/register", json={"email": email, "password": PASSWORD})
-        for _ in range(auth.LOGIN_ATTEMPT_LIMIT):
+        for _ in range(auth_service.LOGIN_ATTEMPT_LIMIT):
             self.assertEqual(self.login(email, "wrong-password").status_code, 401)
         self.assertEqual(self.login(email).status_code, 429)  # even the right password, until the window passes
 

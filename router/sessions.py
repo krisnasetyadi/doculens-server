@@ -15,7 +15,8 @@ from models import (
     SessionSummary,
     UpsertSessionRequest,
 )
-from router.auth import get_current_user, UserRecord
+from models import UserRecord
+from services.auth import get_current_user
 from services import sessions
 from services.sessions import PAGE_SIZE_DEFAULT
 

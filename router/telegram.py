@@ -66,7 +66,8 @@ from models import (
 )
 from chat_ingest import ingest_chat_messages
 from telegram_crypto import encrypt_secret, decrypt_secret
-from router.auth import require_role, UserRecord
+from models import UserRecord
+from services.auth import require_role
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

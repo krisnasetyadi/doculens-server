@@ -25,7 +25,8 @@ from processor import processor, OFF_TOPIC_REDIRECT_EN, OFF_TOPIC_REDIRECT_ID
 import db
 from services.billing import allocation, enforcement, inflight, plans
 from router import agnostic, payment
-from router.auth import get_current_user, UserRecord
+from models import UserRecord
+from services.auth import get_current_user
 
 
 class FakeLLMResult:

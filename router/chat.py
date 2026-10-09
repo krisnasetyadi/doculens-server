@@ -21,7 +21,8 @@ from chat_parser import ChatParser
 from text_source_preview import read_text_source_page
 from chat_ingest import ingest_chat_messages
 from processor import processor
-from router.auth import require_role, UserRecord
+from models import UserRecord
+from services.auth import require_role
 from services.billing.plans import resolve_storage_limits
 from upload_progress import ProgressCallback, progress_response, upload_progress_store
 

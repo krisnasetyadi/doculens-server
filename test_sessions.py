@@ -14,7 +14,8 @@ from fastapi.testclient import TestClient
 
 from router import sessions
 from services import sessions as session_service
-from router.auth import UserRecord, get_current_user
+from models import UserRecord
+from services.auth import get_current_user
 from testing_db import IsolatedSchemaTestCase
 
 T0 = datetime(2026, 1, 1, tzinfo=timezone.utc)

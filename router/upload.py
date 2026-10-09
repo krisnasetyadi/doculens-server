@@ -7,7 +7,8 @@ import os
 import shutil
 import uuid
 import re
-from router.auth import get_current_user, UserRecord
+from models import UserRecord
+from services.auth import get_current_user
 from html import unescape
 from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse

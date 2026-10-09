@@ -11,7 +11,8 @@ from html import unescape
 import httpx
 import db
 from ssrf_guard import assert_public_url_safe
-from router.auth import get_current_user, UserRecord
+from models import UserRecord
+from services.auth import get_current_user
 
 from models import (
     CreatePublicLinkRequest,

@@ -9,7 +9,7 @@ from typing import Optional
 
 import db
 from services.billing.plans import resolve_admin_user_id
-from router.auth import UserRecord
+from models import UserRecord
 
 
 # Serializes a workspace's check-work-log cycle across enforce_rate_limit /

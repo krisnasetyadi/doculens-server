@@ -17,7 +17,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from services.billing import allocation, ledger, payments, plans, token_requests
-from router.auth import get_current_user, require_role, UserRecord
+from models import UserRecord
+from services.auth import get_current_user, require_role
 from models import (
     CreateCheckoutSessionRequest,
     CheckoutSessionResponse,

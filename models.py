@@ -1,5 +1,5 @@
 # models.py
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Optional, Dict, Any, Union
 from enum import Enum
 from datetime import datetime
@@ -837,3 +837,174 @@ class SessionQuestionsResponse(BaseModel):
 
 class RenameSessionRequest(BaseModel):
     title: str
+
+
+# ---------------------------------------------------------------------------
+# Auth (router/auth.py)
+# ---------------------------------------------------------------------------
+
+PASSWORD_MAX_BYTES = 72  # bcrypt hard limit
+
+def _validate_password_length(v: str) -> str:
+    if len(v.encode("utf-8")) > PASSWORD_MAX_BYTES:
+        raise ValueError(f"Password must be at most {PASSWORD_MAX_BYTES} bytes long")
+    return v
+
+
+EMAIL_MAX_LENGTH = 50
+NEW_MEMBER_PASSWORD_MIN_LENGTH = 8
+NEW_MEMBER_PASSWORD_MAX_LENGTH = 50
+
+
+def _validate_new_member_email(v: str) -> str:
+    if len(v) > EMAIL_MAX_LENGTH:
+        raise ValueError(f"Email must be at most {EMAIL_MAX_LENGTH} characters")
+    return v
+
+
+def _validate_new_member_password(v: str) -> str:
+    if len(v) < NEW_MEMBER_PASSWORD_MIN_LENGTH:
+        raise ValueError(f"Password must be at least {NEW_MEMBER_PASSWORD_MIN_LENGTH} characters")
+    if len(v) > NEW_MEMBER_PASSWORD_MAX_LENGTH:
+        raise ValueError(f"Password must be at most {NEW_MEMBER_PASSWORD_MAX_LENGTH} characters")
+    return _validate_password_length(v)
+
+
+NAME_MAX_LENGTH = 100
+
+
+def _validate_name(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+    v = v.strip()
+    if not v:
+        raise ValueError("Name cannot be empty")
+    if len(v) > NAME_MAX_LENGTH:
+        raise ValueError(f"Name must be at most {NAME_MAX_LENGTH} characters")
+    return v
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        return _validate_password_length(v)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_name(v)
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
+    email: str
+    role: str
+    name: Optional[str] = None
+
+class UserRecord(BaseModel):
+    user_id: str
+    email: str
+    role: str
+    is_active: bool
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    remove_avatar: bool = False  # explicit signal to clear avatar_url — None on avatar_url just means "leave as-is"
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_name(v)
+
+    @field_validator("avatar_url")
+    @classmethod
+    def validate_avatar_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not v.startswith("data:image/"):
+            raise ValueError("Avatar must be an image data URL")
+        if len(v) > 500_000:
+            raise ValueError("Avatar image is too large")
+        return v
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        return _validate_password_length(v)
+
+class AdminResetRequest(BaseModel):
+    user_id: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        return _validate_password_length(v)
+
+
+class AdminCreateUserRequest(BaseModel):
+    email: EmailStr
+    password: str
+    # MS-402: optional custom token cap; omitted -> the workspace's Default
+    # Token Allocation (services/billing/allocation.py::assign_initial_allocation).
+    allocated_tokens: Optional[int] = Field(default=None, ge=0)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        return _validate_new_member_email(v)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        return _validate_new_member_password(v)
+
+
+class AdminUserStatusRequest(BaseModel):
+    user_id: str
+    active: bool
+
+
+class AdminUpdateUserRequest(BaseModel):
+    name: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_name(v) if v is not None else v
+
+
+class TeamMember(BaseModel):
+    user_id: str
+    email: str
+    role: str
+    is_active: bool
+    name: Optional[str] = None
+    created_at: datetime
+    # MS-402: only set on the create response, so the admin UI can land on
+    # this member's Token Settings with the value that was actually granted
+    # (allocation_clamped = reduced to fit what was left of the pool).
+    allocated_tokens: Optional[int] = None
+    allocation_clamped: bool = False
+
+
+class TeamMembersResponse(BaseModel):
+    members: list[TeamMember]
+    max_sub_users: int

@@ -25,7 +25,7 @@ from models import (
     StoredMessage,
     UpsertSessionRequest,
 )
-from router.auth import UserRecord
+from models import UserRecord
 
 logger = logging.getLogger(__name__)
 

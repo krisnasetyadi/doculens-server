@@ -33,7 +33,8 @@ from conversation.language import ReplyLanguage, detect_reply_language
 from conversation.messages import internal_refusal, no_source_selected
 from processor import processor
 import storage as supabase_storage
-from router.auth import get_current_user, UserRecord
+from models import UserRecord
+from services.auth import get_current_user
 from router.public_links import resolve_active_public_link_sources
 from router.database_connections import resolve_active_database_connections
 from services.billing.allocation import get_usage_snapshot

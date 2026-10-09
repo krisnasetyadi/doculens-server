@@ -13,7 +13,7 @@ import db
 import storage_limits
 from config import config
 from models import StorageUsageResponse
-from router.auth import UserRecord
+from models import UserRecord
 
 
 # amount is already in Stripe's minor unit for IDR (Rupiah x 100) — IDR is a

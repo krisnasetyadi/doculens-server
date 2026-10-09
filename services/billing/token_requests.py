@@ -16,7 +16,7 @@ from models import (
     TokenRequestResponse,
     TokenRequestsResponse,
 )
-from router.auth import UserRecord
+from models import UserRecord
 
 
 def request_more_tokens(body: CreateTokenRequestRequest, user: UserRecord):

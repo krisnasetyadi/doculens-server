@@ -17,7 +17,8 @@ from fastapi.testclient import TestClient
 from config import config
 from services.billing import allocation, enforcement, inflight, ledger, plans, quotas
 from router import payment
-from router.auth import UserRecord, get_current_user
+from models import UserRecord
+from services.auth import get_current_user
 from testing_db import IsolatedSchemaTestCase
 
 FREE_LIMIT = config.free_plan_token_limit

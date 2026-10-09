@@ -23,7 +23,8 @@ from processor import processor
 import db
 from services.billing import plans
 from router import chat, payment, upload
-from router.auth import get_current_user, UserRecord
+from models import UserRecord
+from services.auth import get_current_user
 from storage_limits import GB, MB, StorageLimits
 from upload_progress import upload_progress_store
 

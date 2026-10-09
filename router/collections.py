@@ -12,7 +12,8 @@ from utils import (
     extract_text_from_txt,
 )
 import storage as supabase_storage
-from router.auth import get_current_user, UserRecord
+from models import UserRecord
+from services.auth import get_current_user
 import os
 import shutil
 import tempfile

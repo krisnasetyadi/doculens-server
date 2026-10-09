@@ -19,7 +19,8 @@ import uuid
 
 from models import Folder, FolderCreate, FolderRename
 import storage as supabase_storage
-from router.auth import get_current_user, UserRecord
+from models import UserRecord
+from services.auth import get_current_user
 
 router = APIRouter()
 
