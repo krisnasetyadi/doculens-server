@@ -3,6 +3,23 @@ FastAPI backend for DocuLens (hybrid BM25+FAISS RAG). Routers live in `router/`,
 
 A router file only holds routes: read the request, call a function in `services/<domain>` (e.g. `services/billing/`), return the response. Rules, SQL and outside calls (Stripe, ...) go in `services/`, never in `router/` and never as new top-level modules in the repo root. Table creation lives in `schema/<domain>.py` and runs once at startup. Get database connections only from `db.get_conn()`.
 
+Layout — the repo root holds only `main.py`, `config.py`, `models.py` and `db.py`:
+
+```
+router/              routes only, one file per domain
+schema/              table creation, run once at startup
+services/<domain>.py one module per API domain (auth, sessions, upload, chat, collections, telegram, ...)
+services/billing/    plans, quotas, ledger, allocation, Stripe payments
+services/rag/        the RAG engine: processor.py composes one mixin per concern (routing, indexes,
+                     document/chat/public-link/structured-data search, hybrid, answer, llm, gap_check);
+                     conversation/, efficient_mode/, index_cache.py (memory cap for loaded indexes)
+services/storage/    supabase.py (Storage + collection/folder/skill/run rows), limits.py, app_db.py
+services/ingest/     documents.py (text extractors, indexing), chat_parser.py, chat_ingest.py, progress.py
+services/security/   ssrf_guard.py, telegram_crypto.py
+tests/               run from the repo root: python -m unittest discover -s tests -t .
+scripts/  migrations/
+```
+
 # Route Convention
 Every domain gets exactly ONE base path — list/create/delete/activate/upload/etc. are sub-paths under that one prefix, not scattered across different prefixes:
 
