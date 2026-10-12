@@ -328,7 +328,7 @@ def _register_uploaded_collection(
 
     if supabase_storage.has_database():
         index_dir = os.path.join(config.index_folder, collection_id)
-        supabase_storage.register_collection(
+        registered = supabase_storage.register_collection(
             collection_id=collection_id,
             file_names=file_names,
             chunk_count=chunk_count,
@@ -337,6 +337,10 @@ def _register_uploaded_collection(
             owner_id=owner_id,
             size_bytes=size_bytes,
         )
+        # Collections are listed (and storage is counted) from this row, so
+        # without it the upload would look done but never show up.
+        if not registered:
+            raise HTTPException(status_code=500, detail="Failed to save the collection")
         logger.info("Collection %s registered in Supabase DB", collection_id)
     elif persist_mode == "database":
         raise HTTPException(
@@ -348,7 +352,8 @@ def _register_uploaded_collection(
 
 
 def _cleanup_local_artifacts(collection_id: str, collection_path: str):
-    """Remove local upload + index artifacts after successful remote persistence."""
+    """Remove local upload + index artifacts, after successful remote
+    persistence or after an upload that failed."""
     try:
         shutil.rmtree(collection_path, ignore_errors=True)
         index_dir = os.path.join(config.index_folder, collection_id)
@@ -468,7 +473,7 @@ async def upload_files(
             file_names.append(safe_name)
     except BaseException:
         reservation.release()
-        shutil.rmtree(collection_path, ignore_errors=True)
+        _cleanup_local_artifacts(collection_id, collection_path)
         raise
 
     def prepare(report: ProgressCallback) -> dict:
@@ -476,12 +481,10 @@ async def upload_files(
             try:
                 chunk_count = process_pdfs(saved_files, collection_id, on_progress=report)
             except Exception as e:
-                shutil.rmtree(collection_path, ignore_errors=True)
                 logger.error(f"Upload failed: {str(e)}")
                 raise HTTPException(status_code=500, detail="Failed to process PDFs")
 
             if chunk_count <= 0:
-                shutil.rmtree(collection_path, ignore_errors=True)
                 raise HTTPException(
                     status_code=400,
                     detail="No readable text was found in the uploaded file(s) — the collection was not created.",
@@ -508,6 +511,9 @@ async def upload_files(
                 "status": "success",
                 "file_names": file_names,
             }
+        except BaseException:
+            _cleanup_local_artifacts(collection_id, collection_path)
+            raise
         finally:
             # The registered row counts towards usage from here on, or the
             # upload failed and its space is free again.
@@ -575,17 +581,17 @@ async def upload_from_url(
             title=collection_title,
         )
     except HTTPException:
-        shutil.rmtree(collection_path, ignore_errors=True)
+        _cleanup_local_artifacts(collection_id, collection_path)
         raise
     except httpx.HTTPError as exc:
-        shutil.rmtree(collection_path, ignore_errors=True)
+        _cleanup_local_artifacts(collection_id, collection_path)
         logger.error("Remote upload failed for %s: %s", source_url, exc)
         raise HTTPException(
             status_code=400,
             detail="Unable to download the remote PDF. Check that the link is public and accessible.",
         )
     except Exception as exc:
-        shutil.rmtree(collection_path, ignore_errors=True)
+        _cleanup_local_artifacts(collection_id, collection_path)
         logger.error("Remote PDF processing failed for %s: %s", source_url, exc)
         raise HTTPException(status_code=500, detail="Failed to process remote PDF")
     finally:
@@ -666,10 +672,10 @@ async def upload_from_urls(
             title=collection_title,
         )
     except HTTPException:
-        shutil.rmtree(collection_path, ignore_errors=True)
+        _cleanup_local_artifacts(collection_id, collection_path)
         raise
     except Exception as exc:
-        shutil.rmtree(collection_path, ignore_errors=True)
+        _cleanup_local_artifacts(collection_id, collection_path)
         logger.error("Remote PDFs processing failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to process selected remote PDFs")
     finally:

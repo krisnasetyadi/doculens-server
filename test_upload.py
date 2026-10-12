@@ -79,6 +79,7 @@ class UploadTestCase(IsolatedSchemaTestCase):
             (directory / name).mkdir()
             self.stack.enter_context(patch.object(config, name, str(directory / name)))
         self.upload_dir = directory / "upload_folder"
+        self.index_dir = directory / "index_folder"
 
         # url -> httpx.Response (or an exception to raise); every request is recorded
         self.remote: dict = {}
@@ -138,10 +139,12 @@ class FileUploadTest(UploadTestCase):
         self.assertEqual(body["status"], "success")
         self.assertIsNone(self.collection_row(body["collection_id"]))
 
-    def test_database_mode_needs_supabase_storage(self):
+    def test_database_mode_needs_supabase_storage_and_leaves_nothing(self):
         resp = self.upload_files(("report.pdf", pdf_bytes()), persist_mode="database")
         self.assertEqual(resp.status_code, 503)
         self.assertEqual(self.sql("SELECT * FROM collections WHERE owner_id = %s", (self.user_id,)), [])
+        self.assertEqual(list(self.upload_dir.iterdir()), [])
+        self.assertEqual(list(self.index_dir.iterdir()), [])
 
     def test_unsupported_files_only_are_refused(self):
         resp = self.upload_files(("tool.exe", b"MZ"), ("image.png", b"\x89PNG"))
@@ -258,6 +261,54 @@ class DriveFolderItemsTest(UploadTestCase):
         resp = self.list_items("https://drive.google.com/drive/folders/PRIVATE")
         self.assertEqual(resp.status_code, 400)
         self.assertIn("Ensure the folder is public", resp.json()["detail"])
+
+
+class RegistrationFailureTest(UploadTestCase):
+    """With a database configured the collection list is read from it, so an
+    upload whose row could not be saved must not be reported as a success."""
+
+    def setUp(self):
+        super().setUp()
+        failing = patch.object(storage, "register_collection", return_value=False)
+        failing.start()
+        self.addCleanup(failing.stop)
+
+    def assert_refused_and_nothing_left(self, resp):
+        self.assertEqual(resp.status_code, 500, resp.text)
+        self.assertEqual(resp.json()["detail"], "Failed to save the collection")
+        self.assertEqual(list(self.upload_dir.iterdir()), [])
+        self.assertEqual(list(self.index_dir.iterdir()), [])
+        self.assertEqual(storage_limits._reservations.get(self.user_id, {}), {})
+
+    def test_file_upload(self):
+        self.assert_refused_and_nothing_left(self.upload_files(("report.pdf", pdf_bytes())))
+
+    def test_upload_from_url(self):
+        self.serve_pdf("https://example.com/a.pdf")
+        self.assert_refused_and_nothing_left(self.http.post(
+            "/api/v1/pdf-collections/upload-from-url", json={"url": "https://example.com/a.pdf"}))
+
+    def test_upload_from_urls(self):
+        self.serve_pdf("https://example.com/a.pdf")
+        self.assert_refused_and_nothing_left(self.http.post(
+            "/api/v1/pdf-collections/upload-from-urls", json={"urls": ["https://example.com/a.pdf"]}))
+
+
+class RegisterCollectionTest(unittest.TestCase):
+    def test_the_connection_is_returned_when_the_insert_fails(self):
+        class BrokenConn:
+            closed = False
+
+            def cursor(self):
+                raise RuntimeError("insert failed")
+
+            def close(self):
+                self.closed = True
+
+        conn = BrokenConn()
+        with patch.object(storage.db, "get_conn", lambda source="": conn):
+            self.assertFalse(storage.register_collection("c1", ["a.pdf"], 1))
+        self.assertTrue(conn.closed)
 
 
 class FilenameTest(unittest.TestCase):

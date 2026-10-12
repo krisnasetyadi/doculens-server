@@ -448,12 +448,13 @@ def register_collection(
                     size_bytes    = GREATEST(EXCLUDED.size_bytes, collections.size_bytes),
                     updated_at    = now()
             """, (collection_id, title or "", file_names, chunk_count, storage_paths or [], owner_id, size_bytes))
-        conn.close()
         logger.info("Registered PDF collection: %s", collection_id)
         return True
     except Exception as e:
         logger.warning("register_collection failed: %s", e)
         return False
+    finally:
+        conn.close()
 
 
 def delete_collection_from_db(collection_id: str) -> bool:
