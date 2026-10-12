@@ -1,5 +1,6 @@
 """Tests for MS-657: app tables are ensured once at startup (schema.py), not per request."""
 
+import glob
 import os
 import re
 import unittest
@@ -68,9 +69,13 @@ class EnsureAllTest(unittest.TestCase):
         """Table creation runs from schema.ensure_all() only, never from a handler."""
         root = os.path.dirname(os.path.abspath(__file__))
         call = re.compile(r"^\s+((\w+\.)?(_ensure_\w+|ensure_schema)|(schema\.)?\w+\.ensure(_usage)?)\(")
-        for rel in ("router/auth.py", "router/sessions.py", "router/public_links.py",
-                    "router/database_connections.py", "router/payment.py", "router/telegram.py",
-                    "storage.py", "storage_limits.py"):
+        handlers = sorted(
+            os.path.relpath(path, root).replace(os.sep, "/")
+            for pattern in ("router/*.py", "services/**/*.py")
+            for path in glob.glob(os.path.join(root, pattern), recursive=True)
+        )
+        self.assertIn("services/telegram.py", handlers)
+        for rel in handlers + ["storage.py", "storage_limits.py"]:
             with open(os.path.join(root, rel), encoding="utf-8-sig") as f:
                 for lineno, line in enumerate(f, 1):
                     if call.match(line):

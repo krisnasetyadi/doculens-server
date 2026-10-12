@@ -505,7 +505,7 @@ class SetChatCollectionActiveRequest(BaseModel):
 
 # ===================== TELEGRAM MODELS =====================
 # Live connection (Telethon/MTProto login), not a file upload — see
-# router/telegram.py. A connection holds one encrypted user session; a
+# services/telegram.py. A connection holds one encrypted user session; a
 # connection can have multiple "selected chats", each of which becomes its
 # own searchable ChatCollection (platform=telegram) once synced.
 

@@ -1,4 +1,4 @@
-"""MS-657: behaviour of Telegram connections (router/telegram.py) against real
+"""MS-657: behaviour of Telegram connections (router/ + services/telegram.py) against real
 SQL, recorded before it is moved: the connect flow (code, 2FA), listing and
 managing connections, listing dialogs and syncing chats into chat collections.
 Telethon is replaced by a fake client, embeddings are faked and Supabase
@@ -29,6 +29,7 @@ from config import config
 from models import UserRecord
 from processor import processor
 from router import telegram
+from services import telegram as telegram_service
 from services.auth import get_current_user
 from testing_db import IsolatedSchemaTestCase
 
@@ -152,7 +153,7 @@ class TelegramTestCase(IsolatedSchemaTestCase):
             (directory / name).mkdir()
             self.stack.enter_context(patch.object(config, name, str(directory / name)))
         self.chat_dir = directory / "chat_upload_folder"
-        self.stack.enter_context(patch.object(telegram, "_pending_logins", {}))
+        self.stack.enter_context(patch.object(telegram_service, "_pending_logins", {}))
         self.sql("DELETE FROM telegram_connections")
         self.role = "admin"
 
@@ -344,13 +345,13 @@ class HelperTest(unittest.TestCase):
     """Pure helpers; no database needed."""
 
     def test_phone_masking(self):
-        self.assertEqual(telegram._mask_phone("12345"), "1****")
-        self.assertEqual(telegram._mask_phone("1234567"), "1234*567")
-        self.assertEqual(telegram._mask_phone(PHONE), "+628*******890")
+        self.assertEqual(telegram_service._mask_phone("12345"), "1****")
+        self.assertEqual(telegram_service._mask_phone("1234567"), "1234*567")
+        self.assertEqual(telegram_service._mask_phone(PHONE), "+628*******890")
 
     def test_transcript_names(self):
-        self.assertEqual(telegram._telegram_transcript_name("  ...  ", 42), "telegram-42.txt")
-        self.assertEqual(len(telegram._telegram_transcript_name("x" * 200, 1)), len("telegram-.txt") + 80)
+        self.assertEqual(telegram_service._telegram_transcript_name("  ...  ", 42), "telegram-42.txt")
+        self.assertEqual(len(telegram_service._telegram_transcript_name("x" * 200, 1)), len("telegram-.txt") + 80)
 
 
 if __name__ == "__main__":

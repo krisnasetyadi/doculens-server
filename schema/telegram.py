@@ -1,5 +1,5 @@
 # schema/telegram.py
-"""Tables owned by router/telegram.py (moved here from it by MS-657)."""
+"""Tables used by services/telegram.py (moved here from router/telegram.py by MS-657)."""
 
 import logging
 

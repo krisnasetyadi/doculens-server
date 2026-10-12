@@ -5,7 +5,7 @@ ChatCollection: chunk -> extract keywords -> build FAISS index -> persist
 (disk + optionally Supabase Storage/DB).
 
 Used by both the WhatsApp file-upload flow (router/chat.py) and the
-Telegram live-sync flow (router/telegram.py), so the two paths can't drift
+Telegram live-sync flow (services/telegram.py), so the two paths can't drift
 apart — a Telegram-synced chat is searchable through the exact same code
 path as an uploaded WhatsApp export.
 """
