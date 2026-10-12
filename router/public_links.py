@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, status
 
 from models import (
     CreatePublicLinkRequest,
+    PublicLinkActiveResponse,
+    PublicLinkDeletedResponse,
     PublicLinkSource,
     PublicLinksResponse,
     SetPublicLinkActiveRequest,
@@ -32,7 +34,7 @@ async def create_public_link(
     return await public_links.create_public_link(body, user)
 
 
-@router.post("/public-links/activate")
+@router.post("/public-links/activate", response_model=PublicLinkActiveResponse)
 async def set_public_link_active(
     body: SetPublicLinkActiveRequest,
     user: UserRecord = Depends(get_current_user),
@@ -40,6 +42,6 @@ async def set_public_link_active(
     return await public_links.set_public_link_active(body, user)
 
 
-@router.delete("/public-links/{link_id}")
+@router.delete("/public-links/{link_id}", response_model=PublicLinkDeletedResponse)
 async def delete_public_link(link_id: str, user: UserRecord = Depends(get_current_user)):
     return await public_links.delete_public_link(link_id, user)

@@ -5,7 +5,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends
 
-from models import SkillCreate, SkillResponse, SkillUpdate, UserRecord
+from models import SkillCreate, SkillDeletedResponse, SkillResponse, SkillUpdate, UserRecord
 from services import skills as skill_service
 from services.auth import get_current_user
 
@@ -43,7 +43,7 @@ async def update_skill(
     return await skill_service.update_skill(skill_id, body, user)
 
 
-@router.delete("/skills/{skill_id}")
+@router.delete("/skills/{skill_id}", response_model=SkillDeletedResponse)
 async def delete_skill(skill_id: str, user: UserRecord = Depends(get_current_user)):
     """Owner-only hard delete, matching how collections and runs are removed."""
     return await skill_service.delete_skill(skill_id, user)

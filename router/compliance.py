@@ -5,7 +5,13 @@ from typing import List
 
 from fastapi import APIRouter, Depends, Query
 
-from models import GapAnalysisRequest, GapAnalysisResponse, GapAnalysisRun, UserRecord
+from models import (
+    GapAnalysisRequest,
+    GapAnalysisResponse,
+    GapAnalysisRun,
+    RunDeletedResponse,
+    UserRecord,
+)
 from services import compliance as compliance_service
 from services.auth import get_current_user
 
@@ -36,7 +42,7 @@ async def get_gap_analysis_run(run_id: str, user: UserRecord = Depends(get_curre
     return await compliance_service.get_run(run_id, user)
 
 
-@router.delete("/analysis/gap-analysis/{run_id}")
+@router.delete("/analysis/gap-analysis/{run_id}", response_model=RunDeletedResponse)
 async def delete_gap_analysis_run(run_id: str, user: UserRecord = Depends(get_current_user)):
     """Delete a stored run — runs never overwrite each other (each gets a
     fresh run_id), so this is the only way to remove one from history."""

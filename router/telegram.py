@@ -8,12 +8,14 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from models import (
+    ConnectionActiveResponse,
+    ConnectionDeletedResponse,
     SetTelegramConnectionActiveRequest,
-    TelegramConnectionsResponse,
     TelegramConnectStartRequest,
     TelegramConnectStartResponse,
     TelegramConnectVerifyRequest,
     TelegramConnectVerifyResponse,
+    TelegramConnectionsResponse,
     TelegramDialogsResponse,
     TelegramSyncRequest,
     TelegramSyncResponse,
@@ -63,7 +65,7 @@ async def sync_telegram_connection(
     return await telegram_service.sync_connection(connection_id, body)
 
 
-@router.post("/telegram-connections/activate")
+@router.post("/telegram-connections/activate", response_model=ConnectionActiveResponse)
 async def set_telegram_connection_active(
     body: SetTelegramConnectionActiveRequest,
     _: UserRecord = Depends(require_role("admin")),
@@ -71,7 +73,7 @@ async def set_telegram_connection_active(
     return await telegram_service.set_connection_active(body)
 
 
-@router.delete("/telegram-connections/{connection_id}")
+@router.delete("/telegram-connections/{connection_id}", response_model=ConnectionDeletedResponse)
 async def delete_telegram_connection(
     connection_id: str,
     _: UserRecord = Depends(require_role("admin")),

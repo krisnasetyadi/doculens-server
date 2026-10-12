@@ -27,11 +27,14 @@ from models import (
     AdminUserStatusRequest,
     ChangePasswordRequest,
     LoginRequest,
+    MessageResponse,
     RegisterRequest,
     TeamMember,
     TeamMembersResponse,
     TokenResponse,
     UpdateProfileRequest,
+    UserActiveResponse,
+    UserDeletedResponse,
     UserRecord,
 )
 from services import auth
@@ -73,7 +76,7 @@ async def update_profile(
     return auth.update_profile(body, user)
 
 
-@router.post("/auth/change-password", status_code=200)
+@router.post("/auth/change-password", status_code=200, response_model=MessageResponse)
 async def change_password(
     body: ChangePasswordRequest,
     user: UserRecord = Depends(get_current_user),
@@ -82,7 +85,7 @@ async def change_password(
     return auth.change_password(body, user)
 
 
-@router.post("/auth/admin/reset-password", status_code=200)
+@router.post("/auth/admin/reset-password", status_code=200, response_model=MessageResponse)
 async def admin_reset_password(
     body: AdminResetRequest,
     admin: UserRecord = Depends(require_role("admin")),
@@ -108,7 +111,7 @@ async def add_admin_user(
     return auth.add_admin_user(body, admin)
 
 
-@router.post("/auth/admin/users/activate")
+@router.post("/auth/admin/users/activate", response_model=UserActiveResponse)
 async def set_admin_user_status(
     body: AdminUserStatusRequest,
     admin: UserRecord = Depends(require_role("admin")),
@@ -132,7 +135,7 @@ async def update_admin_user(
     return auth.update_admin_user(user_id, body, admin)
 
 
-@router.delete("/auth/admin/users/{user_id}")
+@router.delete("/auth/admin/users/{user_id}", response_model=UserDeletedResponse)
 async def delete_admin_user(
     user_id: str,
     admin: UserRecord = Depends(require_role("admin")),

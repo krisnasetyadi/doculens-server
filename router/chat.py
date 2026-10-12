@@ -4,7 +4,18 @@ calls services/chat.py."""
 
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
-from models import ChatUploadResponse, MoveToFolderRequest, SetChatCollectionActiveRequest, UserRecord
+from models import (
+    ChatCollectionsResponse,
+    ChatMessagesResponse,
+    ChatPreviewResponse,
+    ChatUploadResponse,
+    CollectionActiveResponse,
+    CollectionDeletedResponse,
+    CollectionFolderResponse,
+    MoveToFolderRequest,
+    SetChatCollectionActiveRequest,
+    UserRecord,
+)
 from services import chat as chat_service
 from services.auth import require_role
 
@@ -33,13 +44,13 @@ async def upload_chat(
     return await chat_service.upload_chat(file, platform, user, stream_progress)
 
 
-@router.get('/chat-collections')
+@router.get('/chat-collections', response_model=ChatCollectionsResponse)
 async def list_chat_collections(_: UserRecord = Depends(require_role("admin"))):
     """List all available chat collections"""
     return await chat_service.list_chat_collections()
 
 
-@router.get('/chat-collections/{collection_id}/preview')
+@router.get('/chat-collections/{collection_id}/preview', response_model=ChatPreviewResponse)
 async def preview_chat_collection(
     collection_id: str,
     max_chars: int = Query(default=20000, ge=500, le=200000),
@@ -49,7 +60,7 @@ async def preview_chat_collection(
     return await chat_service.preview(collection_id, max_chars)
 
 
-@router.get('/chat-collections/{collection_id}/messages')
+@router.get('/chat-collections/{collection_id}/messages', response_model=ChatMessagesResponse)
 async def get_chat_collection_messages(
     collection_id: str,
     offset: int = Query(default=0, ge=0),
@@ -62,7 +73,7 @@ async def get_chat_collection_messages(
     return await chat_service.get_messages(collection_id, offset, limit)
 
 
-@router.post('/chat-collections/activate')
+@router.post('/chat-collections/activate', response_model=CollectionActiveResponse)
 async def set_chat_collection_active(
     body: SetChatCollectionActiveRequest,
     _: UserRecord = Depends(require_role("admin")),
@@ -71,7 +82,7 @@ async def set_chat_collection_active(
     return await chat_service.set_active(body)
 
 
-@router.post('/chat-collections/move-to-folder')
+@router.post('/chat-collections/move-to-folder', response_model=CollectionFolderResponse)
 async def move_chat_collection_to_folder(
     body: MoveToFolderRequest,
     _: UserRecord = Depends(require_role("admin")),
@@ -85,7 +96,7 @@ async def move_chat_collection_to_folder(
     return await chat_service.move_to_folder(body)
 
 
-@router.delete('/chat-collections/{collection_id}')
+@router.delete('/chat-collections/{collection_id}', response_model=CollectionDeletedResponse)
 async def delete_chat_collection(
     collection_id: str,
     _: UserRecord = Depends(require_role("admin")),

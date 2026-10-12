@@ -5,7 +5,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends
 
-from models import Folder, FolderCreate, FolderRename, UserRecord
+from models import Folder, FolderCreate, FolderDeletedResponse, FolderRename, UserRecord
 from services import folders as folder_service
 from services.auth import get_current_user
 
@@ -34,7 +34,7 @@ async def rename_folder(
     return await folder_service.rename_folder(folder_id, body, user)
 
 
-@router.delete("/source-folders/{folder_id}")
+@router.delete("/source-folders/{folder_id}", response_model=FolderDeletedResponse)
 async def delete_folder(folder_id: str, user: UserRecord = Depends(get_current_user)):
     """Owner-only delete. Direct child folders and sources move up one level."""
     return await folder_service.delete_folder(folder_id, user)

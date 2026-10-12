@@ -1096,3 +1096,152 @@ class AgnosticQueryResponse(BaseModel):
     # prompt/context to measure).
     efficiency:           Optional[Dict[str, Any]] = None
 
+
+
+# ===================== ROUTE RESPONSES (MS-657) =====================
+# Bodies these routes already returned as plain dicts, declared so OpenAPI
+# documents them and a field that goes missing fails instead of vanishing.
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+class UserActiveResponse(BaseModel):
+    status: str
+    user_id: str
+    active: bool
+
+
+class UserDeletedResponse(BaseModel):
+    status: str
+    user_id: str
+
+
+class CollectionActiveResponse(BaseModel):
+    status: str
+    collection_id: str
+    active: bool
+
+
+class CollectionFolderResponse(BaseModel):
+    status: str
+    collection_id: str
+    folder_id: Optional[str] = None
+
+
+class StatusMessageResponse(BaseModel):
+    status: str
+    message: str
+
+
+class CollectionDeletedResponse(BaseModel):
+    status: str
+    collection_id: str
+
+
+class TextLine(BaseModel):
+    line_number: int
+    content: str
+
+
+class TextContentResponse(BaseModel):
+    collection_id: str
+    file_name: str
+    total_lines: int
+    offset: int
+    limit: int
+    has_more: bool
+    lines: List[TextLine]
+
+
+class CollectionFile(BaseModel):
+    """created_at comes from the database row; size_bytes/modified_at from disk."""
+    file_name: str
+    url: str
+    created_at: Optional[Union[str, datetime]] = None
+    size_bytes: Optional[int] = None
+    modified_at: Optional[str] = None
+
+
+class CollectionFilesResponse(BaseModel):
+    collection_id: str
+    file_count: int
+    files: List[CollectionFile]
+
+
+class ChatCollectionsResponse(BaseModel):
+    collections: List[Dict[str, Any]]
+    count: int = 0
+
+
+class ChatPreviewResponse(BaseModel):
+    collection_id: str
+    file_name: str
+    content_preview: str
+    truncated: bool
+    max_chars: int
+
+
+class ChatMessagesResponse(BaseModel):
+    """WhatsApp sources fill `messages`; other text sources fill `lines`."""
+    collection_id: str
+    file_name: str
+    offset: int
+    limit: int
+    subtype: str
+    platform: str
+    total: int
+    has_more: bool
+    messages: List[Dict[str, Any]]
+    lines: List[TextLine]
+
+
+class RunDeletedResponse(BaseModel):
+    run_id: str
+    deleted: bool
+
+
+class FolderDeletedResponse(BaseModel):
+    folder_id: str
+    deleted: bool
+
+
+class SkillDeletedResponse(BaseModel):
+    skill_id: str
+    deleted: bool
+
+
+class SessionDeletedResponse(BaseModel):
+    status: str
+    session_id: str
+
+
+class ConnectionActiveResponse(BaseModel):
+    status: str
+    connection_id: str
+    active: bool
+
+
+class ConnectionDeletedResponse(BaseModel):
+    status: str
+    message: str
+    connection_id: str
+
+
+class PublicLinkActiveResponse(BaseModel):
+    status: str
+    link_id: str
+    active: bool
+
+
+class PublicLinkDeletedResponse(BaseModel):
+    status: str
+    message: str
+    link_id: str
+
+
+class AvailableModelsResponse(BaseModel):
+    default_provider: str
+    default_model: str
+    available_models: Dict[str, List[str]]
+    usage_hint: str

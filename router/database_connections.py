@@ -7,6 +7,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, status
 
 from models import (
+    ConnectionActiveResponse,
+    ConnectionDeletedResponse,
     CreateDatabaseConnectionRequest,
     DatabaseConnectionSource,
     DatabaseConnectionsResponse,
@@ -40,7 +42,7 @@ async def refresh_database_connection_tables(
     return await connection_service.refresh_tables(connection_id)
 
 
-@router.post("/database-connections/activate")
+@router.post("/database-connections/activate", response_model=ConnectionActiveResponse)
 async def set_database_connection_active(
     body: SetDatabaseConnectionActiveRequest,
     _: UserRecord = Depends(require_role("admin")),
@@ -48,7 +50,7 @@ async def set_database_connection_active(
     return await connection_service.set_connection_active(body)
 
 
-@router.delete("/database-connections/{connection_id}")
+@router.delete("/database-connections/{connection_id}", response_model=ConnectionDeletedResponse)
 async def delete_database_connection(
     connection_id: str,
     _: UserRecord = Depends(require_role("admin")),

@@ -10,6 +10,7 @@ from fastapi import APIRouter, Depends, Query
 
 from models import (
     RenameSessionRequest,
+    SessionDeletedResponse,
     SessionQuestionsResponse,
     SessionResponse,
     SessionSummary,
@@ -98,7 +99,7 @@ async def rename_session(
     return sessions.rename_session(session_id, body, user)
 
 
-@router.delete("/sessions/{session_id}")
+@router.delete("/sessions/{session_id}", response_model=SessionDeletedResponse)
 async def delete_session(session_id: str, user: UserRecord = Depends(get_current_user)):
     """Delete a session. Messages are cascade-deleted automatically."""
     return sessions.delete_session(session_id, user)

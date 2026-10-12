@@ -6,7 +6,17 @@ from typing import List
 
 from fastapi import APIRouter, Depends, Query
 
-from models import CollectionInfo, MoveToFolderRequest, SetPdfCollectionActiveRequest, UserRecord
+from models import (
+    CollectionActiveResponse,
+    CollectionFilesResponse,
+    CollectionFolderResponse,
+    CollectionInfo,
+    MoveToFolderRequest,
+    SetPdfCollectionActiveRequest,
+    StatusMessageResponse,
+    TextContentResponse,
+    UserRecord,
+)
 from services import collections as collection_service
 from services.auth import get_current_user
 
@@ -25,7 +35,7 @@ async def list_collections(user: UserRecord = Depends(get_current_user)):
     return await collection_service.list_collections(user)
 
 
-@router.post("/pdf-collections/activate")
+@router.post("/pdf-collections/activate", response_model=CollectionActiveResponse)
 async def set_pdf_collection_active(
     body: SetPdfCollectionActiveRequest,
     user: UserRecord = Depends(get_current_user),
@@ -34,7 +44,7 @@ async def set_pdf_collection_active(
     return await collection_service.set_collection_active(body, user)
 
 
-@router.post("/pdf-collections/move-to-folder")
+@router.post("/pdf-collections/move-to-folder", response_model=CollectionFolderResponse)
 async def move_pdf_collection_to_folder(
     body: MoveToFolderRequest,
     user: UserRecord = Depends(get_current_user),
@@ -44,7 +54,7 @@ async def move_pdf_collection_to_folder(
     return await collection_service.move_to_folder(body, user)
 
 
-@router.delete("/pdf-collections/{collection_id}")
+@router.delete("/pdf-collections/{collection_id}", response_model=StatusMessageResponse)
 async def delete_collection(collection_id: str, user: UserRecord = Depends(get_current_user)):
     """Delete a collection from Supabase Storage + DB and local disk."""
     return await collection_service.delete_collection(collection_id, user)
@@ -69,7 +79,7 @@ async def serve_pdf_file(
     return await collection_service.serve_file(collection_id, file_name, user)
 
 
-@router.get("/pdf-collections/{collection_id}/text-content")
+@router.get("/pdf-collections/{collection_id}/text-content", response_model=TextContentResponse)
 async def get_pdf_text_content(
     collection_id: str,
     file_name: str,
@@ -84,7 +94,7 @@ async def get_pdf_text_content(
     return await collection_service.get_text_content(collection_id, file_name, offset, limit, user)
 
 
-@router.get("/collection/{collection_id}/files")
+@router.get("/collection/{collection_id}/files", response_model=CollectionFilesResponse, response_model_exclude_unset=True)
 async def list_collection_files(
     collection_id: str,
     user: UserRecord = Depends(get_current_user),
