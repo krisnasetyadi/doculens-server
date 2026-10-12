@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from models import UserRecord
 from router import skills
 from services.auth import get_current_user
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 
 class SkillsTestCase(IsolatedSchemaTestCase):

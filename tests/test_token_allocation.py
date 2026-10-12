@@ -6,7 +6,7 @@ import os
 import sys
 import unittest
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # services.auth refuses to import without one; these tests never issue tokens.
 os.environ.setdefault("JWT_SECRET", "test-only-secret")
 

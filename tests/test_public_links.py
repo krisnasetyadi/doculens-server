@@ -20,7 +20,7 @@ from models import UserRecord
 from router import public_links
 from services import public_links as link_service
 from services.auth import get_current_user
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 FOLDER_URL = "https://drive.google.com/drive/folders/ROOTFOLDER"
 FOLDER_HTML = """

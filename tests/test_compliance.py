@@ -23,7 +23,7 @@ from router import compliance
 from services import compliance as compliance_service
 from services.auth import get_current_user
 from services.billing import inflight
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 ITEMS = [
     {"label": "A.5.1 Policies", "status": "met", "evidence": "Policy | approved\nyearly",

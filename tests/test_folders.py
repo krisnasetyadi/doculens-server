@@ -16,7 +16,7 @@ import storage
 from models import UserRecord
 from router import folders
 from services.auth import get_current_user
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 
 def user(role="user") -> UserRecord:

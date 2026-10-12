@@ -67,7 +67,7 @@ class EnsureAllTest(unittest.TestCase):
 
     def test_handlers_no_longer_create_tables(self):
         """Table creation runs from schema.ensure_all() only, never from a handler."""
-        root = os.path.dirname(os.path.abspath(__file__))
+        root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         call = re.compile(r"^\s+((\w+\.)?(_ensure_\w+|ensure_schema)|(schema\.)?\w+\.ensure(_usage)?)\(")
         handlers = sorted(
             os.path.relpath(path, root).replace(os.sep, "/")

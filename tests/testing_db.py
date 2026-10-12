@@ -1,4 +1,4 @@
-# testing_db.py
+# tests/testing_db.py
 """
 A throwaway PostgreSQL schema for tests that need the app's real SQL to run
 (MS-657: behaviour tests written before code is moved).

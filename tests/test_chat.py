@@ -26,7 +26,7 @@ from models import UserRecord
 from processor import processor
 from router import chat
 from services.auth import get_current_user
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 EXPORT = (
     "[2025-12-18 08:30:15] Sarah: Hello there, how are you doing today\n"

@@ -23,7 +23,7 @@ from models import UserRecord
 from router import database_connections
 from services import database_connections as connection_service
 from services.auth import get_current_user
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 # Built from parts: secret scanners flag any user:password@ URL literal, even a fake one.
 FAKE_PASSWORD = "not-a-real-password"

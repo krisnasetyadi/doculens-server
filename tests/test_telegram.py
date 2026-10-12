@@ -31,7 +31,7 @@ from processor import processor
 from router import telegram
 from services import telegram as telegram_service
 from services.auth import get_current_user
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 PHONE = "+6281234567890"
 

@@ -19,7 +19,7 @@ from services.billing import allocation, enforcement, inflight, ledger, plans, q
 from router import payment
 from models import UserRecord
 from services.auth import get_current_user
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 FREE_LIMIT = config.free_plan_token_limit
 

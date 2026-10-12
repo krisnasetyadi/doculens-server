@@ -22,7 +22,7 @@ from models import UserRecord
 from processor import processor
 from router import collections
 from services.auth import get_current_user
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 
 def user(role="user") -> UserRecord:

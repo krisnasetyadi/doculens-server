@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 
 from router import auth
 from services import auth as auth_service
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 PASSWORD = "correct-horse-1"
 

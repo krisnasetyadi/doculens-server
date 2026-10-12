@@ -31,7 +31,7 @@ from processor import processor
 from router import upload
 from services import upload as upload_service
 from services.auth import get_current_user
-from testing_db import IsolatedSchemaTestCase
+from tests.testing_db import IsolatedSchemaTestCase
 
 _real_getaddrinfo = socket.getaddrinfo
 _RealAsyncClient = httpx.AsyncClient
