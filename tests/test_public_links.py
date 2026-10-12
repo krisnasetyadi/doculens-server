@@ -116,6 +116,17 @@ class CreateTest(PublicLinksTestCase):
         self.assertEqual(self.sql("SELECT * FROM public_link_items WHERE url = %s", ("http://127.0.0.1/secret",)), [])
 
 
+class AtomicCreateTest(PublicLinksTestCase):
+    def test_a_failure_while_saving_items_leaves_no_link_behind(self):
+        who = user()
+        with patch.object(link_service, "_replace_items", side_effect=RuntimeError("insert failed")):
+            resp = self.create(who, url="https://example.com/", item_urls=["https://example.com/a.pdf"])
+        self.assertEqual(resp.status_code, 500)
+        self.assertEqual(self.sql("SELECT * FROM public_links WHERE user_id = %s", (who.user_id,)), [])
+        # the pooled connection is usable again afterwards
+        self.assertEqual(self.create(who, url="https://example.com/b").status_code, 201)
+
+
 class ManageTest(PublicLinksTestCase):
     def test_users_see_their_own_links_and_admins_see_all(self):
         alice, bob, admin = user(), user(), user("admin")

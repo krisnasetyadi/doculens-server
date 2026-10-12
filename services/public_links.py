@@ -436,6 +436,9 @@ async def create_public_link(body: CreatePublicLinkRequest, user: UserRecord):
         raise HTTPException(status_code=503, detail="Database unavailable")
 
     try:
+        # The link and its items are saved together or not at all; db.get_conn
+        # rolls back and restores autocommit when the connection goes back.
+        conn.autocommit = False
         with conn.cursor() as cur:
             cur.execute(
                 """
@@ -458,6 +461,7 @@ async def create_public_link(body: CreatePublicLinkRequest, user: UserRecord):
                 (link_id,),
             )
             items = cur.fetchall() or []
+        conn.commit()
 
         return PublicLinkSource(
             link_id=row["link_id"],
