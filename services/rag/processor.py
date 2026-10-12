@@ -7,6 +7,8 @@ import logging
 import threading
 from typing import Dict, Tuple
 
+from config import config
+from services.rag.index_cache import IndexCache
 from services.rag.routing import RoutingMixin
 from services.rag.indexes import IndexMixin
 from services.rag.document_search import DocumentSearchMixin
@@ -40,8 +42,13 @@ class PDFQAProcessor(
         self.llm = None
         self.tokenizer = None
         self.embeddings = None
-        self.vector_store_cache = {}
+        # Loaded FAISS indexes, PDF and chat ("chat_<id>"), within a memory
+        # budget; a BM25 index is dropped together with its collection's index.
         self.bm25_cache = {}
+        self.vector_store_cache = IndexCache(
+            config.index_cache_max_bytes,
+            on_evict=lambda key: self.bm25_cache.pop(key, None),
+        )
         # collection_id -> (time.monotonic() before which it's skipped,
         # consecutive failed loads); see get_vector_store.
         self._missing_vector_stores: Dict[str, Tuple[float, int]] = {}

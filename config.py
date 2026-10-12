@@ -289,6 +289,12 @@ class Config(BaseSettings):
     max_batch_files: int = Field(default=10)
     storage_quota_bytes: int = Field(default=5 * 1024 * 1024 * 1024)
 
+    # MS-657: memory budget for loaded search indexes (FAISS vectors, their
+    # chunk text, and the BM25 index built from it). Least recently used
+    # collections are dropped past this and reload from disk on their next
+    # query. A 1,000-chunk collection is roughly 3 MB.
+    index_cache_max_bytes: int = Field(default=512 * 1024 * 1024)
+
     @property
     def effective_rate_limit_window_hours(self) -> float:
         if self.rate_limit_window_minutes is not None:
