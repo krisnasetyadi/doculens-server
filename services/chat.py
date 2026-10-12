@@ -284,10 +284,12 @@ async def delete_chat_collection(collection_id: str):
     if cache_key in processor.vector_store_cache:
         del processor.vector_store_cache[cache_key]
 
+    deleted = False
+
     # Delete from Supabase (DB row + S3 objects)
     if supabase_storage.is_enabled() or supabase_storage.has_database():
         try:
-            supabase_storage.delete_chat_collection_from_db(collection_id)
+            deleted = supabase_storage.delete_chat_collection_from_db(collection_id)
         except Exception as e:
             logger.warning(f"Supabase delete failed for {collection_id}: {e}")
 
@@ -295,10 +297,14 @@ async def delete_chat_collection(collection_id: str):
     upload_path = os.path.join(config.chat_upload_folder, collection_id)
     if os.path.exists(upload_path):
         shutil.rmtree(upload_path)
+        deleted = True
 
     # Delete local index folder
     index_path = os.path.join(config.chat_index_folder, collection_id)
     if os.path.exists(index_path):
         shutil.rmtree(index_path)
+        deleted = True
 
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Chat collection not found")
     return {"status": "deleted", "collection_id": collection_id}

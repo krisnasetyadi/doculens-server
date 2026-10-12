@@ -81,11 +81,22 @@ async def ingest_chat_messages(
     # S3 must receive metadata from this build, not the previous sync.
     _save_collection_metadata(collection_id, collection_dict)
 
+    storage_paths: List[str] = []
     if supabase_storage.is_enabled():
         try:
             if raw_file_path and os.path.isfile(raw_file_path):
                 supabase_storage.upload_chat_file(collection_id, raw_file_path, file_name)
+                storage_paths = [f"chat-uploads/{collection_id}/{file_name}"]
             supabase_storage.upload_chat_index(collection_id, index_dir)
+            logger.info("Chat collection uploaded to Supabase Storage: %s", collection_id)
+        except Exception as exc:
+            logger.warning("Supabase Storage upload failed (disk fallback): %s", exc)
+
+    # The chat collection list reads the database whenever there is one, so
+    # the row is written even without Supabase Storage (it used to be
+    # skipped then, and the collection never showed up).
+    if supabase_storage.has_database():
+        try:
             supabase_storage.register_chat_collection(
                 collection_id=collection_id,
                 file_name=file_name,
@@ -94,15 +105,15 @@ async def ingest_chat_messages(
                 participants=participants,
                 date_range=date_range,
                 keywords=keywords,
-                storage_paths=[f"chat-uploads/{collection_id}/{file_name}"] if raw_file_path else [],
+                storage_paths=storage_paths,
                 owner_id=owner_id,
                 size_bytes=size_bytes,
             )
-            if on_progress:
-                on_progress("saving", 97)
-            logger.info("Chat collection synced to Supabase: %s", collection_id)
+            logger.info("Chat collection registered in the database: %s", collection_id)
         except Exception as exc:
-            logger.warning("Supabase sync failed (disk fallback): %s", exc)
+            logger.warning("Chat collection registration failed: %s", exc)
+    if on_progress:
+        on_progress("saving", 97)
 
     return collection
 

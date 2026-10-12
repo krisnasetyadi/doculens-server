@@ -1074,12 +1074,16 @@ def set_chat_collection_status(collection_id: str, active: bool) -> bool:
 
 
 def delete_chat_collection_from_db(collection_id: str) -> bool:
+    """True only when a chat collection row was actually deleted; storage
+    files are cleaned up either way."""
+    removed = False
     conn = db.get_conn("storage")
     if conn:
         try:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM collections WHERE collection_id = %s AND kind = 'chat'",
                             (collection_id,))
+                removed = cur.rowcount > 0
         except Exception as e:
             logger.warning("delete chat row failed: %s", e)
         finally:
@@ -1093,8 +1097,8 @@ def delete_chat_collection_from_db(collection_id: str) -> bool:
                     s3.delete_object(Bucket=bucket, Key=obj["Key"])
             except Exception as e:
                 logger.warning("Chat S3 delete failed (%s): %s", bucket, e)
-    logger.info("Deleted chat collection: %s", collection_id)
-    return True
+    logger.info("Deleted chat collection: %s (row existed: %s)", collection_id, removed)
+    return removed
 
 
 # ---------------------------------------------------------------------------

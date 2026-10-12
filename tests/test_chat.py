@@ -72,7 +72,7 @@ class ChatTestCase(IsolatedSchemaTestCase):
                               files={"file": (name, content.encode(), "text/plain")})
 
     def registered(self, collection_id=None):
-        """A chat collection row in the database (uploads only register one when S3 is on)."""
+        """A chat collection row in the database without uploading a file."""
         cid = collection_id or str(uuid.uuid4())
         self.assertTrue(storage.register_chat_collection(cid, "chat.txt", "whatsapp", 3, ["Budi", "Sarah"], None))
         return cid
@@ -91,6 +91,12 @@ class UploadTest(ChatTestCase):
         self.assertEqual((self.upload_dir / cid / "chat.txt").read_text(encoding="utf-8"), EXPORT)
         self.assertTrue((self.index_dir / cid / "metadata.json").exists())
 
+    def test_uploads_are_registered_in_the_database_without_supabase_storage(self):
+        cid = self.upload().json()["collection_id"]
+        row = storage.get_chat_collection(cid)
+        self.assertEqual((row["message_count"], sorted(row["participants"]), row["file_name"]),
+                         (3, ["Budi", "Sarah"], "chat.txt"))
+
     def test_bad_uploads(self):
         self.assertEqual(self.upload(platform="signal").status_code, 400)
         self.assertEqual(self.upload(name="chat.csv").status_code, 400)
@@ -100,16 +106,18 @@ class UploadTest(ChatTestCase):
 
 class ListTest(ChatTestCase):
     def test_disk_is_used_until_the_database_has_rows(self):
-        cid = self.upload().json()["collection_id"]
+        (self.index_dir / "old").mkdir()
+        (self.index_dir / "old" / "metadata.json").write_text(
+            json.dumps({"collection_id": "old", "message_count": 9}), encoding="utf-8")
         (self.index_dir / "half-built").mkdir()
         body = self.http.get("/api/v1/chat-collections").json()
         by_id = {c["collection_id"]: c for c in body["collections"]}
         self.assertEqual(body["count"], 2)
-        self.assertEqual((by_id[cid]["message_count"], by_id["half-built"]["status"]), (3, "no_metadata"))
+        self.assertEqual((by_id["old"]["message_count"], by_id["half-built"]["status"]), (9, "no_metadata"))
 
-        row = self.registered()
+        cid = self.upload().json()["collection_id"]
         body = self.http.get("/api/v1/chat-collections").json()
-        self.assertEqual(([c["collection_id"] for c in body["collections"]], body["count"]), ([row], 1))
+        self.assertEqual(([c["collection_id"] for c in body["collections"]], body["count"]), ([cid], 1))
 
 
 class ReadTest(ChatTestCase):
@@ -155,12 +163,14 @@ class ManageTest(ChatTestCase):
 
     def test_delete_removes_files_row_and_cache(self):
         cid = self.upload().json()["collection_id"]
-        self.registered(cid)
         processor.vector_store_cache[f"chat_{cid}"] = "index"
         self.assertEqual(self.http.delete(f"/api/v1/chat-collections/{cid}").json(), {"status": "deleted", "collection_id": cid})
         self.assertFalse((self.upload_dir / cid).exists() or (self.index_dir / cid).exists())
         self.assertNotIn(f"chat_{cid}", processor.vector_store_cache)
         self.assertIsNone(storage.get_chat_collection(cid))
+        self.assertEqual(self.http.delete(f"/api/v1/chat-collections/{cid}").status_code, 404)
+        self.assertEqual(self.http.delete("/api/v1/chat-collections/never-existed").status_code, 404)
+        self.assertEqual(self.http.delete(f"/api/v1/chat-collections/{self.registered()}").status_code, 200)
         self.role = "user"
         self.assertEqual(self.http.delete(f"/api/v1/chat-collections/{cid}").status_code, 403)
 
