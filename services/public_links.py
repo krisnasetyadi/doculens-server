@@ -407,11 +407,6 @@ async def create_public_link(body: CreatePublicLinkRequest, user: UserRecord):
     _validate_url(body.url)
     assert_public_url_safe(body.url)
 
-    conn = db.get_conn("public_links")
-    if not conn:
-        raise HTTPException(status_code=503, detail="Database unavailable")
-
-
     title = (body.title or "").strip() or _derive_title(body.url)
     link_id = str(uuid.uuid4())
     item_urls = body.item_urls or []
@@ -429,6 +424,17 @@ async def create_public_link(body: CreatePublicLinkRequest, user: UserRecord):
     else:
         extracted_items = await _extract_items_from_source(body.url)
 
+    # Check every item before writing anything, so a refused URL leaves no link behind.
+    dedup: Dict[str, Dict[str, str]] = {}
+    for item in extracted_items:
+        _validate_url(item["url"])
+        assert_public_url_safe(item["url"])
+        dedup[item["url"]] = item
+
+    conn = db.get_conn("public_links")
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -440,12 +446,6 @@ async def create_public_link(body: CreatePublicLinkRequest, user: UserRecord):
                 (link_id, user.user_id, None, title, body.url),
             )
             row = cur.fetchone()
-
-            dedup: Dict[str, Dict[str, str]] = {}
-            for item in extracted_items:
-                _validate_url(item["url"])
-                assert_public_url_safe(item["url"])
-                dedup[item["url"]] = item
             _replace_items(cur, link_id, list(dedup.values()))
 
             cur.execute(

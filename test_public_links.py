@@ -107,10 +107,12 @@ class CreateTest(PublicLinksTestCase):
         self.assertEqual(self.create(who, url="http://127.0.0.1/admin").status_code, 400)
         self.assertEqual(self.sql("SELECT * FROM public_links WHERE user_id = %s", (who.user_id,)), [])
 
-    def test_private_item_url_is_refused(self):
+    def test_private_item_url_is_refused_and_nothing_is_stored(self):
         who = user()
-        resp = self.create(who, url="https://example.com/", item_urls=["http://127.0.0.1/secret"])
-        self.assertNotEqual(resp.status_code, 201)
+        resp = self.create(who, url="https://example.com/",
+                           item_urls=["https://example.com/a.pdf", "http://127.0.0.1/secret"])
+        self.assertEqual(resp.status_code, 400)
+        self.assertEqual(self.sql("SELECT * FROM public_links WHERE user_id = %s", (who.user_id,)), [])
         self.assertEqual(self.sql("SELECT * FROM public_link_items WHERE url = %s", ("http://127.0.0.1/secret",)), [])
 
 
