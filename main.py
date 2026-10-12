@@ -8,6 +8,7 @@ import asyncio
 import os
 import logging
 from config import config
+from services import errors
 from services.rag.processor import processor
 
 logging.basicConfig(
@@ -22,6 +23,7 @@ app = FastAPI(
     description="API for querying PDF documents with natural language",
     version="1.0.0"
 )
+errors.register(app)
 
 app.add_middleware(
     CORSMiddleware,

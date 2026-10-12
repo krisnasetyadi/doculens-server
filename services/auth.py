@@ -274,7 +274,7 @@ def register(body: RegisterRequest):
         raise
     except Exception as e:
         logger.error("auth register error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Registration failed: {e}")
+        raise HTTPException(status_code=500, detail="Registration failed") from e
     finally:
         conn.close()
 
@@ -307,7 +307,7 @@ def login(body: LoginRequest, request: Request):
             row = cur.fetchone()
     except Exception as e:
         logger.error("auth login db error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Login failed: {e}")
+        raise HTTPException(status_code=500, detail="Login failed") from e
     finally:
         conn.close()
 
@@ -381,7 +381,7 @@ def update_profile(body: UpdateProfileRequest, user: UserRecord):
         raise
     except Exception as e:
         logger.error("update_profile error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update profile: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update profile") from e
     finally:
         conn.close()
 
@@ -410,7 +410,7 @@ def change_password(body: ChangePasswordRequest, user: UserRecord):
         raise
     except Exception as e:
         logger.error("change_password error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to change password: {e}")
+        raise HTTPException(status_code=500, detail="Failed to change password") from e
     finally:
         conn.close()
 
@@ -439,7 +439,7 @@ def admin_reset_password(body: AdminResetRequest, admin: UserRecord):
         raise
     except Exception as e:
         logger.error("admin_reset_password error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to reset password: {e}")
+        raise HTTPException(status_code=500, detail="Failed to reset password") from e
     finally:
         conn.close()
 
@@ -467,7 +467,7 @@ def list_admin_users(admin: UserRecord):
         raise
     except Exception as e:
         logger.error("list_admin_users error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to list team members: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list team members") from e
     finally:
         conn.close()
 
@@ -515,7 +515,7 @@ def add_admin_user(body: AdminCreateUserRequest, admin: UserRecord):
         raise
     except Exception as e:
         logger.error("add_admin_user error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to add team member: {e}")
+        raise HTTPException(status_code=500, detail="Failed to add team member") from e
     finally:
         conn.close()
 
@@ -542,7 +542,7 @@ def set_admin_user_status(body: AdminUserStatusRequest, admin: UserRecord):
         raise
     except Exception as e:
         logger.error("set_admin_user_status error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update team member: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update team member") from e
     finally:
         conn.close()
 
@@ -575,7 +575,7 @@ def update_admin_user(user_id: str, body: AdminUpdateUserRequest, admin: UserRec
         raise
     except Exception as e:
         logger.error("update_admin_user error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update team member: {e}")
+        raise HTTPException(status_code=500, detail="Failed to update team member") from e
     finally:
         conn.close()
 
@@ -602,6 +602,6 @@ def delete_admin_user(user_id: str, admin: UserRecord):
         raise
     except Exception as e:
         logger.error("delete_admin_user error: %s", e, exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to delete team member: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete team member") from e
     finally:
         conn.close()

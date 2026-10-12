@@ -127,8 +127,8 @@ async def list_collections(user: UserRecord):
         return collections
 
     except Exception as e:
-        logger.error("Failed to list collections: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to list collections: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to list collections") from e
 
 
 async def set_collection_active(body: SetPdfCollectionActiveRequest, user: UserRecord):
@@ -207,8 +207,8 @@ async def delete_collection(collection_id: str, user: UserRecord):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to delete collection: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to delete collection: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to delete collection") from e
 
 
 async def serve_file(collection_id: str, file_name: str, user: UserRecord):
@@ -288,8 +288,8 @@ async def serve_file(collection_id: str, file_name: str, user: UserRecord):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to serve file: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to serve file: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to serve file") from e
 
 
 async def get_text_content(collection_id: str, file_name: str, offset: int, limit: int, user: UserRecord):
@@ -407,5 +407,5 @@ async def list_files(collection_id: str, user: UserRecord):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to list files: %s", e)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.exception("Failed to list files: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to list files") from e

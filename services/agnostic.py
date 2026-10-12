@@ -318,7 +318,7 @@ async def answer_query(req: AgnosticQueryRequest, base_url: str, user: UserRecor
         raise
     except Exception as e:
         logger.exception("agnostic_query failed")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to answer the question") from e
 
 
 async def _run_metered_query(
