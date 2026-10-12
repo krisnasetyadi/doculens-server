@@ -1,0 +1,55 @@
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      JWT_SECRET: ci-only-jwt-secret-not-for-production
+      PYTHONUTF8: "1"
+      # No Supabase Storage, Gemini or Stripe keys: tests fake those services.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies (CPU-only torch)
+        run: |
+          pip install --upgrade pip
+          pip install torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Point the tests at the Postgres service
+        # Built from parts so no user:password URL sits in the repo; the CI
+        # database has no SSL, and db.database_url() asks for it unless told.
+        run: |
+          PGPASS=ci-only-password  # same as POSTGRES_PASSWORD above
+          echo "DATABASE_URL=postgresql://postgres:${PGPASS}@localhost:5432/postgres?sslmode=disable" >> "$GITHUB_ENV"
+
+      - name: Import the app
+        run: python -c "import main"
+
+      - name: Run the tests
+        run: python -m unittest discover -s tests -t . -v

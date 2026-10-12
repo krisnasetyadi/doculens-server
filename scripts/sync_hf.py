@@ -32,6 +32,7 @@ SOURCE_ONLY = [
     "perf/*",
     ".vscode/*",
     ".env.example",
+    ".github/*",
     ".gitignore",
 ]
 SOURCE_ONLY_EXCEPTIONS = ["README.md"]  # the Space reads its config from README.md
