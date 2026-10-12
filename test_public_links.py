@@ -1,4 +1,4 @@
-"""MS-657: behaviour of public link sources (router/public_links.py) against
+"""MS-657: behaviour of public link sources (router/ + services/public_links.py) against
 real SQL, recorded before it is moved. DNS and Google Drive are faked at the
 socket/httpx level, so nothing leaves the machine. Runs in a throwaway schema
 (testing_db); skipped when no database is reachable."""
@@ -18,6 +18,7 @@ from fastapi.testclient import TestClient
 
 from models import UserRecord
 from router import public_links
+from services import public_links as link_service
 from services.auth import get_current_user
 from testing_db import IsolatedSchemaTestCase
 
@@ -145,7 +146,7 @@ class ManageTest(PublicLinksTestCase):
 
 class RuntimeResolutionTest(PublicLinksTestCase):
     def resolve(self, **kwargs):
-        return asyncio.run(public_links.resolve_active_public_link_sources(**kwargs))
+        return asyncio.run(link_service.resolve_active_public_link_sources(**kwargs))
 
     def test_only_active_selected_links_and_folders_expand_recursively(self):
         who = user()
@@ -175,13 +176,13 @@ class DriveParsingTest(unittest.TestCase):
     """Pure URL/HTML helpers; no database needed."""
 
     def test_drive_ids(self):
-        self.assertEqual(public_links._extract_google_drive_file_id("https://www.drive.google.com/file/d/X1_y-2/view"), "X1_y-2")
-        self.assertEqual(public_links._extract_google_drive_file_id("https://drive.google.com/open?id=Q9"), "Q9")
-        self.assertIsNone(public_links._extract_google_drive_file_id("https://example.com/file/d/X/view"))
-        self.assertEqual(public_links._extract_google_drive_folder_id(FOLDER_URL), "ROOTFOLDER")
+        self.assertEqual(link_service._extract_google_drive_file_id("https://www.drive.google.com/file/d/X1_y-2/view"), "X1_y-2")
+        self.assertEqual(link_service._extract_google_drive_file_id("https://drive.google.com/open?id=Q9"), "Q9")
+        self.assertIsNone(link_service._extract_google_drive_file_id("https://example.com/file/d/X/view"))
+        self.assertEqual(link_service._extract_google_drive_folder_id(FOLDER_URL), "ROOTFOLDER")
 
     def test_folder_page_parsing(self):
-        files, folders = public_links._parse_drive_folder_items(FOLDER_HTML)
+        files, folders = link_service._parse_drive_folder_items(FOLDER_HTML)
         self.assertEqual([f["name"] for f in files], ["report.pdf"])
         self.assertEqual([f["url"] for f in folders], ["https://drive.google.com/drive/folders/SUBFOLDER"])
 
