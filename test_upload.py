@@ -1,4 +1,4 @@
-"""MS-657: behaviour of document uploads (router/upload.py) against real SQL,
+"""MS-657: behaviour of document uploads (router/ + services/upload.py) against real SQL,
 recorded before it is moved. Size limits and progress streaming have their own
 tests (test_storage_limits.py, test_upload_progress.py); this covers persist
 modes, remote imports and Drive folder listing. Remote servers, DNS, embeddings
@@ -29,6 +29,7 @@ from config import config
 from models import UserRecord
 from processor import processor
 from router import upload
+from services import upload as upload_service
 from services.auth import get_current_user
 from testing_db import IsolatedSchemaTestCase
 
@@ -263,21 +264,21 @@ class FilenameTest(unittest.TestCase):
     """Pure helpers; no database needed."""
 
     def test_pdf_names(self):
-        self.assertEqual(upload._safe_pdf_filename("../../etc/passwd", "fb"), "passwd.pdf")
-        self.assertEqual(upload._safe_pdf_filename("Report (final).PDF", "fb"), "Report _final_.PDF")
-        self.assertEqual(upload._safe_pdf_filename("", "fb"), "fb.pdf")
+        self.assertEqual(upload_service._safe_pdf_filename("../../etc/passwd", "fb"), "passwd.pdf")
+        self.assertEqual(upload_service._safe_pdf_filename("Report (final).PDF", "fb"), "Report _final_.PDF")
+        self.assertEqual(upload_service._safe_pdf_filename("", "fb"), "fb.pdf")
 
     def test_upload_names_keep_their_extension(self):
-        self.assertEqual(upload._safe_upload_filename("会社概要.docx", "fb"), "fb.docx")
-        self.assertEqual(upload._safe_upload_filename("data.csv", "fb"), "data.csv")
-        self.assertEqual(upload._safe_upload_filename("noext", "fb"), "noext.pdf")
+        self.assertEqual(upload_service._safe_upload_filename("会社概要.docx", "fb"), "fb.docx")
+        self.assertEqual(upload_service._safe_upload_filename("data.csv", "fb"), "data.csv")
+        self.assertEqual(upload_service._safe_upload_filename("noext", "fb"), "noext.pdf")
 
     def test_titles_and_headers(self):
-        self.assertIsNone(upload._normalize_title("   "))
-        self.assertEqual(len(upload._normalize_title("x" * 200)), 150)
-        self.assertEqual(upload._extract_filename_from_headers(
+        self.assertIsNone(upload_service._normalize_title("   "))
+        self.assertEqual(len(upload_service._normalize_title("x" * 200)), 150)
+        self.assertEqual(upload_service._extract_filename_from_headers(
             httpx.Headers({"content-disposition": "attachment; filename*=UTF-8''r%C3%A9sum%C3%A9.pdf"})), "résumé.pdf")
-        self.assertIsNone(upload._extract_filename_from_headers(httpx.Headers({})))
+        self.assertIsNone(upload_service._extract_filename_from_headers(httpx.Headers({})))
 
 
 if __name__ == "__main__":

@@ -23,6 +23,7 @@ from processor import processor
 import db
 from services.billing import plans
 from router import chat, payment, upload
+from services import upload as upload_service
 from models import UserRecord
 from services.auth import get_current_user
 from storage_limits import GB, MB, StorageLimits
@@ -200,7 +201,7 @@ class RouteTests(unittest.TestCase):
 
         self.limits = StorageLimits("Test", storage_limit_bytes=1_000_000, max_file_bytes=20_000, max_batch_files=2)
         self.used = 0
-        for module in (upload, chat):
+        for module in (upload_service, chat):
             self.stack.enter_context(patch.object(
                 module, "resolve_storage_limits", lambda user: (self.limits, "workspace-1")))
         self.stack.enter_context(patch.object(
@@ -256,7 +257,7 @@ class RouteTests(unittest.TestCase):
         self.assertEqual(storage_limits._reservations.get("workspace-1", {}), {})
 
     def test_the_reservation_is_released_after_a_failed_upload(self):
-        with patch.object(upload, "process_pdfs", side_effect=RuntimeError("boom")):
+        with patch.object(upload_service, "process_pdfs", side_effect=RuntimeError("boom")):
             self.assertEqual(self.post(("ok.pdf", pdf_bytes())).status_code, 500)
         self.assertEqual(storage_limits._reservations.get("workspace-1", {}), {})
 
@@ -267,7 +268,7 @@ class RouteTests(unittest.TestCase):
 
     def test_the_registered_size_is_the_bytes_that_were_written(self):
         data = pdf_bytes()
-        with patch.object(upload, "_register_uploaded_collection") as register:
+        with patch.object(upload_service, "_register_uploaded_collection") as register:
             self.assertEqual(self.post(("ok.pdf", data)).status_code, 200)
         self.assertEqual(register.call_args.kwargs["size_bytes"], len(data))
 
@@ -297,9 +298,9 @@ class RemoteDownloadTests(unittest.TestCase):
         def make_client(*args, **kwargs):
             return self.real_client(transport=httpx.MockTransport(handler), follow_redirects=True)
 
-        with patch.object(upload, "assert_public_url_safe"), \
-             patch.object(upload.httpx, "AsyncClient", make_client):
-            return asyncio.run(upload._download_remote_pdf("https://example.com/a.pdf", self.dest, LIMITS))
+        with patch.object(upload_service, "assert_public_url_safe"), \
+             patch.object(upload_service.httpx, "AsyncClient", make_client):
+            return asyncio.run(upload_service._download_remote_pdf("https://example.com/a.pdf", self.dest, LIMITS))
 
     def test_a_file_within_the_limit_downloads(self):
         self.download(b"x" * 10)
