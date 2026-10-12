@@ -100,7 +100,7 @@ def _release(conn, generation: Optional[int]) -> None:
         return
     keep = not conn.closed
     if keep and not conn.autocommit:
-        # A caller that turned autocommit off (storage.py's multi-row
+        # A caller that turned autocommit off (services/storage/supabase.py's multi-row
         # writes) and returned early must not hand an open transaction to
         # the next request.
         try:

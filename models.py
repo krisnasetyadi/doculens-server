@@ -347,7 +347,7 @@ class SetPdfCollectionActiveRequest(BaseModel):
 # ===================== SOURCE FOLDERS (MS-274) =====================
 # Folders group `collections` rows (kind='pdf' or 'chat') for the Files tab
 # only. Owner-scoped like collections themselves — there is no "workspace"
-# table to attach to (see storage.py::_team_admin_id for why).
+# table to attach to (see services/storage/supabase.py::_team_admin_id for why).
 
 class Folder(BaseModel):
     folder_id: str

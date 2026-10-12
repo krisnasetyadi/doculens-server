@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from text_source_preview import read_text_source_page
+from services.ingest.text_preview import read_text_source_page
 
 
 class TextSourcePreviewTests(unittest.TestCase):

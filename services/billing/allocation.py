@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-import app_db
+from services.storage import app_db
 import db
 from services.billing.ledger import sum_tokens_by_user, sum_tokens_for_admin, sum_tokens_for_user
 from services.billing.plans import (

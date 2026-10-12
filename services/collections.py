@@ -15,11 +15,11 @@ import httpx
 from fastapi import HTTPException
 from fastapi.responses import FileResponse, RedirectResponse
 
-import storage as supabase_storage
+from services.storage import supabase as supabase_storage
 from config import config
 from models import CollectionInfo, MoveToFolderRequest, SetPdfCollectionActiveRequest, UserRecord
 from processor import processor
-from utils import (
+from services.ingest.documents import (
     DOCUMENT_EXTRACTORS,
     CONTENT_TYPE_BY_EXT,
     INLINE_VIEWABLE_EXTS,

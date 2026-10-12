@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
-import storage
+from services.storage import supabase as storage
 
 
 class TelegramChatInventoryTests(unittest.TestCase):

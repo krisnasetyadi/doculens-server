@@ -78,7 +78,7 @@ async def move_chat_collection_to_folder(
 ):
     """Assign (or unassign) a chat/WhatsApp collection to a folder (MS-274).
     Admin-gated, matching every other chat-collections mutation — chat rows
-    carry no per-row owner_id (see storage.py). Every caller here is already
+    carry no per-row owner_id (see services/storage/supabase.py). Every caller here is already
     an admin (require_role("admin") above), so — same as the pdf endpoint's
     admin branch — any folder is a valid target, not just ones the caller
     personally created."""

@@ -8,7 +8,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS # type: ignore
 from langchain_core.documents import Document
 from config import config
-from upload_progress import ProgressCallback
+from services.ingest.progress import ProgressCallback
 
 logger = logging.getLogger(__name__)
 

@@ -20,7 +20,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 
-import storage
+from services.storage import supabase as storage
 from config import config
 from models import UserRecord
 from processor import processor

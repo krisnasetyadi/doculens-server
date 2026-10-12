@@ -23,8 +23,8 @@ from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 from reportlab.pdfgen import canvas
 
-import storage
-import storage_limits
+from services.storage import supabase as storage
+from services.storage import limits as storage_limits
 from config import config
 from models import UserRecord
 from processor import processor

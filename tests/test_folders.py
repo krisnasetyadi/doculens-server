@@ -12,7 +12,7 @@ os.environ.setdefault("JWT_SECRET", "ms657-local-test-secret-not-for-production"
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-import storage
+from services.storage import supabase as storage
 from models import UserRecord
 from router import folders
 from services.auth import get_current_user

@@ -33,7 +33,7 @@ from typing import BinaryIO, Optional
 from fastapi import HTTPException
 
 import db
-import storage as supabase_storage
+from services.storage import supabase as supabase_storage
 from config import config
 
 logger = logging.getLogger(__name__)

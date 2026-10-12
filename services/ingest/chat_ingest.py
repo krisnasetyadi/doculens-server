@@ -1,4 +1,4 @@
-# chat_ingest.py
+# services/ingest/chat_ingest.py
 """
 Shared pipeline for turning a list of ChatMessage into a searchable
 ChatCollection: chunk -> extract keywords -> build FAISS index -> persist
@@ -16,11 +16,11 @@ import os
 from datetime import datetime
 from typing import List, Optional
 
-import storage as supabase_storage
+from services.storage import supabase as supabase_storage
 from config import config
 from models import ChatMessage, ChatCollection, ChatPlatform
-from chat_parser import ChatParser
-from upload_progress import ProgressCallback
+from services.ingest.chat_parser import ChatParser
+from services.ingest.progress import ProgressCallback
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +111,7 @@ async def _build_vector_store(collection_id: str, chunks: List[dict], file_name:
                               on_progress: ProgressCallback | None = None) -> None:
     from langchain_core.documents import Document
     from processor import processor
-    from utils import build_source_index
+    from services.ingest.documents import build_source_index
 
     documents = [
         Document(

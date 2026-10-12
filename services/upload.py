@@ -19,8 +19,8 @@ import httpx
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-import storage as supabase_storage
-import storage_limits
+from services.storage import supabase as supabase_storage
+from services.storage import limits as storage_limits
 from config import config
 from models import (
     DriveFolderItem,
@@ -32,9 +32,9 @@ from models import (
     UserRecord,
 )
 from services.billing.plans import resolve_storage_limits
-from ssrf_guard import assert_public_url_safe
-from upload_progress import ProgressCallback, progress_response, upload_progress_store
-from utils import DOCUMENT_EXTRACTORS, process_pdfs
+from services.security.ssrf_guard import assert_public_url_safe
+from services.ingest.progress import ProgressCallback, progress_response, upload_progress_store
+from services.ingest.documents import DOCUMENT_EXTRACTORS, process_pdfs
 
 logger = logging.getLogger(__name__)
 

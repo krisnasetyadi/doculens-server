@@ -34,7 +34,7 @@ from models import (
     SetPublicLinkActiveRequest,
     UserRecord,
 )
-from ssrf_guard import assert_public_url_safe
+from services.security.ssrf_guard import assert_public_url_safe
 
 logger = logging.getLogger(__name__)
 

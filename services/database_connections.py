@@ -15,7 +15,7 @@ from urllib.parse import urlparse
 
 from fastapi import HTTPException
 
-import app_db
+from services.storage import app_db
 import db
 from models import (
     CreateDatabaseConnectionRequest,

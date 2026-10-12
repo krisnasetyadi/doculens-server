@@ -1,4 +1,4 @@
-# chat_parser.py
+# services/ingest/chat_parser.py
 """
 Parser for chat export files (WhatsApp TXT, Teams JSON, Slack JSON)
 Primary focus: WhatsApp TXT format

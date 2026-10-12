@@ -10,7 +10,7 @@ from typing import Optional
 from fastapi import HTTPException
 
 import db
-import storage_limits
+from services.storage import limits as storage_limits
 from config import config
 from models import StorageUsageResponse
 from models import UserRecord

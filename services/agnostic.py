@@ -29,7 +29,7 @@ from conversation.intent import (
 from conversation.language import ReplyLanguage, detect_reply_language
 from conversation.messages import internal_refusal, no_source_selected
 from processor import processor
-import storage as supabase_storage
+from services.storage import supabase as supabase_storage
 from models import AgnosticQueryRequest, AgnosticQueryResponse, MemoryTurn, PdfSourceDetail, UserRecord
 from services.public_links import resolve_active_public_link_sources
 from services.database_connections import resolve_active_database_connections

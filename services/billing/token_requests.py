@@ -7,7 +7,7 @@ import uuid
 
 from fastapi import HTTPException
 
-import app_db
+from services.storage import app_db
 import db
 from services.billing.plans import resolve_admin_user_id
 from models import (

@@ -1,6 +1,6 @@
 # services/chat.py
 """Chat collections (admin-only): uploading a chat export and indexing it
-(through chat_ingest.py, shared with Telegram sync), listing, previewing,
+(through services/ingest/chat_ingest.py, shared with Telegram sync), listing, previewing,
 paging messages, activating, moving to a folder and deleting.
 router/chat.py calls these."""
 
@@ -13,16 +13,16 @@ from typing import List, Optional
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
-import storage as supabase_storage
-import storage_limits
-from chat_ingest import ingest_chat_messages
-from chat_parser import ChatParser
+from services.storage import supabase as supabase_storage
+from services.storage import limits as storage_limits
+from services.ingest.chat_ingest import ingest_chat_messages
+from services.ingest.chat_parser import ChatParser
 from config import config
 from models import ChatPlatform, ChatUploadResponse, MoveToFolderRequest, SetChatCollectionActiveRequest, UserRecord
 from processor import processor
 from services.billing.plans import resolve_storage_limits
-from text_source_preview import read_text_source_page
-from upload_progress import ProgressCallback, progress_response, upload_progress_store
+from services.ingest.text_preview import read_text_source_page
+from services.ingest.progress import ProgressCallback, progress_response, upload_progress_store
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +142,7 @@ async def upload_chat(file: UploadFile, platform: str, user: UserRecord, stream_
             report("reading", 30)
 
             # Chunk, embed, index, and register — shared with the Telegram sync
-            # path (chat_ingest.py) so both stay searchable through identical code.
+            # path (services/ingest/chat_ingest.py) so both stay searchable through identical code.
             collection = asyncio.run(ingest_chat_messages(
                 collection_id,
                 messages,

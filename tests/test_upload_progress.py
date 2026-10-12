@@ -24,7 +24,7 @@ from processor import processor
 from models import UserRecord
 from services.auth import get_current_user
 from router import upload, chat
-from upload_progress import progress_response, upload_progress_store, _UploadProgressStore
+from services.ingest.progress import progress_response, upload_progress_store, _UploadProgressStore
 
 
 class FakeEmbeddings(Embeddings):
@@ -130,11 +130,11 @@ class UploadProgressStoreTests(unittest.TestCase):
 
     def test_finished_records_expire_but_active_ones_never_do(self):
         store = _UploadProgressStore()
-        with patch("upload_progress.monotonic", return_value=1):
+        with patch("services.ingest.progress.monotonic", return_value=1):
             store.start("active", owner_id="alice")
             store.start("done", owner_id="alice")
             store.update("done", {"type": "ready", "progress": 100, "result": {}})
-        with patch("upload_progress.monotonic", return_value=10 * 60 + 5):
+        with patch("services.ingest.progress.monotonic", return_value=10 * 60 + 5):
             self.assertIsNone(store.get("done", "alice"))
             self.assertIsNotNone(store.get("active", "alice"))
 

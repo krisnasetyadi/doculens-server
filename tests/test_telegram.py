@@ -23,8 +23,8 @@ from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError
 
-import storage
-import telegram_crypto
+from services.storage import supabase as storage
+from services.security import telegram_crypto
 from config import config
 from models import UserRecord
 from processor import processor

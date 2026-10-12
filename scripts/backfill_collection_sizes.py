@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import psycopg2
 from psycopg2.extras import RealDictCursor
 
-import storage
+from services.storage import supabase as storage
 from schema import storage as storage_schema
 
 BUCKET_BY_KIND = {"pdf": "pdf-uploads", "chat": "chat-uploads"}

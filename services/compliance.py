@@ -17,7 +17,7 @@ from typing import List, Optional
 from fastapi import HTTPException
 from fastapi.responses import Response
 
-import storage as supabase_storage
+from services.storage import supabase as supabase_storage
 from config import config
 from models import GapAnalysisItem, GapAnalysisRequest, GapAnalysisResponse, GapAnalysisRun, UserRecord
 from processor import processor

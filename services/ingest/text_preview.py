@@ -1,6 +1,6 @@
 """Read-only subtype selection for text source previews."""
 
-from chat_parser import ChatParser
+from services.ingest.chat_parser import ChatParser
 
 
 def read_text_source_page(file_path, platform, offset, limit):

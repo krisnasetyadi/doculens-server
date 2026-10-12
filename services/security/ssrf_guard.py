@@ -1,4 +1,4 @@
-# ssrf_guard.py
+# services/security/ssrf_guard.py
 """Best-effort SSRF guard for user-supplied URLs (public links, remote PDF
 imports). Resolves the hostname and rejects it if any resolved address is
 private, loopback, link-local, or otherwise non-public. This does not pin

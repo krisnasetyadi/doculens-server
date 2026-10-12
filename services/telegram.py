@@ -5,7 +5,7 @@ Telegram as a live chat source (Telethon/MTProto), not a file upload.
 Flow: connect (api_id + api_hash + phone -> OTP -> optional 2FA) -> pick
 which chats/groups to bring in -> sync (repeatable) -> each selected chat
 becomes a searchable ChatCollection via the same pipeline WhatsApp uploads
-use (chat_ingest.py).
+use (services/ingest/chat_ingest.py).
 
 api_id/api_hash (from https://my.telegram.org/apps) are entered per-connection
 in the connect form rather than via server config, so different admins can
@@ -20,7 +20,7 @@ user-managed source rather than a one-time file.
 SECURITY: a saved Telethon session is equivalent to full access to the
 Telegram account that logged in — read every chat, send messages as that
 user. Both the session and the connection's api_hash are encrypted at rest
-(telegram_crypto.py) and never returned to the client. Losing
+(services/security/telegram_crypto.py) and never returned to the client. Losing
 TELEGRAM_SESSION_ENCRYPTION_KEY makes stored secrets permanently
 undecryptable (by design — there is no server-side escape hatch).
 
@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
-import app_db
+from services.storage import app_db
 import db
 from config import config
 from models import (
@@ -64,8 +64,8 @@ from models import (
     TelegramSyncResponse,
     TelegramSyncResult,
 )
-from chat_ingest import ingest_chat_messages
-from telegram_crypto import encrypt_secret, decrypt_secret
+from services.ingest.chat_ingest import ingest_chat_messages
+from services.security.telegram_crypto import encrypt_secret, decrypt_secret
 
 logger = logging.getLogger(__name__)
 
@@ -131,7 +131,7 @@ def _write_telegram_transcript(path: str, messages: List[ChatMessage]) -> None:
 
 # ---------------------------------------------------------------------------
 # App-DB storage (connection metadata + selected chats — NOT the chat content
-# itself, which flows through chat_ingest.py into chat_collections like any
+# itself, which flows through services/ingest/chat_ingest.py into chat_collections like any
 # other chat source).
 # ---------------------------------------------------------------------------
 

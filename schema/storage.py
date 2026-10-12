@@ -1,5 +1,5 @@
 # schema/storage.py
-"""Tables owned by storage.py (moved here from it by MS-657)."""
+"""Tables owned by services/storage/supabase.py (moved here from it by MS-657)."""
 
 import logging
 

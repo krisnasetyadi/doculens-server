@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 from reportlab.pdfgen import canvas
 
-import storage_limits
+from services.storage import limits as storage_limits
 from config import config
 from processor import processor
 import db
@@ -27,8 +27,8 @@ from services import chat as chat_service
 from services import upload as upload_service
 from models import UserRecord
 from services.auth import get_current_user
-from storage_limits import GB, MB, StorageLimits
-from upload_progress import upload_progress_store
+from services.storage.limits import GB, MB, StorageLimits
+from services.ingest.progress import upload_progress_store
 
 LIMITS = StorageLimits(plan_name="Test", storage_limit_bytes=100, max_file_bytes=10, max_batch_files=3)
 
@@ -167,9 +167,9 @@ class ReserveTests(unittest.TestCase):
 
     def test_an_abandoned_reservation_expires(self):
         conn = FakeConn(used=0)
-        with patch("storage_limits.time.monotonic", return_value=0):
+        with patch("services.storage.limits.time.monotonic", return_value=0):
             storage_limits.reserve(conn, "ws", LIMITS, 100)
-        with patch("storage_limits.time.monotonic",
+        with patch("services.storage.limits.time.monotonic",
                    return_value=storage_limits._RESERVATION_TTL_SECONDS + 1):
             storage_limits.reserve(conn, "ws", LIMITS, 100)
 

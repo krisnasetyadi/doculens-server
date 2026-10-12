@@ -10,7 +10,7 @@ from typing import Optional
 import stripe
 from fastapi import HTTPException
 
-import app_db
+from services.storage import app_db
 import db
 from services.billing.allocation import build_subscription_usage
 from services.billing.plans import PLAN_PRICES, get_latest_plan_window

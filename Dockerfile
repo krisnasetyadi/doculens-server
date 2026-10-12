@@ -18,7 +18,7 @@ EXPOSE 7860
 WORKDIR /app
 
 # Install system dependencies
-# antiword: extracts text from legacy binary .doc uploads (utils.py
+# antiword: extracts text from legacy binary .doc uploads (services/ingest/documents.py
 # extract_text_from_doc) — python-docx only understands the newer .docx format.
 RUN apt-get update && apt-get install -y \
     build-essential \

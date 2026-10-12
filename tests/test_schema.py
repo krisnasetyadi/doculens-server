@@ -75,7 +75,7 @@ class EnsureAllTest(unittest.TestCase):
             for path in glob.glob(os.path.join(root, pattern), recursive=True)
         )
         self.assertIn("services/telegram.py", handlers)
-        for rel in handlers + ["storage.py", "storage_limits.py"]:
+        for rel in handlers:
             with open(os.path.join(root, rel), encoding="utf-8-sig") as f:
                 for lineno, line in enumerate(f, 1):
                     if call.match(line):

@@ -106,7 +106,7 @@ class Config(BaseSettings):
     chat_upload_folder: str = Field(default="data/chat_uploads")
     chat_index_folder: str = Field(default="data/chat_indices")
 
-    # Legacy .doc extraction shells out to the `antiword` CLI (utils.py).
+    # Legacy .doc extraction shells out to the `antiword` CLI (services/ingest/documents.py).
     # Defaults to bare "antiword" (resolved via PATH) — correct in the Docker
     # deployment, where apt-get installs it onto the system PATH. Override
     # with a full path on a machine where antiword exists but isn't on PATH

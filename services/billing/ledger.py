@@ -9,7 +9,7 @@ from typing import Optional
 
 from fastapi import HTTPException
 
-import app_db
+from services.storage import app_db
 import db
 from config import config
 from models import EfficientModeStats, RateLimitStatus

@@ -1,5 +1,5 @@
 ﻿"""
-storage.py
+services/storage/supabase.py
 ----------
 Supabase Storage wrapper using the S3-compatible API (boto3).
 
@@ -27,7 +27,7 @@ import os
 from typing import Any, Dict, List, Optional, Tuple
 import db
 from config import config
-from utils import DOCUMENT_EXTRACTORS, CONTENT_TYPE_BY_EXT
+from services.ingest.documents import DOCUMENT_EXTRACTORS, CONTENT_TYPE_BY_EXT
 
 logger = logging.getLogger(__name__)
 

@@ -1,4 +1,4 @@
-# telegram_crypto.py
+# services/security/telegram_crypto.py
 """
 Encrypt/decrypt Telegram secrets at rest: the Telethon session string (full
 account access — read every chat, send messages as that user) AND the

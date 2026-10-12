@@ -17,7 +17,7 @@ import uuid
 
 from fastapi import HTTPException
 
-import storage as supabase_storage
+from services.storage import supabase as supabase_storage
 from models import SkillCreate, SkillResponse, SkillUpdate, UserRecord
 
 

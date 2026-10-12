@@ -655,7 +655,7 @@ REPLY:"""
             # ── If index not on disk, try Supabase download ────────────────
             if not os.path.exists(os.path.join(index_path, "index.faiss")):
                 try:
-                    import storage as supabase_storage
+                    from services.storage import supabase as supabase_storage
                     if supabase_storage.is_enabled():
                         logger.info(f"📥 Downloading index from Supabase: {collection_id}")
                         ok = supabase_storage.download_index(collection_id, index_path)
@@ -909,7 +909,7 @@ Answer:"""
         """Return list of available PDF collection IDs (Supabase DB → S3 scan → local disk fallback)."""
         # ── Supabase DB first ───────────────────────────────────────────────
         try:
-            import storage as supabase_storage
+            from services.storage import supabase as supabase_storage
             if supabase_storage.has_database():
                 rows = supabase_storage.list_collections()
                 if rows:
@@ -924,7 +924,7 @@ Answer:"""
 
         # ── S3 bucket scan fallback ─────────────────────────────────────────
         try:
-            import storage as supabase_storage
+            from services.storage import supabase as supabase_storage
             if supabase_storage.is_enabled():
                 ids = supabase_storage.list_collection_ids_from_s3()
                 if ids:
@@ -949,7 +949,7 @@ Answer:"""
         """Return list of available chat collection IDs (Supabase DB → S3 scan → local disk)."""
         # ── Supabase DB first ─────────────────────────────────────────────────
         try:
-            import storage as supabase_storage
+            from services.storage import supabase as supabase_storage
             if supabase_storage.has_database():
                 rows = supabase_storage.list_chat_collections()
                 if rows:
@@ -961,7 +961,7 @@ Answer:"""
 
         # ── S3 bucket scan fallback ───────────────────────────────────────────
         try:
-            import storage as supabase_storage
+            from services.storage import supabase as supabase_storage
             if supabase_storage.is_enabled():
                 ids = supabase_storage.list_chat_collection_ids_from_s3()
                 if ids:
@@ -993,7 +993,7 @@ Answer:"""
         index_path = os.path.join(config.chat_index_folder, collection_id)
         if not os.path.exists(os.path.join(index_path, "index.faiss")):
             try:
-                import storage as supabase_storage
+                from services.storage import supabase as supabase_storage
                 if supabase_storage.is_enabled():
                     logger.info(f"Downloading chat index from S3: {collection_id}")
                     supabase_storage.download_chat_index(collection_id, index_path)
@@ -1272,7 +1272,7 @@ Answer:"""
 
     def _download_public_link_item(self, item: Dict[str, Any], destination_dir: str) -> Optional[Tuple[str, str]]:
         import requests
-        from ssrf_guard import assert_public_url_safe
+        from services.security.ssrf_guard import assert_public_url_safe
 
         source_url = item.get("url", "").strip()
         if not source_url:
@@ -3317,7 +3317,7 @@ JSON:"""
                     doc.page_content[:1500] for doc in results[:3]
                 )
                 # Per-chunk "source" filename is already set at ingestion time
-                # (utils.py) and preserved through retrieval — surface it here
+                # (services/ingest/documents.py) and preserved through retrieval — surface it here
                 # so evidence points at an actual file, not just the collection id.
                 source_files = []
                 for doc in results[:3]:
