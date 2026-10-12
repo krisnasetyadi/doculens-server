@@ -1056,7 +1056,7 @@ class AgnosticQueryRequest(BaseModel):
 
     # MS-247: opt-in context-compression experiment ("Efficient Mode" /
     # caveman-inspired). Defaults to False so every existing caller is
-    # byte-for-byte unaffected — see efficient_mode/compressor.py.
+    # byte-for-byte unaffected — see services/rag/efficient_mode/compressor.py.
     efficient_mode:       Optional[bool] = False
 
     # Optional collection selectors (defaults to "all")

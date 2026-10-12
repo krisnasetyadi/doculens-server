@@ -27,7 +27,7 @@ from services.storage import supabase as storage
 from services.storage import limits as storage_limits
 from config import config
 from models import UserRecord
-from processor import processor
+from services.rag.processor import processor
 from router import upload
 from services import upload as upload_service
 from services.auth import get_current_user

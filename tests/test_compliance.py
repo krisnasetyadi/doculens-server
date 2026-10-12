@@ -18,7 +18,7 @@ from fastapi.testclient import TestClient
 from services.storage import supabase as storage
 from config import config
 from models import UserRecord
-from processor import processor
+from services.rag.processor import processor
 from router import compliance
 from services import compliance as compliance_service
 from services.auth import get_current_user

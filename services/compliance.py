@@ -20,7 +20,7 @@ from fastapi.responses import Response
 from services.storage import supabase as supabase_storage
 from config import config
 from models import GapAnalysisItem, GapAnalysisRequest, GapAnalysisResponse, GapAnalysisRun, UserRecord
-from processor import processor
+from services.rag.processor import processor
 from services.billing.enforcement import enforce_gap_check_plan, enforce_member_allocation, enforce_plan_limit
 from services.billing.inflight import begin_in_flight, end_in_flight, get_workspace_lock, in_flight_tokens, resolve_workspace_id
 from services.billing.ledger import enforce_rate_limit, log_token_usage

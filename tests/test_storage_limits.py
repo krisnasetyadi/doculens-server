@@ -19,7 +19,7 @@ from reportlab.pdfgen import canvas
 
 from services.storage import limits as storage_limits
 from config import config
-from processor import processor
+from services.rag.processor import processor
 import db
 from services.billing import plans
 from router import chat, payment, upload

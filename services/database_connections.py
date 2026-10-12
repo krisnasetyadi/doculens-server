@@ -2,7 +2,7 @@
 """A user's own external Postgres databases as a knowledge source: checking
 and browsing a database before saving it, storing connections in the app's
 database (password never sent back), and the active list the RAG pipeline
-queries. router/database_connections.py calls these; processor.py and
+queries. router/database_connections.py calls these; services/rag/processor.py and
 services/agnostic.py use the connection and listing helpers."""
 
 from __future__ import annotations

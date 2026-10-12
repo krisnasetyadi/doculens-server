@@ -25,20 +25,20 @@ from pathlib import Path
 from urllib.parse import parse_qs, unquote, urlparse
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from models import SearchType, DatabaseResult, SourceInfo
-from database import db_manager
-from efficient_mode.compressor import ContextPart, compress_context, compress_memory
-from efficient_mode.token_estimate import estimate_tokens
-from conversation.feature_guide import DOCULENS_FEATURE_GUIDE, build_user_state_block
-from conversation.guard import leaks_internal_details
-from conversation.intent import RouteDecision, is_app_question, small_talk_kind
-from conversation.language import (
+from services.rag.app_database import db_manager
+from services.rag.efficient_mode.compressor import ContextPart, compress_context, compress_memory
+from services.rag.efficient_mode.token_estimate import estimate_tokens
+from services.rag.conversation.feature_guide import DOCULENS_FEATURE_GUIDE, build_user_state_block
+from services.rag.conversation.guard import leaks_internal_details
+from services.rag.conversation.intent import RouteDecision, is_app_question, small_talk_kind
+from services.rag.conversation.language import (
     ReplyLanguage,
     answer_language_instruction,
     detect_reply_language,
     detect_text_language,
     language_name,
 )
-from conversation.messages import fallback_text, internal_refusal, small_talk_fallback
+from services.rag.conversation.messages import fallback_text, internal_refusal, small_talk_fallback
 
 logger = logging.getLogger(__name__)
 
@@ -2132,7 +2132,7 @@ Answer:"""
 
         return realtime_results[: config.total_k_results]
 
-    # processor.py - perbaiki hybrid_search
+    # services/rag/processor.py - perbaiki hybrid_search
     def hybrid_search(
         self,
         question: str,
@@ -2594,7 +2594,7 @@ Answer:"""
                     exact_matches.append({"term": term, "source": result.get('source', 'Unknown'), "type": result['type']})
                     # Check if boost was applied (from database exact match algorithm)
                     if result['type'] == 'database' and result.get('confidence', 0) > 0.9:
-                        boost_applied["exact_match"] += 50.0  # +50 boost from database.py
+                        boost_applied["exact_match"] += 50.0  # +50 boost from services/rag/app_database.py
         
         processing_steps.append(f"Detected {len(exact_matches)} exact matches")
         
@@ -2682,7 +2682,7 @@ Answer:"""
         context = "\n\n---\n\n".join(context_parts)
 
         # MS-247 "Efficient Mode" — opt-in, isolated compression pass over
-        # the assembled RAG context (see efficient_mode/compressor.py).
+        # the assembled RAG context (see services/rag/efficient_mode/compressor.py).
         # Guarded entirely behind `efficient_mode` — including the
         # estimate_tokens() calls — so a caller that never opts in gets no
         # extra work done and no `efficiency` key at all in the metadata

@@ -384,7 +384,7 @@ class DatabaseManager:
         remaining_terms = [t for t in search_terms if t.lower() not in used_terms]
         return detected_phrases, remaining_terms
     
-    # database.py - Add this method if not exists
+    # services/rag/app_database.py - Add this method if not exists
     def search_in_table(self, table_name: str, search_terms: List[str], limit: int = 10) -> List[Dict[str, Any]]:
         """Search for terms across all columns in a table with FTS and scoring"""
         self.ensure_connection()

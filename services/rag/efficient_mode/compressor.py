@@ -263,7 +263,7 @@ def _prune_sections(body: str, question: str) -> Tuple[str, bool]:
 
 @dataclass
 class ContextPart:
-    """One retrieved chunk, exactly as processor.py already has it in
+    """One retrieved chunk, exactly as services/rag/processor.py already has it in
     hand when it builds `context_parts` — just not yet flattened into a
     single formatted string, so the compressor still has each chunk's
     `confidence` (retrieval's own query-relevance score, from
@@ -284,7 +284,7 @@ class CompressionStats:
 
 def compress_context(parts: List[ContextPart], question: str = "") -> Tuple[str, CompressionStats]:
     """Compress a list of retrieved chunks into the same
-    `"\\n\\n---\\n\\n"`-joined string processor.py already builds,
+    `"\\n\\n---\\n\\n"`-joined string services/rag/processor.py already builds,
     applying (1) intra-chunk section pruning, independently per chunk,
     then (2) cross-chunk redundancy dedup, keeping the higher-confidence
     chunk of any near-duplicate pair. Output preserves original chunk
@@ -393,7 +393,7 @@ class MemoryCompressionStats:
 def compress_memory(turns: List[Dict[str, Any]]) -> Tuple[List[Dict[str, Any]], MemoryCompressionStats]:
     """Clean and dedup conversation-memory turns (see module note above
     for why this is narrower than compress_context). `turns` is the same
-    list of `{"role": ..., "content": ...}` dicts processor.py already
+    list of `{"role": ..., "content": ...}` dicts services/rag/processor.py already
     formats into the RIWAYAT PERCAKAPAN block — this returns an
     equal-or-shorter list in the same shape and order."""
     n = len(turns)

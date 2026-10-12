@@ -296,7 +296,7 @@ def process_pdfs(pdf_paths, collection_id, on_progress: ProgressCallback | None 
 
     # Create vector store
     try:
-        from processor import processor
+        from services.rag.processor import processor
         vector_store = build_source_index(chunks, processor.embeddings, on_progress)
 
         # Save vector store

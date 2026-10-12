@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from services.storage import supabase as supabase_storage
 from config import config
 from models import CollectionInfo, MoveToFolderRequest, SetPdfCollectionActiveRequest, UserRecord
-from processor import processor
+from services.rag.processor import processor
 from services.ingest.documents import (
     DOCUMENT_EXTRACTORS,
     CONTENT_TYPE_BY_EXT,

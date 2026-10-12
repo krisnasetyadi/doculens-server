@@ -11,17 +11,17 @@ os.environ.setdefault("JWT_SECRET", "conversation-local-test-secret-not-for-prod
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from conversation.guard import is_internal_question, leaks_internal_details
-from conversation.intent import (
+from services.rag.conversation.guard import is_internal_question, leaks_internal_details
+from services.rag.conversation.intent import (
     RouteDecision,
     is_summary_request,
     match_collection_titles,
     rule_based_intent,
     small_talk_kind,
 )
-from conversation.language import detect_reply_language, detect_text_language
-from conversation.messages import internal_refusal, no_source_selected
-from processor import processor, OFF_TOPIC_REDIRECT_EN, OFF_TOPIC_REDIRECT_ID
+from services.rag.conversation.language import detect_reply_language, detect_text_language
+from services.rag.conversation.messages import internal_refusal, no_source_selected
+from services.rag.processor import processor, OFF_TOPIC_REDIRECT_EN, OFF_TOPIC_REDIRECT_ID
 import db
 from services.billing import allocation, enforcement, inflight, plans
 from router import agnostic, payment
@@ -139,7 +139,7 @@ class IntentRuleTests(unittest.TestCase):
         self.assertFalse(is_summary_request("siapa yang handle invoice?"))
 
     def test_whole_document_vs_part_summaries(self):
-        from conversation.intent import is_whole_document_summary, mentions_document_part
+        from services.rag.conversation.intent import is_whole_document_summary, mentions_document_part
 
         titles = ["ISO 27001 Policy", "Section 3 Handbook"]
         for q in ["ringkas ISO 27001 Policy", "give me a summary of ISO 27001 Policy", "ringkas Section 3 Handbook"]:
@@ -155,7 +155,7 @@ class IntentRuleTests(unittest.TestCase):
         self.assertFalse(mentions_document_part("summary about the procurement report", include_topics=False))
 
     def test_scope_skips_comparisons_with_other_documents(self):
-        from conversation.intent import scope_titles_for
+        from services.rag.conversation.intent import scope_titles_for
 
         titles = ["ISO 27001 Policy", "Employee Handbook"]
         self.assertEqual(scope_titles_for("apa isi ISO 27001 Policy?", titles), ["ISO 27001 Policy"])
@@ -642,7 +642,7 @@ class VectorStoreBackoffTests(unittest.TestCase):
     def test_failed_load_backs_off_then_retries(self):
         with patch.object(processor, "_load_vector_store", return_value=None) as load, \
                 patch.object(processor, "embeddings", object()), \
-                patch("processor.time.monotonic", side_effect=[0, 0, 10, 31, 31, 40]):
+                patch("services.rag.processor.time.monotonic", side_effect=[0, 0, 10, 31, 31, 40]):
             processor._missing_vector_stores.pop("broken", None)
             processor.get_vector_store("broken")   # t=0: fails -> retry after 30s
             processor.get_vector_store("broken")   # t=10: skipped, no load

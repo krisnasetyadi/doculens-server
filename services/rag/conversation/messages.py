@@ -7,7 +7,7 @@ wording the app used before, so Indonesian users see no change.
 
 from typing import Dict
 
-from conversation.language import ReplyLanguage
+from services.rag.conversation.language import ReplyLanguage
 
 _INTERNAL_REFUSAL = {
     "id": (

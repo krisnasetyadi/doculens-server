@@ -27,7 +27,7 @@ undecryptable (by design — there is no server-side escape hatch).
 KNOWN LIMITATION: the connect flow's in-progress Telethon client lives in an
 in-memory dict between /connect/start and /connect/verify. It does not
 survive a backend restart or a multi-worker deployment — acceptable for this
-app's single-process deployment, same assumption processor.py's in-memory
+app's single-process deployment, same assumption services/rag/processor.py's in-memory
 vector_store_cache already makes.
 """
 
@@ -524,7 +524,7 @@ async def sync_connection(connection_id: str, body: TelegramSyncRequest):
 
                 # Rebuilding a collection under the same ID must also replace
                 # its in-memory search index, otherwise queries see stale text.
-                from processor import processor
+                from services.rag.processor import processor
                 with processor._cache_lock:
                     processor.vector_store_cache.pop(f"chat_{collection_id}", None)
 

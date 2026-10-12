@@ -19,7 +19,7 @@ from services.ingest.chat_ingest import ingest_chat_messages
 from services.ingest.chat_parser import ChatParser
 from config import config
 from models import ChatPlatform, ChatUploadResponse, MoveToFolderRequest, SetChatCollectionActiveRequest, UserRecord
-from processor import processor
+from services.rag.processor import processor
 from services.billing.plans import resolve_storage_limits
 from services.ingest.text_preview import read_text_source_page
 from services.ingest.progress import ProgressCallback, progress_response, upload_progress_store

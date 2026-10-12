@@ -16,8 +16,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from fastapi import HTTPException
 
 from config import config
-from conversation.guard import is_internal_question
-from conversation.intent import (
+from services.rag.conversation.guard import is_internal_question
+from services.rag.conversation.intent import (
     is_app_question,
     is_summary_request,
     is_whole_document_summary,
@@ -26,9 +26,9 @@ from conversation.intent import (
     scope_titles_for,
     small_talk_kind,
 )
-from conversation.language import ReplyLanguage, detect_reply_language
-from conversation.messages import internal_refusal, no_source_selected
-from processor import processor
+from services.rag.conversation.language import ReplyLanguage, detect_reply_language
+from services.rag.conversation.messages import internal_refusal, no_source_selected
+from services.rag.processor import processor
 from services.storage import supabase as supabase_storage
 from models import AgnosticQueryRequest, AgnosticQueryResponse, MemoryTurn, PdfSourceDetail, UserRecord
 from services.public_links import resolve_active_public_link_sources
@@ -187,13 +187,13 @@ async def answer_query(req: AgnosticQueryRequest, base_url: str, user: UserRecor
 
         # Questions about how DocuLens itself is built (tech stack, model,
         # infra, prompts) or prompt-injection attempts — canned refusal,
-        # before any LLM sees the message. See conversation/guard.py.
+        # before any LLM sees the message. See services/rag/conversation/guard.py.
         if is_internal_question(req.question):
             return _system_response(
                 internal_refusal(language), "system/guard", req.question, start_time,
             )
 
-        # Two paths (conversation/intent.py):
+        # Two paths (services/rag/conversation/intent.py):
         # - "retrieval" by rule (the message points at the user's own data,
         #   or a Skill is armed) → straight to the existing RAG pipeline, no
         #   routing call. Scoped to any collection the message names.

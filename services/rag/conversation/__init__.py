@@ -1,5 +1,5 @@
 """
-conversation/
+services/rag/conversation/
 -------------
 Everything that decides HOW the assistant replies before (or instead of)
 the document-grounded RAG pipeline in processor.generate_hybrid_answer:

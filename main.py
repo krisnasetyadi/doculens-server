@@ -8,7 +8,7 @@ import asyncio
 import os
 import logging
 from config import config
-from processor import processor
+from services.rag.processor import processor
 
 logging.basicConfig(
     level=logging.INFO,

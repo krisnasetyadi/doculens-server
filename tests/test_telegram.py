@@ -27,7 +27,7 @@ from services.storage import supabase as storage
 from services.security import telegram_crypto
 from config import config
 from models import UserRecord
-from processor import processor
+from services.rag.processor import processor
 from router import telegram
 from services import telegram as telegram_service
 from services.auth import get_current_user

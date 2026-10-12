@@ -110,7 +110,7 @@ async def ingest_chat_messages(
 async def _build_vector_store(collection_id: str, chunks: List[dict], file_name: str, platform: str,
                               on_progress: ProgressCallback | None = None) -> None:
     from langchain_core.documents import Document
-    from processor import processor
+    from services.rag.processor import processor
     from services.ingest.documents import build_source_index
 
     documents = [

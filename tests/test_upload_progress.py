@@ -20,7 +20,7 @@ from langchain_core.embeddings import Embeddings
 from reportlab.pdfgen import canvas
 
 from config import config
-from processor import processor
+from services.rag.processor import processor
 from models import UserRecord
 from services.auth import get_current_user
 from router import upload, chat
