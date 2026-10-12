@@ -293,6 +293,16 @@ class RegistrationFailureTest(UploadTestCase):
         self.assert_refused_and_nothing_left(self.http.post(
             "/api/v1/pdf-collections/upload-from-urls", json={"urls": ["https://example.com/a.pdf"]}))
 
+    def test_files_already_in_supabase_storage_are_removed_too(self):
+        with patch.object(storage, "is_enabled", lambda: True), \
+                patch.object(storage, "upload_pdf", side_effect=lambda cid, path, name: f"pdf-uploads/{cid}/{name}"), \
+                patch.object(storage, "upload_index") as upload_index, \
+                patch.object(storage, "delete_collection_from_db", return_value=False) as cleanup:
+            resp = self.upload_files(("report.pdf", pdf_bytes()))
+        self.assert_refused_and_nothing_left(resp)
+        upload_index.assert_called_once()
+        cleanup.assert_called_once_with(upload_index.call_args[0][0])
+
 
 class RegisterCollectionTest(unittest.TestCase):
     def test_the_connection_is_returned_when_the_insert_fails(self):

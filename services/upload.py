@@ -304,6 +304,7 @@ def _register_uploaded_collection(
         return
 
     storage_paths: List[str] = []
+    uploaded_to_storage = False
     if persist_mode == "database" and not supabase_storage.is_enabled():
         raise HTTPException(
             status_code=503,
@@ -322,6 +323,7 @@ def _register_uploaded_collection(
 
         index_dir = os.path.join(config.index_folder, collection_id)
         supabase_storage.upload_index(collection_id, index_dir)
+        uploaded_to_storage = True
         logger.info("Collection %s S3 upload done (%d file(s))", collection_id, len(storage_paths))
     elif persist_mode == "auto":
         logger.info("S3 not configured — skipping file upload to Supabase Storage")
@@ -340,6 +342,9 @@ def _register_uploaded_collection(
         # Collections are listed (and storage is counted) from this row, so
         # without it the upload would look done but never show up.
         if not registered:
+            if uploaded_to_storage:
+                # Also removes what was just uploaded to Supabase Storage.
+                supabase_storage.delete_collection_from_db(collection_id)
             raise HTTPException(status_code=500, detail="Failed to save the collection")
         logger.info("Collection %s registered in Supabase DB", collection_id)
     elif persist_mode == "database":
