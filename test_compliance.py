@@ -1,4 +1,4 @@
-"""MS-657: behaviour of the gap analysis endpoints (router/compliance.py)
+"""MS-657: behaviour of the gap analysis endpoints (router/ + services/compliance_service.py)
 against real SQL, recorded before they are moved: request checks and
 collection access, a metered compliance gap check (the LLM part is faked at
 the processor), the scenario scaffold, run history, viewing, deleting and
@@ -20,6 +20,7 @@ from config import config
 from models import UserRecord
 from processor import processor
 from router import compliance
+from services import compliance as compliance_service
 from services.auth import get_current_user
 from services.billing import inflight
 from testing_db import IsolatedSchemaTestCase
@@ -44,12 +45,12 @@ class ComplianceTestCase(IsolatedSchemaTestCase):
         inflight._in_flight_workspace_tokens.clear()
         inflight._in_flight_user_tokens.clear()
         patches = {
-            "plan_check": patch.object(compliance, "enforce_gap_check_plan"),
-            "workspace": patch.object(compliance, "resolve_workspace_id", side_effect=lambda u: f"w-{u.user_id}"),
-            "rate": patch.object(compliance, "enforce_rate_limit"),
-            "plan": patch.object(compliance, "enforce_plan_limit", return_value=None),
-            "member": patch.object(compliance, "enforce_member_allocation", return_value=None),
-            "log": patch.object(compliance, "log_token_usage"),
+            "plan_check": patch.object(compliance_service, "enforce_gap_check_plan"),
+            "workspace": patch.object(compliance_service, "resolve_workspace_id", side_effect=lambda u: f"w-{u.user_id}"),
+            "rate": patch.object(compliance_service, "enforce_rate_limit"),
+            "plan": patch.object(compliance_service, "enforce_plan_limit", return_value=None),
+            "member": patch.object(compliance_service, "enforce_member_allocation", return_value=None),
+            "log": patch.object(compliance_service, "log_token_usage"),
             "run": patch.object(processor, "run_compliance_gap_check", return_value=(ITEMS, "AI generated", 1234)),
         }
         self.m = {name: p.start() for name, p in patches.items()}
@@ -118,7 +119,7 @@ class RunTest(ComplianceTestCase):
             "skill_id": "scenario_regulatory_impact", "reference_collection_ids": [self.reference],
             "framework_name": "PPh", "scenario_input": "loan vs equity"})
         body = resp.json()
-        self.assertEqual((body["items"], body["disclaimer"]), ([], compliance.SCENARIO_SCAFFOLD_DISCLAIMER))
+        self.assertEqual((body["items"], body["disclaimer"]), ([], compliance_service.SCENARIO_SCAFFOLD_DISCLAIMER))
         self.assertEqual(body["run"]["scenario_input"], "loan vs equity")
         self.m["run"].assert_not_called()
         self.m["plan_check"].assert_not_called()

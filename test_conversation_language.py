@@ -619,6 +619,7 @@ class GapCheckPlanTests(unittest.TestCase):
 
     def test_gap_check_endpoint_refuses_non_team_before_any_llm_work(self):
         from router import compliance
+        from services import compliance as compliance_service
 
         app = FastAPI()
         app.include_router(compliance.router, prefix="/api/v1")
@@ -626,8 +627,8 @@ class GapCheckPlanTests(unittest.TestCase):
             user_id="u1", email="u1@example.com", role="admin", is_active=True
         )
         refusal = HTTPException(status_code=403, detail="Compliance Gap Check hanya tersedia untuk plan Individual dan Team")
-        with patch.object(compliance.supabase_storage, "list_collection_ids_for_user", return_value=["r1", "t1"]), \
-                patch.object(compliance, "enforce_gap_check_plan", side_effect=refusal), \
+        with patch.object(compliance_service.supabase_storage, "list_collection_ids_for_user", return_value=["r1", "t1"]), \
+                patch.object(compliance_service, "enforce_gap_check_plan", side_effect=refusal), \
                 patch.object(processor, "run_compliance_gap_check") as run:
             response = TestClient(app).post("/api/v1/analysis/gap-analysis", json={
                 "skill_id": "compliance_gap_check", "reference_collection_ids": ["r1"],
