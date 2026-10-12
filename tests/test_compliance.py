@@ -3,7 +3,7 @@ against real SQL, recorded before they are moved: request checks and
 collection access, a metered compliance gap check (the LLM part is faked at
 the processor), the scenario scaffold, run history, viewing, deleting and
 exporting. Plan checks are passed through; their own tests live in
-test_conversation_language.py and test_billing.py. Runs in a throwaway
+test_billing_enforcement.py and test_billing.py. Runs in a throwaway
 schema (testing_db); skipped when no database is reachable."""
 
 import os

@@ -1,5 +1,5 @@
 """MS-657: behaviour of POST /agnostic/query (router/agnostic_service.py) recorded
-before it is moved, for what test_conversation_language.py does not cover:
+before it is moved, for what test_agnostic_routing.py does not cover:
 who may search which source, how retrieved documents become the response,
 skills, token metering, the memory window and the error path. Retrieval and
 the LLM are faked at the processor; no database is needed."""
