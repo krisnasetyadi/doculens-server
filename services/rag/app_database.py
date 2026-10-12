@@ -217,7 +217,9 @@ class DatabaseManager:
     def check_connection_health(self) -> bool:
         """Check if database connection is alive, reconnect if needed"""
         import time
-        
+
+        current_time = time.time()
+
         # Return False immediately if no connection
         if not self.connection:
             return False
