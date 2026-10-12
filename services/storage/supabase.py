@@ -509,11 +509,12 @@ def list_collections() -> List[Dict[str, Any]]:
                 FROM collections WHERE kind = 'pdf' ORDER BY created_at DESC
             """)
             rows = cur.fetchall()
-        conn.close()
         return [_pdf_row_from_unified(dict(r)) for r in rows]
     except Exception as e:
         logger.warning("list_collections failed: %s", e)
         return []
+    finally:
+        conn.close()
 
 
 def get_collection(collection_id: str) -> Optional[Dict[str, Any]]:
@@ -527,11 +528,12 @@ def get_collection(collection_id: str) -> Optional[Dict[str, Any]]:
                 FROM collections WHERE collection_id = %s AND kind = 'pdf'
             """, (collection_id,))
             row = cur.fetchone()
-        conn.close()
         return _pdf_row_from_unified(dict(row)) if row else None
     except Exception as e:
         logger.warning("get_collection failed for %s: %s", collection_id, e)
         return None
+    finally:
+        conn.close()
 
 
 def list_collection_ids_for_user(user_id: str, is_admin: bool) -> List[str]:
@@ -553,11 +555,12 @@ def list_collection_ids_for_user(user_id: str, is_admin: bool) -> List[str]:
                     (user_id,),
                 )
             rows = cur.fetchall()
-        conn.close()
         return [r["collection_id"] for r in rows]
     except Exception as e:
         logger.warning("list_collection_ids_for_user failed: %s", e)
         return []
+    finally:
+        conn.close()
 
 
 def list_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[str, str]]:
@@ -583,7 +586,6 @@ def list_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[
                     (user_id,),
                 )
             rows = cur.fetchall()
-        conn.close()
         return [
             (r["collection_id"], r.get("title") or (r.get("file_names") or [""])[0] or r["collection_id"])
             for r in rows
@@ -591,6 +593,8 @@ def list_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[
     except Exception as e:
         logger.warning("list_collection_titles_for_user failed: %s", e)
         return []
+    finally:
+        conn.close()
 
 
 def set_collection_status(collection_id: str, active: bool) -> bool:
@@ -604,11 +608,12 @@ def set_collection_status(collection_id: str, active: bool) -> bool:
                 ("active" if active else "inactive", collection_id),
             )
             updated = cur.rowcount > 0
-        conn.close()
         return updated
     except Exception as e:
         logger.warning("set_collection_status failed for %s: %s", collection_id, e)
         return False
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -642,12 +647,13 @@ def create_gap_analysis_run(
                     status = EXCLUDED.status
             """, (run_id, skill_id, framework_name, reference_collection_ids,
                   target_collection_ids or [], scenario_input, owner_id, status))
-        conn.close()
         logger.info("Created gap_analysis_run: %s (skill=%s)", run_id, skill_id)
         return True
     except Exception as e:
         logger.warning("create_gap_analysis_run failed: %s", e)
         return False
+    finally:
+        conn.close()
 
 
 def save_gap_analysis_items(run_id: str, items: List[Dict[str, Any]]) -> bool:
@@ -675,11 +681,12 @@ def save_gap_analysis_items(run_id: str, items: List[Dict[str, Any]]) -> bool:
                     item.get("recommendation"),
                     item.get("target_collection_id"),
                 ))
-        conn.close()
         return True
     except Exception as e:
         logger.warning("save_gap_analysis_items failed for run %s: %s", run_id, e)
         return False
+    finally:
+        conn.close()
 
 
 def list_gap_analysis_runs(owner_id: Optional[str] = None, is_admin: bool = False) -> List[Dict[str, Any]]:
@@ -701,11 +708,12 @@ def list_gap_analysis_runs(owner_id: Optional[str] = None, is_admin: bool = Fals
                     FROM gap_analysis_runs WHERE owner_id = %s ORDER BY created_at DESC
                 """, (owner_id,))
             rows = cur.fetchall()
-        conn.close()
         return [dict(r) for r in rows]
     except Exception as e:
         logger.warning("list_gap_analysis_runs failed: %s", e)
         return []
+    finally:
+        conn.close()
 
 
 def get_gap_analysis_run(run_id: str) -> Optional[Dict[str, Any]]:
@@ -720,11 +728,12 @@ def get_gap_analysis_run(run_id: str) -> Optional[Dict[str, Any]]:
                 FROM gap_analysis_runs WHERE run_id = %s
             """, (run_id,))
             row = cur.fetchone()
-        conn.close()
         return dict(row) if row else None
     except Exception as e:
         logger.warning("get_gap_analysis_run failed for %s: %s", run_id, e)
         return None
+    finally:
+        conn.close()
 
 
 def get_gap_analysis_items(run_id: str) -> List[Dict[str, Any]]:
@@ -738,11 +747,12 @@ def get_gap_analysis_items(run_id: str) -> List[Dict[str, Any]]:
                 FROM gap_analysis_items WHERE run_id = %s ORDER BY id ASC
             """, (run_id,))
             rows = cur.fetchall()
-        conn.close()
         return [dict(r) for r in rows]
     except Exception as e:
         logger.warning("get_gap_analysis_items failed for %s: %s", run_id, e)
         return []
+    finally:
+        conn.close()
 
 
 def delete_gap_analysis_run(run_id: str) -> bool:
@@ -755,11 +765,12 @@ def delete_gap_analysis_run(run_id: str) -> bool:
     try:
         with conn.cursor() as cur:
             cur.execute("DELETE FROM gap_analysis_runs WHERE run_id = %s", (run_id,))
-        conn.close()
         return True
     except Exception as e:
         logger.warning("delete_gap_analysis_run failed for %s: %s", run_id, e)
         return False
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -783,11 +794,12 @@ def _team_admin_id(user_id: str, is_admin: bool) -> Optional[str]:
         with conn.cursor() as cur:
             cur.execute("SELECT created_by FROM users WHERE user_id = %s", (user_id,))
             row = cur.fetchone()
-        conn.close()
         return row["created_by"] if row else None
     except Exception as e:
         logger.warning("_team_admin_id failed for %s: %s", user_id, e)
         return None
+    finally:
+        conn.close()
 
 
 def create_skill(
@@ -810,12 +822,13 @@ def create_skill(
                     (skill_id, name, slash_command, description, instruction, scope, owner_id)
                 VALUES (%s, %s, %s, %s, %s, %s, %s)
             """, (skill_id, name, slash_command, description, instruction, scope, owner_id))
-        conn.close()
         logger.info("Created skill: %s (scope=%s, owner=%s)", skill_id, scope, owner_id)
         return True
     except Exception as e:
         logger.warning("create_skill failed: %s", e)
         return False
+    finally:
+        conn.close()
 
 
 def list_skills_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
@@ -836,11 +849,12 @@ def list_skills_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
                 ORDER BY created_at DESC
             """, (user_id, admin_id))
             rows = cur.fetchall()
-        conn.close()
         return [dict(r) for r in rows]
     except Exception as e:
         logger.warning("list_skills_for_user failed for %s: %s", user_id, e)
         return []
+    finally:
+        conn.close()
 
 
 def get_skill_for_user(skill_id: str, user_id: str, is_admin: bool) -> Optional[Dict[str, Any]]:
@@ -862,11 +876,12 @@ def get_skill_for_user(skill_id: str, user_id: str, is_admin: bool) -> Optional[
                     OR (scope = 'team' AND owner_id = %s))
             """, (skill_id, user_id, admin_id))
             row = cur.fetchone()
-        conn.close()
         return dict(row) if row else None
     except Exception as e:
         logger.warning("get_skill_for_user failed for %s: %s", skill_id, e)
         return None
+    finally:
+        conn.close()
 
 
 def update_skill(skill_id: str, owner_id: str, fields: Dict[str, Any]) -> Optional[Dict[str, Any]]:
@@ -890,11 +905,12 @@ def update_skill(skill_id: str, owner_id: str, fields: Dict[str, Any]) -> Option
                           scope, owner_id, created_at, updated_at
             """, params)
             row = cur.fetchone()
-        conn.close()
         return dict(row) if row else None
     except Exception as e:
         logger.warning("update_skill failed for %s: %s", skill_id, e)
         return None
+    finally:
+        conn.close()
 
 
 def delete_skill(skill_id: str, owner_id: str) -> bool:
@@ -910,11 +926,12 @@ def delete_skill(skill_id: str, owner_id: str) -> bool:
                 (skill_id, owner_id),
             )
             deleted = cur.rowcount
-        conn.close()
         return deleted > 0
     except Exception as e:
         logger.warning("delete_skill failed for %s: %s", skill_id, e)
         return False
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -962,12 +979,13 @@ def register_chat_collection(
                 json.dumps(metadata),
                 owner_id, size_bytes,
             ))
-        conn.close()
         logger.info("Registered chat collection: %s", collection_id)
         return True
     except Exception as e:
         logger.warning("register_chat_collection failed: %s", e)
         return False
+    finally:
+        conn.close()
 
 
 def list_chat_collections() -> List[Dict[str, Any]]:
@@ -1002,7 +1020,6 @@ def list_chat_collections() -> List[Dict[str, Any]]:
                         telegram_collection_ids = {row["chat_collection_id"] for row in cur.fetchall()}
                 except Exception as e:
                     logger.warning("Telegram source status lookup failed: %s", e)
-        conn.close()
         collections = [_chat_row_from_unified(dict(row)) for row in rows]
         # A synced Telegram index may outlive its connection. Keep the data,
         # but never advertise or query it as an active source after unlinking.
@@ -1014,6 +1031,8 @@ def list_chat_collections() -> List[Dict[str, Any]]:
     except Exception as e:
         logger.warning("list_chat_collections failed: %s", e)
         return []
+    finally:
+        conn.close()
 
 
 def get_chat_collection(collection_id: str) -> Optional[Dict[str, Any]]:
@@ -1027,11 +1046,12 @@ def get_chat_collection(collection_id: str) -> Optional[Dict[str, Any]]:
                 FROM collections WHERE collection_id = %s AND kind = 'chat'
             """, (collection_id,))
             row = cur.fetchone()
-        conn.close()
         return _chat_row_from_unified(dict(row)) if row else None
     except Exception as e:
         logger.warning("get_chat_collection failed for %s: %s", collection_id, e)
         return None
+    finally:
+        conn.close()
 
 
 def set_chat_collection_status(collection_id: str, active: bool) -> bool:
@@ -1045,11 +1065,12 @@ def set_chat_collection_status(collection_id: str, active: bool) -> bool:
                 ("active" if active else "inactive", collection_id),
             )
             updated = cur.rowcount > 0
-        conn.close()
         return updated
     except Exception as e:
         logger.warning("set_chat_collection_status failed for %s: %s", collection_id, e)
         return False
+    finally:
+        conn.close()
 
 
 def delete_chat_collection_from_db(collection_id: str) -> bool:
@@ -1059,9 +1080,10 @@ def delete_chat_collection_from_db(collection_id: str) -> bool:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM collections WHERE collection_id = %s AND kind = 'chat'",
                             (collection_id,))
-            conn.close()
         except Exception as e:
             logger.warning("delete chat row failed: %s", e)
+        finally:
+            conn.close()
     s3 = _s3_client()
     if s3:
         for bucket in (_CHAT_UPLOADS_BUCKET, _CHAT_INDICES_BUCKET):
@@ -1180,11 +1202,12 @@ def list_folders_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
                     FROM folders WHERE owner_id = %s ORDER BY created_at DESC
                 """, (user_id,))
             rows = cur.fetchall()
-        conn.close()
         return [dict(r) for r in rows]
     except Exception as e:
         logger.warning("list_folders_for_user failed: %s", e)
         return []
+    finally:
+        conn.close()
 
 
 def get_folder(folder_id: str) -> Optional[Dict[str, Any]]:
@@ -1198,11 +1221,12 @@ def get_folder(folder_id: str) -> Optional[Dict[str, Any]]:
                 FROM folders WHERE folder_id = %s
             """, (folder_id,))
             row = cur.fetchone()
-        conn.close()
         return dict(row) if row else None
     except Exception as e:
         logger.warning("get_folder failed for %s: %s", folder_id, e)
         return None
+    finally:
+        conn.close()
 
 
 def rename_folder(
@@ -1298,8 +1322,9 @@ def set_collection_folder(collection_id: str, folder_id: Optional[str]) -> bool:
                 (folder_id, collection_id),
             )
             updated = cur.rowcount > 0
-        conn.close()
         return updated
     except Exception as e:
         logger.warning("set_collection_folder failed for %s: %s", collection_id, e)
         return False
+    finally:
+        conn.close()
