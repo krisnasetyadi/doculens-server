@@ -1,4 +1,4 @@
-"""MS-657: behaviour of skills (router/skills.py) against real SQL, recorded
+"""MS-657: behaviour of skills (router/ + services/skills.py) against real SQL, recorded
 before it is moved: personal skills for their uploader, team skills for an
 admin's members, and owner-only edits and deletes. Runs in a throwaway schema
 (testing_db); skipped when no database is reachable."""

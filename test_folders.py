@@ -1,4 +1,4 @@
-"""MS-657: behaviour of source folders (router/folders.py) against real SQL,
+"""MS-657: behaviour of source folders (router/ + services/folders.py) against real SQL,
 recorded before it is moved: creating (top level and nested), listing per
 owner, renaming and moving, and deleting (children move up a level). The
 storage-level hierarchy rules have their own tests in test_nested_folders.py.

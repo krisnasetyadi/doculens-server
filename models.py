@@ -704,7 +704,7 @@ class SkillCreate(BaseModel):
     slash_command: str
     instruction: str          # body of the uploaded .md
     description: str = ""
-    scope: str = "personal"   # "team" is rejected for non-admins in router/skills.py
+    scope: str = "personal"   # "team" is rejected for non-admins in services/skills.py
 
     @field_validator("scope")
     @classmethod
