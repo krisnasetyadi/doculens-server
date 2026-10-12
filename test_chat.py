@@ -1,4 +1,4 @@
-"""MS-657: behaviour of chat collections (router/chat.py) against real SQL,
+"""MS-657: behaviour of chat collections (router/ + services/chat.py) against real SQL,
 recorded before they are moved: uploading a WhatsApp export, listing,
 previewing, paging messages, activating, moving to a folder and deleting.
 Upload size limits and progress streaming have their own tests

@@ -23,6 +23,7 @@ from processor import processor
 import db
 from services.billing import plans
 from router import chat, payment, upload
+from services import chat as chat_service
 from services import upload as upload_service
 from models import UserRecord
 from services.auth import get_current_user
@@ -201,7 +202,7 @@ class RouteTests(unittest.TestCase):
 
         self.limits = StorageLimits("Test", storage_limit_bytes=1_000_000, max_file_bytes=20_000, max_batch_files=2)
         self.used = 0
-        for module in (upload_service, chat):
+        for module in (upload_service, chat_service):
             self.stack.enter_context(patch.object(
                 module, "resolve_storage_limits", lambda user: (self.limits, "workspace-1")))
         self.stack.enter_context(patch.object(
