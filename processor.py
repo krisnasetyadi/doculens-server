@@ -3142,7 +3142,7 @@ Answer:"""
         # extra work done and no `efficiency` key at all in the metadata
         # (see the answer_metadata assembly below), not just an unused
         # no-op value. That matters beyond CPU cost: answer_metadata gets
-        # persisted (router/agnostic.py -> log_token_usage), so leaving
+        # persisted (services/agnostic.py -> log_token_usage), so leaving
         # this unconditional would write a raw/final-tokens row for every
         # query in the app, not just the ones actually testing the toggle.
         efficiency_meta: Optional[Dict[str, Any]] = None
@@ -3219,7 +3219,7 @@ Answer:"""
         # something to resolve against. Prepended to the finished `prompt`
         # (not folded into `context` above) so it stands on its own instead
         # of reading as part of the "DOKUMEN:" section every builder wraps
-        # context in. Caller (router/agnostic.py) has already clamped
+        # context in. Caller (services/agnostic.py) has already clamped
         # `memory` to the last 5 chats — this only formats it.
         if memory:
             # MS-247 "Efficient Mode" — cleans/dedups memory turns (see

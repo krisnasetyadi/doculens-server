@@ -1,4 +1,4 @@
-"""MS-657: behaviour of POST /agnostic/query (router/agnostic.py) recorded
+"""MS-657: behaviour of POST /agnostic/query (router/agnostic_service.py) recorded
 before it is moved, for what test_conversation_language.py does not cover:
 who may search which source, how retrieved documents become the response,
 skills, token metering, the memory window and the error path. Retrieval and
@@ -18,6 +18,7 @@ from config import config
 from models import UserRecord
 from processor import processor
 from router import agnostic
+from services import agnostic as agnostic_service
 from services.auth import get_current_user
 from services.billing import inflight
 
@@ -45,17 +46,17 @@ class AgnosticTestCase(unittest.TestCase):
         self.http = TestClient(app, raise_server_exceptions=False)
 
         patches = {
-            "titles": patch.object(agnostic.supabase_storage, "list_collection_titles_for_user",
+            "titles": patch.object(agnostic_service.supabase_storage, "list_collection_titles_for_user",
                                    return_value=COLLECTIONS),
-            "skill": patch.object(agnostic.supabase_storage, "get_skill_for_user", return_value=None),
-            "workspace": patch.object(agnostic, "resolve_workspace_id", return_value="w1"),
-            "rate": patch.object(agnostic, "enforce_rate_limit"),
-            "plan": patch.object(agnostic, "enforce_plan_limit", return_value=None),
-            "member": patch.object(agnostic, "enforce_member_allocation", return_value=None),
-            "usage": patch.object(agnostic, "get_usage_snapshot", return_value=None),
-            "log": patch.object(agnostic, "log_token_usage"),
-            "links": patch.object(agnostic, "resolve_active_public_link_sources", return_value=[]),
-            "external_db": patch.object(agnostic, "resolve_active_database_connections", return_value=[]),
+            "skill": patch.object(agnostic_service.supabase_storage, "get_skill_for_user", return_value=None),
+            "workspace": patch.object(agnostic_service, "resolve_workspace_id", return_value="w1"),
+            "rate": patch.object(agnostic_service, "enforce_rate_limit"),
+            "plan": patch.object(agnostic_service, "enforce_plan_limit", return_value=None),
+            "member": patch.object(agnostic_service, "enforce_member_allocation", return_value=None),
+            "usage": patch.object(agnostic_service, "get_usage_snapshot", return_value=None),
+            "log": patch.object(agnostic_service, "log_token_usage"),
+            "links": patch.object(agnostic_service, "resolve_active_public_link_sources", return_value=[]),
+            "external_db": patch.object(agnostic_service, "resolve_active_database_connections", return_value=[]),
             "all_chats": patch.object(processor, "get_all_chat_collections", return_value=["chat-all"]),
             "search": patch.object(processor, "hybrid_search", return_value={}),
             "summary": patch.object(processor, "build_summary_results", return_value={}),
@@ -207,7 +208,7 @@ class MemoryAndErrorsTest(AgnosticTestCase):
         self.assertEqual(sent[0], {"role": "user", "content": "q3"})
         self.assertEqual(len(sent), 10)
         self.assertTrue(sent[-1]["content"].startswith("start ") and sent[-1]["content"].endswith(" end?"))
-        self.assertLessEqual(len(sent[-1]["content"]), agnostic.MAX_MEMORY_CHARS)
+        self.assertLessEqual(len(sent[-1]["content"]), agnostic_service.MAX_MEMORY_CHARS)
 
     def test_unknown_command_is_answered_without_the_llm(self):
         with patch.object(processor, "get_llm") as get_llm:

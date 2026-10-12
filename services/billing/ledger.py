@@ -108,7 +108,7 @@ def get_rate_limit_status(conn, user_id: str) -> RateLimitStatus:
 
 def enforce_rate_limit(user_id: str, pending_tokens: int = 0) -> None:
     """Raise HTTPException(429) if this user has hit the flat safety-net
-    rate limit. Call this from router/agnostic.py BEFORE the LLM is
+    rate limit. Call this from services/agnostic.py BEFORE the LLM is
     invoked — unlike log_token_usage (best-effort, never raises), this one
     is meant to actually block overage, so callers should let it propagate
     rather than swallowing it. Fails open (never blocks) if the metering DB
@@ -137,7 +137,7 @@ def log_token_usage(
     final_tokens_est: Optional[int] = None,
 ) -> None:
     """Best-effort: append one row to the consumption ledger for a query
-    that just ran. Called from router/agnostic.py right after a live LLM
+    that just ran. Called from services/agnostic.py right after a live LLM
     answer is generated. Never raises — a metering hiccup must not break a
     chat response that already succeeded; callers should still wrap this in
     their own try/except as a second line of defense.

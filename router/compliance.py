@@ -71,7 +71,7 @@ async def run_gap_analysis(
         raise HTTPException(status_code=400, detail="reference_collection_ids is required")
 
     # Scope collection access — admins can reach every PDF collection;
-    # everyone else only their own (same rule router/agnostic.py enforces
+    # everyone else only their own (same rule services/agnostic.py enforces
     # for hybrid search). Without this, a non-admin could point
     # reference/target ids at another user's private collection and read
     # its content back out via the "evidence" quotes in the response.

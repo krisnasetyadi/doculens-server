@@ -1008,3 +1008,91 @@ class TeamMember(BaseModel):
 class TeamMembersResponse(BaseModel):
     members: list[TeamMember]
     max_sub_users: int
+
+
+# ---------------------------------------------------------------------------
+# Agnostic query (router/agnostic.py, services/agnostic.py)
+# ---------------------------------------------------------------------------
+
+class MemoryTurn(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class AgnosticQueryRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+
+    # Kept for schema compatibility with HF Space / old clients — ignored locally.
+    source: Optional[str] = Field(None)
+
+    # MS-237: which session this question belongs to (currently unused
+    # server-side — the client sends `memory` directly instead of us looking
+    # it up — kept so the contract already has it once that moves server-side).
+    session_id: Optional[str] = None
+    # Previous 5 messages so a follow-up like "ringkas semua di atas" has
+    # something to resolve against. Re-clamped below regardless of what the
+    # client sends.
+    memory: Optional[List[MemoryTurn]] = None
+
+    # MS-252: one-shot skill invocation — the uploaded Skill (see
+    # router/skills.py) whose `instruction` should shape THIS answer only.
+    # Resolved + authorization-checked server-side via
+    # storage.get_skill_for_user; an unresolved id is ignored, never an
+    # error (the client already cleared its own armed state either way).
+    skill_id: Optional[str] = None
+
+    include_pdf_results:  Optional[bool] = True
+    # Legacy: queries THIS app's own fixed database (app management data, not
+    # a user-connected source). Kept for backward compatibility only.
+    include_db_results:   Optional[bool] = False
+    include_chat_results: Optional[bool] = False
+    include_public_links: Optional[bool] = False
+    # Queries the user's own external database connection(s) set up in
+    # Sources > Database — the actual "database as a knowledge source" path.
+    include_external_db:  Optional[bool] = False
+    llm_provider:         Optional[str]  = None
+    llm_model:            Optional[str]  = None
+    source_mode:          Optional[str]  = None
+
+    # MS-247: opt-in context-compression experiment ("Efficient Mode" /
+    # caveman-inspired). Defaults to False so every existing caller is
+    # byte-for-byte unaffected — see efficient_mode/compressor.py.
+    efficient_mode:       Optional[bool] = False
+
+    # Optional collection selectors (defaults to "all")
+    pdf_collection_ids:      Optional[List[str]] = None
+    chat_collection_ids:     Optional[List[str]] = None
+    public_link_ids:         Optional[List[str]] = None
+    external_db_connection_ids: Optional[List[str]] = None
+
+
+class PdfSourceDetail(BaseModel):
+    file_name:        str
+    collection_id:    str
+    page:             Optional[int]   = None
+    relevance_score:  Optional[float] = None
+    content_preview:  Optional[str]   = None
+    file_url:         Optional[str]   = None
+    page_url:         Optional[str]   = None
+    search_text:      Optional[str]   = None
+
+
+class AgnosticQueryResponse(BaseModel):
+    answer:               str
+    model_used:           str
+    pdf_sources:          List[str]
+    pdf_sources_detailed: List[PdfSourceDetail]
+    db_results:           Dict[str, Any]
+    chat_results:         List[Any]
+    processing_time:      float
+    search_terms:         List[str]
+    target_tables:        List[str]
+    source_type:          str = "Indexed Collections"
+    retrieved_count:      int = 0
+    # MS-247: populated only when efficient_mode was requested and the
+    # answer actually went through the LLM branch (absent for the
+    # system/meta-help/no-source short-circuits above, and for the
+    # low-confidence direct-extraction branch, none of which build a
+    # prompt/context to measure).
+    efficiency:           Optional[Dict[str, Any]] = None
+

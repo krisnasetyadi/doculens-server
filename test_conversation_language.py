@@ -25,6 +25,7 @@ from processor import processor, OFF_TOPIC_REDIRECT_EN, OFF_TOPIC_REDIRECT_ID
 import db
 from services.billing import allocation, enforcement, inflight, plans
 from router import agnostic, payment
+from services import agnostic as agnostic_service
 from models import UserRecord
 from services.auth import get_current_user
 
@@ -340,8 +341,8 @@ class RouterTests(unittest.TestCase):
 
     def test_long_turns_keep_their_closing_offer(self):
         long_reply = "x" * 2000 + " Mau saya ringkas ISO Policy?"
-        clipped = agnostic._clip_turn(long_reply)
-        self.assertLessEqual(len(clipped), agnostic.MAX_MEMORY_CHARS)
+        clipped = agnostic_service._clip_turn(long_reply)
+        self.assertLessEqual(len(clipped), agnostic_service.MAX_MEMORY_CHARS)
         self.assertTrue(clipped.endswith("Mau saya ringkas ISO Policy?"))
 
 
@@ -354,16 +355,16 @@ class AgnosticEndpointTests(unittest.TestCase):
         )
         self.client = TestClient(self.app)
         self.patches = [
-            patch.object(agnostic.supabase_storage, "list_collection_titles_for_user",
+            patch.object(agnostic_service.supabase_storage, "list_collection_titles_for_user",
                          return_value=[("c1", "ISO Policy"), ("c2", "Section 3 Handbook")]),
-            patch.object(agnostic.supabase_storage, "list_collections",
+            patch.object(agnostic_service.supabase_storage, "list_collections",
                          side_effect=AssertionError("must not scan every tenant's collections")),
-            patch.object(agnostic, "resolve_workspace_id", return_value="w1"),
-            patch.object(agnostic, "enforce_rate_limit"),
-            patch.object(agnostic, "enforce_plan_limit", return_value=None),
-            patch.object(agnostic, "enforce_member_allocation", return_value=None),
-            patch.object(agnostic, "get_usage_snapshot", return_value=None),
-            patch.object(agnostic, "log_token_usage"),
+            patch.object(agnostic_service, "resolve_workspace_id", return_value="w1"),
+            patch.object(agnostic_service, "enforce_rate_limit"),
+            patch.object(agnostic_service, "enforce_plan_limit", return_value=None),
+            patch.object(agnostic_service, "enforce_member_allocation", return_value=None),
+            patch.object(agnostic_service, "get_usage_snapshot", return_value=None),
+            patch.object(agnostic_service, "log_token_usage"),
         ]
         for p in self.patches:
             p.start()
@@ -393,13 +394,13 @@ class AgnosticEndpointTests(unittest.TestCase):
         self.hybrid_search.assert_not_called()
 
     def test_capped_user_gets_canned_greeting_not_429(self):
-        with patch.object(agnostic, "enforce_rate_limit", side_effect=HTTPException(status_code=429, detail="x")):
+        with patch.object(agnostic_service, "enforce_rate_limit", side_effect=HTTPException(status_code=429, detail="x")):
             response = self.ask("thanks")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["model_used"], "system/conversation")
 
     def test_capped_user_still_blocked_for_data_questions(self):
-        with patch.object(agnostic, "enforce_rate_limit", side_effect=HTTPException(status_code=429, detail="x")):
+        with patch.object(agnostic_service, "enforce_rate_limit", side_effect=HTTPException(status_code=429, detail="x")):
             response = self.ask("ringkas dokumen saya")
         self.assertEqual(response.status_code, 429)
 
@@ -479,12 +480,12 @@ class AgnosticEndpointTests(unittest.TestCase):
         self.assertEqual(response.json()["answer"], "Answer")
         self.assertEqual(self.hybrid_search.call_args[0][0], "leave policy annual leave")
         self.assertEqual(gen.call_args[0][1], "leave policy annual leave")
-        agnostic.log_token_usage.assert_called_once()
-        self.assertEqual(agnostic.log_token_usage.call_args[0][1], 15)  # router + answer, one ledger row
+        agnostic_service.log_token_usage.assert_called_once()
+        self.assertEqual(agnostic_service.log_token_usage.call_args[0][1], 15)  # router + answer, one ledger row
 
     def test_skill_invocation_always_retrieves(self):
         self.hybrid_search.return_value = {}
-        with patch.object(agnostic.supabase_storage, "get_skill_for_user", return_value=None), \
+        with patch.object(agnostic_service.supabase_storage, "get_skill_for_user", return_value=None), \
                 patch.object(processor, "route_message") as route, \
                 patch.object(processor, "generate_hybrid_answer", return_value=("Answer", "gemini/x", {})):
             self.ask("hi", skill_id="s1")
@@ -517,7 +518,7 @@ class AgnosticEndpointTests(unittest.TestCase):
         self.hybrid_search.assert_not_called()
 
     def test_capped_user_gray_zone_without_source_gets_free_reply(self):
-        with patch.object(agnostic, "enforce_rate_limit", side_effect=HTTPException(status_code=429, detail="x")):
+        with patch.object(agnostic_service, "enforce_rate_limit", side_effect=HTTPException(status_code=429, detail="x")):
             response = self.ask("what is the leave policy?", include_pdf_results=False)
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["model_used"], "system/no-source-selected")
@@ -670,13 +671,13 @@ class ConcurrencyEndpointTests(unittest.IsolatedAsyncioTestCase):
             user_id="u1", email="u1@example.com", role="admin", is_active=True
         )
         for target, attr, kwargs in [
-            (agnostic.supabase_storage, "list_collection_titles_for_user", {"return_value": [("c1", "ISO Policy")]}),
-            (agnostic, "resolve_workspace_id", {"return_value": "w1"}),
-            (agnostic, "enforce_rate_limit", {}),
-            (agnostic, "enforce_plan_limit", {"return_value": None}),
-            (agnostic, "enforce_member_allocation", {"return_value": None}),
-            (agnostic, "get_usage_snapshot", {"return_value": None}),
-            (agnostic, "log_token_usage", {}),
+            (agnostic_service.supabase_storage, "list_collection_titles_for_user", {"return_value": [("c1", "ISO Policy")]}),
+            (agnostic_service, "resolve_workspace_id", {"return_value": "w1"}),
+            (agnostic_service, "enforce_rate_limit", {}),
+            (agnostic_service, "enforce_plan_limit", {"return_value": None}),
+            (agnostic_service, "enforce_member_allocation", {"return_value": None}),
+            (agnostic_service, "get_usage_snapshot", {"return_value": None}),
+            (agnostic_service, "log_token_usage", {}),
         ]:
             patcher = patch.object(target, attr, **kwargs)
             patcher.start()
