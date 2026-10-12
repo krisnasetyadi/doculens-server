@@ -642,7 +642,7 @@ class VectorStoreBackoffTests(unittest.TestCase):
     def test_failed_load_backs_off_then_retries(self):
         with patch.object(processor, "_load_vector_store", return_value=None) as load, \
                 patch.object(processor, "embeddings", object()), \
-                patch("services.rag.processor.time.monotonic", side_effect=[0, 0, 10, 31, 31, 40]):
+                patch("services.rag.indexes.time.monotonic", side_effect=[0, 0, 10, 31, 31, 40]):
             processor._missing_vector_stores.pop("broken", None)
             processor.get_vector_store("broken")   # t=0: fails -> retry after 30s
             processor.get_vector_store("broken")   # t=10: skipped, no load
