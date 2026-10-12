@@ -1,4 +1,4 @@
-"""MS-657: behaviour of PDF collection management (router/collections.py)
+"""MS-657: behaviour of PDF collection management (router/ + services/collections.py)
 against real SQL, recorded before it is moved: listing, activating, moving to
 a folder, deleting, serving files, the text viewer and the file list.
 Supabase Storage is off, so files come from a temporary local folder. Runs in
