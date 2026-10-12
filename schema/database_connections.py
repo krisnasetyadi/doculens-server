@@ -1,5 +1,5 @@
 # schema/database_connections.py
-"""Tables owned by router/database_connections.py (moved here from it by MS-657)."""
+"""Tables used by services/database_connections.py (moved here from router/database_connections.py by MS-657)."""
 
 import logging
 

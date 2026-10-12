@@ -2,7 +2,7 @@
 """
 The one way application code reaches THIS APP's own PostgreSQL database
 (users, sessions, collections, payments, ... — never a user-connected
-external source, which router/database_connections.py opens per request on
+external source, which services/database_connections.py opens per request on
 purpose).
 
 Connections come from a process-wide pool instead of being opened per call:

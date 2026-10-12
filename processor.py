@@ -2234,7 +2234,7 @@ Answer:"""
         return "\n".join(lines)
 
     def _load_external_db_documents(self, db_connections: List[Dict[str, Any]]) -> List[Document]:
-        from router.database_connections import open_external_connection, list_tables_with_columns
+        from services.database_connections import open_external_connection, list_tables_with_columns
 
         documents: List[Document] = []
 

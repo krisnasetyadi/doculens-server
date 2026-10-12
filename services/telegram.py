@@ -12,7 +12,7 @@ in the connect form rather than via server config, so different admins can
 each bring their own Telegram app registration — see
 models.TelegramConnectStartRequest.
 
-Mirrors router/database_connections.py's structure (its own small schema in
+Mirrors services/database_connections.py's structure (its own small schema in
 the app's own database, admin-only, connect/list/activate/delete) since a
 Telegram connection is the same shape of thing: a live, credentialed,
 user-managed source rather than a one-time file.

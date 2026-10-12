@@ -1,5 +1,5 @@
 """MS-657: behaviour of database connections as a knowledge source
-(router/database_connections.py) against real SQL, recorded before it is
+(router/ + services/connection_service.py) against real SQL, recorded before it is
 moved: creating (connect + schema browse first), listing with the password
 masked, refreshing tables, activating, deleting, the optional per-user scope
 and the active list the RAG pipeline reads. The user's external database is a
@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 
 from models import UserRecord
 from router import database_connections
+from services import database_connections as connection_service
 from services.auth import get_current_user
 from testing_db import IsolatedSchemaTestCase
 
@@ -183,7 +184,7 @@ class RagSourcesTest(DatabaseConnectionsTestCase):
         off = self.create("postgres://ext.example.com/old").json()["connection_id"]
         self.http.post("/api/v1/database-connections/activate", json={"connection_id": off, "active": False})
 
-        resolve = lambda ids=None: asyncio.run(database_connections.resolve_active_database_connections(ids))
+        resolve = lambda ids=None: asyncio.run(connection_service.resolve_active_database_connections(ids))
         self.assertEqual(sorted(c["connection_id"] for c in resolve()), sorted([on, other]))
         self.assertEqual(resolve([on, off]), [{"connection_id": on, "label": "ext.example.com/hr", "url": EXTERNAL_URL}])
 
@@ -192,9 +193,9 @@ class HelperTest(unittest.TestCase):
     """Pure helpers; no database needed."""
 
     def test_redact_and_label(self):
-        self.assertEqual(database_connections._redact_url(f"postgresql://u:{FAKE_PASSWORD}@h/db"), "postgresql://u:" + "****@h/db")
-        self.assertEqual(database_connections._redact_url("postgresql://h/db"), "postgresql://h/db")
-        self.assertEqual(database_connections._derive_label("postgresql://h:5432"), "h/database")
+        self.assertEqual(connection_service._redact_url(f"postgresql://u:{FAKE_PASSWORD}@h/db"), "postgresql://u:" + "****@h/db")
+        self.assertEqual(connection_service._redact_url("postgresql://h/db"), "postgresql://h/db")
+        self.assertEqual(connection_service._derive_label("postgresql://h:5432"), "h/database")
 
 
 if __name__ == "__main__":
