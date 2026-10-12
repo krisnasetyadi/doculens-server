@@ -80,7 +80,7 @@ class GapCheckMixin:
                 list_values = [v for v in data.values() if isinstance(v, list)]
                 if len(list_values) == 1:
                     return [str(x) for x in list_values[0]]
-        except Exception:
+        except ValueError:  # not JSON; try the next way
             pass
         match = re.search(r'\[.*\]', text, re.DOTALL)
         if match:
@@ -88,7 +88,7 @@ class GapCheckMixin:
                 data = json.loads(match.group(0))
                 if isinstance(data, list):
                     return [str(x) for x in data]
-            except Exception:
+            except ValueError:  # not JSON; try the next way
                 pass
         return []
 
@@ -99,7 +99,7 @@ class GapCheckMixin:
             data = json.loads(text)
             if isinstance(data, list):
                 return data
-        except Exception:
+        except ValueError:  # not JSON; try the next way
             pass
         match = re.search(r'\[.*\]', text, re.DOTALL)
         if match:
@@ -107,7 +107,7 @@ class GapCheckMixin:
                 data = json.loads(match.group(0))
                 if isinstance(data, list):
                     return data
-            except Exception:
+            except ValueError:  # not JSON; try the next way
                 pass
         return []
 

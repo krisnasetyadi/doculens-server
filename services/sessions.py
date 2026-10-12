@@ -241,10 +241,7 @@ def upsert_session(body: UpsertSessionRequest, user: UserRecord):
         logger.error("sessions upsert DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to persist session")
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        conn.close()
 
 
 def list_sessions(q: Optional[str], user: UserRecord):
@@ -361,10 +358,7 @@ def list_sessions(q: Optional[str], user: UserRecord):
         logger.error("sessions list DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to list sessions")
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        conn.close()
 
 
 def get_session(session_id: str, limit: int, before: Optional[str], user: UserRecord):
@@ -478,10 +472,7 @@ def get_session(session_id: str, limit: int, before: Optional[str], user: UserRe
         logger.error("sessions get DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to load session")
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        conn.close()
 
 
 def get_session_questions(session_id: str, user: UserRecord):
@@ -545,10 +536,7 @@ def get_session_questions(session_id: str, user: UserRecord):
         logger.error("sessions questions DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to load session questions")
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        conn.close()
 
 
 def rename_session(session_id: str, body: RenameSessionRequest, user: UserRecord):
@@ -602,10 +590,7 @@ def rename_session(session_id: str, body: RenameSessionRequest, user: UserRecord
         logger.error("sessions rename DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to rename session")
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        conn.close()
 
 
 def delete_session(session_id: str, user: UserRecord):
@@ -633,7 +618,4 @@ def delete_session(session_id: str, user: UserRecord):
         logger.error("sessions delete DB error: %s", e)
         raise HTTPException(status_code=500, detail="Failed to delete session")
     finally:
-        try:
-            conn.close()
-        except Exception:
-            pass
+        conn.close()

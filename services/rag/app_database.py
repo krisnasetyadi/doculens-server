@@ -39,8 +39,8 @@ class DatabaseManager:
             if self.connection:
                 try:
                     self.connection.close()
-                except:
-                    pass
+                except Exception:
+                    pass  # already broken; it is replaced below
                     
             config = Config()
             db_config = config.db_config

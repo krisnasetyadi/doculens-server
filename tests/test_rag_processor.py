@@ -180,5 +180,23 @@ class ConfigTests(unittest.TestCase):
             self.assertEqual(Config().gemini_thinking_budget, 512)
 
 
+
+class GapCheckJsonParsingTests(unittest.TestCase):
+    """The model's JSON comes back plain, fenced, or wrapped in prose."""
+
+    def test_lists(self):
+        parse = processor._parse_json_list
+        self.assertEqual(parse('["A.5", "A.6"]'), ["A.5", "A.6"])
+        self.assertEqual(parse('```json\n["A.5"]\n```'), ["A.5"])
+        self.assertEqual(parse('{"items": ["A.5", 7]}'), ["A.5", "7"])
+        self.assertEqual(parse('Here you go: ["A.5", "A.6"] hope it helps'), ["A.5", "A.6"])
+        self.assertEqual(parse("no json here"), [])
+
+    def test_objects(self):
+        parse = processor._parse_json_objects
+        self.assertEqual(parse('[{"label": "A.5"}]'), [{"label": "A.5"}])
+        self.assertEqual(parse('Result: [{"label": "A.5"}] done'), [{"label": "A.5"}])
+        self.assertEqual(parse("[not json"), [])
+
 if __name__ == "__main__":
     unittest.main()
