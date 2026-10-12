@@ -139,6 +139,13 @@ class DeleteTest(CollectionsTestCase):
         self.assertEqual(self.client(user("admin")).delete(f"/api/v1/pdf-collections/{cid}").status_code, 200)
         self.assertFalse((self.upload_dir / cid).exists())
 
+    def test_deleting_what_is_already_gone_is_a_404(self):
+        admin = self.client(user("admin"))
+        cid = self.collection(user(), on_disk=False)
+        self.assertEqual(admin.delete(f"/api/v1/pdf-collections/{cid}").status_code, 200)
+        self.assertEqual(admin.delete(f"/api/v1/pdf-collections/{cid}").status_code, 404)
+        self.assertEqual(admin.delete("/api/v1/pdf-collections/never-existed").status_code, 404)
+
 
 class ServeFileTest(CollectionsTestCase):
     def test_owner_gets_the_file_with_its_real_type(self):

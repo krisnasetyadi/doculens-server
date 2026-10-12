@@ -458,15 +458,20 @@ def register_collection(
 
 
 def delete_collection_from_db(collection_id: str) -> bool:
+    """True only when a collection row was actually deleted; storage files
+    are cleaned up either way."""
+    removed = False
     conn = db.get_conn("storage")
     if conn:
         try:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM collections WHERE collection_id = %s AND kind = 'pdf'",
                             (collection_id,))
-            conn.close()
+                removed = cur.rowcount > 0
         except Exception as e:
             logger.warning("delete PDF row failed: %s", e)
+        finally:
+            conn.close()
     s3 = _s3_client()
     if s3:
         # The DB row is already gone by now, so storage cleanup must never
@@ -489,8 +494,8 @@ def delete_collection_from_db(collection_id: str) -> bool:
                     s3.delete_object(Bucket=bucket, Key=key)
                 except Exception as e:
                     logger.warning("PDF S3 delete failed (%s): %s", key, e)
-    logger.info("Deleted PDF collection: %s", collection_id)
-    return True
+    logger.info("Deleted PDF collection: %s (row existed: %s)", collection_id, removed)
+    return removed
 
 
 def list_collections() -> List[Dict[str, Any]]:
