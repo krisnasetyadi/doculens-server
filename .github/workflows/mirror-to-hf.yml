@@ -6,13 +6,13 @@
 # and redeploys it.
 #
 # Setup (once, in this repo's Settings → Secrets and variables → Actions):
-#   - Variable `HF_SPACE_REPO`: the Space as `owner/name`, e.g. `krisnasetyadi/doculens-api`.
-#   - Secret   `HF_TOKEN`: a Hugging Face access token with write access to that Space
+#   - Variable `HF_MIRROR_REPO`: the Space as `owner/name`, e.g. `krisnasetyadi/doculens-api`.
+#   - Secret   `HF_MIRROR_TOKEN`: a Hugging Face access token with write access to that Space
 #     (huggingface.co → Settings → Access Tokens; fine-grained, "Write" on the Space).
 #
 # Nobody should commit to the Space directly any more; if someone does, the next
 # sync overwrites those files with what is here.
-name: Sync main to Hugging Face
+name: Mirror main to Hugging Face
 
 on:
   workflow_run:
@@ -22,17 +22,17 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: sync-to-hf
+  group: mirror-to-hf
   cancel-in-progress: false
 
 permissions:
   contents: read
 
 jobs:
-  sync:
+  mirror:
     # Manual runs always go; automatic runs only after a green test run on a push.
     if: >-
-      vars.HF_SPACE_REPO != '' && (
+      vars.HF_MIRROR_REPO != '' && (
         github.event_name == 'workflow_dispatch' ||
         (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
       )
@@ -51,15 +51,15 @@ jobs:
 
       - name: Clone the Space
         env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_SPACE_REPO: ${{ vars.HF_SPACE_REPO }}
+          HF_MIRROR_TOKEN: ${{ secrets.HF_MIRROR_TOKEN }}
+          HF_MIRROR_REPO: ${{ vars.HF_MIRROR_REPO }}
         run: |
-          if [ -z "$HF_TOKEN" ]; then
-            echo "::error::Secret HF_TOKEN is not set."
+          if [ -z "$HF_MIRROR_TOKEN" ]; then
+            echo "::error::Secret HF_MIRROR_TOKEN is not set."
             exit 1
           fi
           GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 \
-            "https://user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_REPO}" "$RUNNER_TEMP/space"
+            "https://user:${HF_MIRROR_TOKEN}@huggingface.co/spaces/${HF_MIRROR_REPO}" "$RUNNER_TEMP/space"
 
       - name: Copy the code into the Space
         run: python scripts/sync_hf.py --write --target "$RUNNER_TEMP/space"

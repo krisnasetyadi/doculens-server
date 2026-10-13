@@ -109,15 +109,15 @@ This repository is the source of truth. Three workflows keep the copies in step:
 | Workflow | When | What |
 |---|---|---|
 | `tests.yml` | every push and PR | runs the test suite against PostgreSQL |
-| `sync-to-hf.yml` | after tests pass on `main` (or run by hand) | copies the code into the Space repo with `scripts/sync_hf.py` and pushes it, which redeploys the Space |
+| `mirror-to-hf.yml` | after tests pass on `main` (or run by hand) | copies the code into the Space repo with `scripts/sync_hf.py` and pushes it, which redeploys the Space |
 | `mirror-to-org.yml` | every push to `main` | pushes `main` to the organization repository |
 
 One-time setup in **Settings → Secrets and variables → Actions**:
 
 | Name | Kind | Value |
 |---|---|---|
-| `HF_SPACE_REPO` | variable | the Space, e.g. `krisnasetyadi/doculens-api` |
-| `HF_TOKEN` | secret | Hugging Face access token with write access to that Space |
+| `HF_MIRROR_REPO` | variable | the Space, e.g. `krisnasetyadi/doculens-api` |
+| `HF_MIRROR_TOKEN` | secret | Hugging Face access token with write access to that Space |
 | `ORG_MIRROR_REPO` | variable | the org repo, e.g. `my-org/doculens-server` |
 | `ORG_MIRROR_TOKEN` | secret | fine-grained GitHub PAT, "Contents: Read and write" on that repo only |
 
