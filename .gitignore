@@ -30,7 +30,7 @@ SESSION_SUMMARY.md
 *.ipynb
 
 # editor / OS / local agent settings
-.claude/settings.local.json
+.claude/
 .idea/
 .DS_Store
 Thumbs.db
