@@ -1,0 +1,48 @@
+# Mirrors `main` to the organization repository after every push/merge to `main`.
+#
+# Setup (once, in this repo's Settings → Secrets and variables → Actions):
+#   - Variable `ORG_MIRROR_REPO`: target repo as `owner/name`, e.g. `my-org/doculens-server`.
+#   - Secret   `ORG_MIRROR_TOKEN`: fine-grained PAT with access to that repo only,
+#     permission "Contents: Read and write". If the org enforces SAML SSO, authorize
+#     the token for the org. The org must allow fine-grained PATs.
+#
+# This repo is the source of truth. The push is deliberately NOT forced: if someone
+# commits to the org repo directly, the mirror fails loudly instead of silently
+# overwriting their work.
+name: Mirror main to organization
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-to-org
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    if: vars.ORG_MIRROR_REPO != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          # Otherwise checkout's GITHUB_TOKEN auth header is sent to the org repo too
+          # and overrides the mirror token, which makes the push fail with 403.
+          persist-credentials: false
+
+      - name: Push main to organization repo
+        env:
+          MIRROR_TOKEN: ${{ secrets.ORG_MIRROR_TOKEN }}
+          MIRROR_REPO: ${{ vars.ORG_MIRROR_REPO }}
+        run: |
+          if [ -z "$MIRROR_TOKEN" ]; then
+            echo "::error::Secret ORG_MIRROR_TOKEN is not set."
+            exit 1
+          fi
+          git push "https://x-access-token:${MIRROR_TOKEN}@github.com/${MIRROR_REPO}.git" HEAD:refs/heads/main
