@@ -23,7 +23,6 @@ from __future__ import annotations
 import logging
 import math
 import os
-import shutil
 import time
 import uuid
 from dataclasses import dataclass
@@ -33,7 +32,6 @@ from typing import BinaryIO, Optional
 from fastapi import HTTPException
 
 import db
-from services.storage import supabase as supabase_storage
 from config import config
 
 logger = logging.getLogger(__name__)
@@ -236,6 +234,3 @@ def save_capped(fileobj: BinaryIO, destination: str, max_bytes: int, limits: Sto
         raise
     return written
 
-
-def remove_dir(path: str) -> None:
-    shutil.rmtree(path, ignore_errors=True)

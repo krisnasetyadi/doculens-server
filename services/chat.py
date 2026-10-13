@@ -201,7 +201,7 @@ async def list_chat_collections():
             metadata_path = os.path.join(collection_path, "metadata.json")
             if os.path.exists(metadata_path):
                 import json
-                with open(metadata_path, 'r', encoding='utf-8') as f:
+                with open(metadata_path, encoding='utf-8') as f:
                     metadata = json.load(f)
                     collections.append(metadata)
             else:
@@ -214,7 +214,7 @@ async def preview(collection_id: str, max_chars: int):
     file_path, _collection_info = _resolve_chat_collection_file(collection_id)
 
     try:
-        with open(file_path, 'r', encoding='utf-8', errors='replace') as handle:
+        with open(file_path, encoding='utf-8', errors='replace') as handle:
             content = handle.read(max_chars + 1)
     except Exception as exc:
         logger.error(f"Failed reading chat file preview for {collection_id}: {exc}")

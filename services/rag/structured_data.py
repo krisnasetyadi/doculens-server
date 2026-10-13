@@ -7,7 +7,7 @@ from config import config
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS
-from models import DatabaseResult, SearchType
+from models import DatabaseResult
 from services.rag.app_database import db_manager
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -24,70 +24,6 @@ class StructuredDataMixin:
         except Exception as e:
             logger.error(f"Failed to initialize database: {e}")
             self._db_initialized = False
-
-    def expand_query_for_db(self, query: str) -> List[str]:
-        """Expand query with database-related terms"""
-        expanded_queries = [query]
-
-        # Add lowercase version
-        expanded_queries.append(query.lower())
-
-        # Add synonyms for database-related terms
-        for term, synonyms in self.db_query_expansion_terms.items():
-            if term in query.lower():
-                for synonym in synonyms:
-                    expanded_query = query.lower().replace(term, synonym)
-                    expanded_queries.append(expanded_query)
-
-        return list(set(expanded_queries))
-
-    def analyze_question_type(self, question: str) -> Dict[str, Any]:
-        """Analyze question to determine optimal search strategy with smart table routing"""
-        question_lower = question.lower()
-
-        #Database-related keywords
-        db_keywords = [
-            'user', 'profile', 'customer', 'product', 'order', 'price', 
-            'jumlah', 'total', 'data', 'tabel', 'table', 'database', 'sql',
-            'nama', 'email', 'alamat', 'tanggal', 'date', 'harga', 'stock',
-            'karyawan', 'transaksi', 'pesanan', 'siapa', 'pegawai', 'staff',
-            'anggota', 'member', 'pelanggan', 'department', 'departemen'
-        ]
-
-        # Use pdf_keywords from instance (includes LPDU document terms)
-        pdf_terms = getattr(self, 'pdf_keywords', [
-            'dokumen', 'pdf', 'file', 'laporan', 'report', 'handbook',
-            'kebijakan', 'policy', 'prosedur', 'pedoman', 'guideline',
-            'kontrak', 'agreement', 'proposal'
-        ])
-
-        is_db_question = any(keyword in question_lower for keyword in db_keywords)
-        is_pdf_question = any(keyword in question_lower for keyword in pdf_terms)
-
-        # Smart table routing - determine which tables to search
-        target_tables = self.get_target_tables(question_lower)
-        
-        # Log detection results
-        logger.info(f"📊 Question analysis: is_db={is_db_question}, is_pdf={is_pdf_question}")
-
-        # if both or unclear, use hybrid
-        if (is_db_question and is_pdf_question) or (not is_db_question and not is_pdf_question):
-            recommended_type = SearchType.HYBRID
-            logger.info(f"🔄 Using HYBRID search (both sources)")
-        elif is_db_question:
-            recommended_type = SearchType.STRUCTURED
-            logger.info(f"🗄️ Using STRUCTURED search (database)")
-        else:
-            recommended_type = SearchType.UNSTRUCTURED
-            logger.info(f"📄 Using UNSTRUCTURED search (PDF)")
-
-        return {
-            "recommended_type": recommended_type,
-            "is_db_question": is_db_question,
-            "is_pdf_question": is_pdf_question,
-            "search_terms": self.extract_search_terms(question),
-            "target_tables": target_tables  # NEW: specific tables to search
-        }
 
     def get_target_tables(self, question_lower: str) -> List[str]:
         """Determine which database tables to search based on question content"""

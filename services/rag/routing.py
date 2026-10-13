@@ -46,15 +46,6 @@ class RoutingMixin:
             "is_explanation": 'explanation' in detected_intents
         }
 
-    def is_meta_help_query(self, question: str) -> bool:
-        """True if the question is about the app itself (e.g. "apa yang bisa
-        dilakukan disini"), not about uploaded document content. Callers
-        should short-circuit the normal hybrid-search pipeline entirely and
-        use build_meta_help_answer() instead — see meta_help_patterns above
-        for why this must stay deterministic."""
-        q = question.lower().strip()
-        return any(re.search(p, q, re.IGNORECASE) for p in self.meta_help_patterns)
-
     def build_meta_help_answer(
         self,
         pdf_collection_count: int,

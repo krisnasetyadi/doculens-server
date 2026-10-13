@@ -3,7 +3,6 @@ from pydantic import Field, field_validator
 from typing import List, Optional
 from enum import Enum
 from urllib.parse import urlparse
-import os
 
 
 # Whitelist of allowed table names (security: prevents SQL injection)

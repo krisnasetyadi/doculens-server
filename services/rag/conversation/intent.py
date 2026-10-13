@@ -63,8 +63,8 @@ _SMALL_TALK_RE = {
 }
 
 # Questions ABOUT DocuLens (features, commands, plans, quota, the assistant).
-# Superset of processor.meta_help_patterns (which stays for the "/help"
-# command's deterministic answer). Checked AFTER the retrieval signals, so
+# The literal "/help" command is answered deterministically in
+# services/agnostic.py before this runs. Checked AFTER the retrieval signals, so
 # "fitur apa saja yang ada di dokumen ini" still goes to retrieval.
 _APP_QUESTION = re.compile(
     "|".join([

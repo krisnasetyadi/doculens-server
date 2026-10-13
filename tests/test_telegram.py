@@ -8,7 +8,6 @@ Storage is off, so nothing leaves the machine. Runs in a throwaway schema
 import os
 import tempfile
 import unittest
-import uuid
 from contextlib import ExitStack
 from datetime import datetime
 from pathlib import Path

@@ -8,7 +8,6 @@ throwaway schema (testing_db); skipped when no database is reachable."""
 
 import os
 import unittest
-import uuid
 from unittest.mock import patch
 
 os.environ.setdefault("JWT_SECRET", "ms657-local-test-secret-not-for-production")

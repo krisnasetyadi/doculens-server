@@ -77,7 +77,7 @@ def open_external_connection(url: str, timeout: int = 10):
     try:
         psycopg2 = __import__("psycopg2")
         extras = __import__("psycopg2.extras", fromlist=["RealDictCursor"])
-        real_dict_cursor = getattr(extras, "RealDictCursor")
+        real_dict_cursor = extras.RealDictCursor
         conn = psycopg2.connect(url, cursor_factory=real_dict_cursor, connect_timeout=timeout)
         conn.autocommit = True
         return conn

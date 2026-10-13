@@ -7,7 +7,7 @@ Primary focus: WhatsApp TXT format
 import re
 import logging
 from datetime import datetime
-from typing import List, Dict, Any, Optional, Tuple, Set
+from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 from collections import Counter
 
@@ -66,14 +66,14 @@ class ChatParser:
             content = None
             for enc in [encoding, 'utf-8-sig', 'utf-16', 'latin-1']:
                 try:
-                    with open(file_path, 'r', encoding=enc) as f:
+                    with open(file_path, encoding=enc) as f:
                         content = f.read()
                     break
                 except UnicodeDecodeError:
                     continue
             
             if content is None:
-                raise ValueError(f"Could not decode file with any supported encoding")
+                raise ValueError("Could not decode file with any supported encoding")
             
             lines = content.split('\n')
             logger.info(f"📱 Parsing WhatsApp file with {len(lines)} lines")
@@ -337,22 +337,3 @@ class ChatParser:
         logger.info(f"🔑 Extracted {len(top_keywords)} keywords: {top_keywords[:10]}...")
         return top_keywords
 
-
-# Convenience function
-def parse_chat_file(file_path: str, platform: str = "whatsapp") -> Tuple[List[ChatMessage], Dict[str, Any]]:
-    """
-    Parse chat file based on platform
-    
-    Args:
-        file_path: Path to chat export file
-        platform: Chat platform (whatsapp, teams, slack)
-        
-    Returns:
-        Tuple of (messages, metadata)
-    """
-    parser = ChatParser()
-    
-    if platform.lower() == "whatsapp":
-        return parser.parse_whatsapp(file_path)
-    else:
-        raise ValueError(f"Unsupported platform: {platform}. Currently only 'whatsapp' is supported.")

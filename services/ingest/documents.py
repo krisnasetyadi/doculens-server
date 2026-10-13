@@ -107,7 +107,7 @@ def extract_text_from_csv(csv_path):
 
     for enc in ("utf-8-sig", "utf-8", "cp1252", "latin-1"):
         try:
-            with open(csv_path, "r", encoding=enc, newline="") as f:
+            with open(csv_path, encoding=enc, newline="") as f:
                 rows_text = []
                 reader = csv_module.reader(f)
                 header = next(reader, None)
@@ -162,7 +162,7 @@ def extract_text_from_txt(txt_path):
     text = None
     for enc in ("utf-8", "utf-8-sig", "utf-16", "latin-1"):
         try:
-            with open(txt_path, "r", encoding=enc) as f:
+            with open(txt_path, encoding=enc) as f:
                 text = f.read()
             break
         except UnicodeDecodeError:

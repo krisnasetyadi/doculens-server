@@ -4,7 +4,6 @@ Mixin of services.rag.processor.PDFQAProcessor; the methods were moved
 verbatim from that class by MS-657."""
 import logging
 import re
-from models import SourceInfo
 from services.rag.conversation.language import ReplyLanguage, answer_language_instruction, detect_reply_language
 from services.rag.conversation.messages import fallback_text
 from services.rag.efficient_mode.compressor import ContextPart, compress_context, compress_memory
@@ -681,69 +680,6 @@ JAWABAN:"""
         snippet = self._extract_relevant_snippet(content, question)
         return f"{based_on}\n\n{snippet}"
 
-    def _is_garbled_output(self, text: str) -> bool:
-        """Check if output looks garbled/reversed or unhelpful"""
-        if not text or len(text) < 10:
-            return True
-        
-        text_lower = text.lower()
-        
-        # Check for common garbled/unhelpful patterns from flan-t5
-        unhelpful_patterns = [
-            'pertanyaan pertanyaan',
-            'berdasar konteks',
-            'jawab pertanyaan',
-            'answer the question',
-            'based on context',
-            'tidak ada informasi',
-            'no information',
-            'context:',
-            'question:',
-            'yang bersama yang bersama',  # repetitive garbled output
-            'bersama yang bersama',
-            'yang berkata terjadi',  # another garbled pattern
-            'berkata tidak berkata',
-            'data pertanyaan tahun',
-            'data pertanyaan tersebut',
-            'format yang bersah',
-        ]
-        
-        for pattern in unhelpful_patterns:
-            if pattern in text_lower:
-                return True
-        
-        # Check for repetitive patterns (same word repeated 5+ times)
-        import re
-        words = text_lower.split()
-        if len(words) > 5:
-            from collections import Counter
-            word_counts = Counter(words)
-            most_common = word_counts.most_common(1)
-            if most_common and most_common[0][1] >= 5 and most_common[0][1] / len(words) > 0.3:
-                return True
-        
-        # Check for reversed text patterns (consonant clusters that don't make sense)
-        consonant_pattern = re.compile(r'[bcdfghjklmnpqrstvwxyzBCDFGHJKLMNPQRSTVWXYZ]{4,}')
-        garbled_words = sum(1 for w in words if consonant_pattern.search(w))
-        
-        if len(words) > 0 and garbled_words / len(words) > 0.3:
-            return True
-        
-        # If answer is too short and doesn't contain useful info
-        if len(words) < 5:
-            return True
-        
-        # Check if answer doesn't contain any expected content (names, data fields)
-        # If context had database results but answer has none of the field values, likely garbled
-        expected_markers = ['id:', 'name:', 'email:', '@', 'department:', 'position:', 'phone:']
-        has_expected = any(marker in text_lower for marker in expected_markers)
-        
-        # If text looks like repeated gibberish without any data markers
-        if not has_expected and 'yang' in text_lower and text_lower.count('yang') >= 3:
-            return True
-        
-        return False
-
     def _generate_fallback_answer(
         self, hybrid_results: Dict[str, Any], question: str, language: ReplyLanguage = "id"
     ) -> str:
@@ -818,41 +754,3 @@ JAWABAN:"""
             return f"{prefix}\n\n{best_chat.page_content}"
 
         return fallback_text(language, 'no_valid_answer')
-
-    def get_source_info(self, hybrid_results: Dict[str, Any]) -> List[SourceInfo]:
-        """Extract source information for response"""
-        sources = []
-
-        #PDF sources
-        for doc in hybrid_results.get('pdf_documents', []):
-            source_info = SourceInfo(
-                type="pdf",
-                source=doc.metadata.get('source', 'Unknown'),
-                confidence=doc.metadata.get('similarity_score', 0),
-                preview=self.truncate_context(doc.page_content, max_tokens=50),
-                metadata={
-                    'page': doc.metadata.get('page', 'Unknown'),
-                    'collection_id': doc.metadata.get('collection_id', 'Unknown')
-                }
-            )
-
-            sources.append(source_info)
-
-         # Database sources
-        db_results = hybrid_results.get('database_results', {})
-        for table_name, db_result in db_results.items():
-            if db_result.record_count > 0:
-                source_info = SourceInfo(
-                    type="database",
-                    source=f"Table: {table_name}",
-                    confidence=1.0,
-                    preview=f"Menemukan {db_result.reord_count} record",
-                    metadata={
-                        'table': table_name,
-                        'record_count': db_result.record_count
-                    }
-                )
-
-                sources.append(source_info)
-
-        return sources

@@ -2,9 +2,7 @@ import psycopg2
 from psycopg2.extras import RealDictCursor
 import logging
 from config import Config, ALLOWED_TABLES
-from typing import List, Dict, Any, Optional, Tuple
-import os
-import re
+from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -309,24 +307,6 @@ class DatabaseManager:
             logger.error(f"Query execution failed: {e}")
             raise
     
-    def search_accross_tables(self, search_terms: List[str], limit: int = 10) -> Dict[str, List[Dict[str, Any]]]:
-        """Search across all configured tables"""
-        self.ensure_connection()
-        if not self.connection:
-            return {}
-        results = {}
-       
-        for table_name in Config().db_tables:
-            try:
-                table_results = self.search_in_table(table_name, search_terms, limit)
-                if table_results:
-                    results[table_name] = table_results
-            except Exception as e:
-                logger.error(f"Search in table {table_name} failed: {e}")
-                continue
-            
-        return results
-
     def search_in_specific_tables(self, search_terms: List[str], tables: List[str], limit: int = 10) -> Dict[str, List[Dict[str, Any]]]:
         """Search across specific tables only (smart routing)"""
         logger.info(f"🔎 search_in_specific_tables called with terms: {search_terms}, tables: {tables}")
@@ -405,7 +385,7 @@ class DatabaseManager:
                 logger.info(f"✅ FTS returned {len(results)} results from {table_name}")
                 return results
             
-            logger.info(f"⚠️ FTS returned no results, trying ILIKE fallback...")
+            logger.info("⚠️ FTS returned no results, trying ILIKE fallback...")
             # Fallback to ILIKE if FTS fails or returns no results
             ilike_results = self.search_with_ilike(table_name, search_terms, limit, phrases)
             logger.info(f"{'✅' if ilike_results else '❌'} ILIKE returned {len(ilike_results)} results from {table_name}")
@@ -463,7 +443,7 @@ class DatabaseManager:
             for term in search_terms:
                 if term:  # Original term, not stemmed
                     # Check if term appears as whole word in name
-                    boost_parts.append(f"CASE WHEN LOWER(name) LIKE LOWER(%s) THEN 50.0 ELSE 0.0 END")
+                    boost_parts.append("CASE WHEN LOWER(name) LIKE LOWER(%s) THEN 50.0 ELSE 0.0 END")
                     boost_params.append(f"%{term}%")
             
             # 2. Phrase match boost (20 points)
@@ -601,43 +581,10 @@ class DatabaseManager:
         
         return word  
       
-    def get_table_sample(self, table_name: str, limit: int = 5) -> List[Dict[str, Any]]:
-        """Get sample rows from a table"""
-        self.ensure_connection()
-        if not self.connection:
-            return []
-        try:
-            # Validate table name against whitelist
-            table_name = validate_table_name(table_name)
-            query = f"SELECT * FROM {table_name} LIMIT %s"
-            return self.execute_query(query, (limit,))
-        except Exception as e:
-            logger.error(f"Failed to get sample from table {table_name}: {e}")
-            return []
-
     def close(self):
         "Close database connection"
         if self.connection:
             self.connection.close()
             logger.info("Database connection closed")
 
-    def get_all_tables(self) -> List[str]:
-        """Get list of all tables in the database"""
-        self.ensure_connection()
-        if not self.connection:
-            logger.error("Database connection not available for listing tables")
-            return []
-            
-        try:
-            with self.connection.cursor() as cursor:
-                cursor.execute("""
-                    SELECT table_name 
-                    FROM information_schema.tables 
-                    WHERE table_schema = 'public';
-                """)
-                tables = cursor.fetchall()
-                return [table['table_name'] for table in tables]
-        except Exception as e:
-            logger.error(f"Failed to get tables: {e}")
-            return []
 db_manager = DatabaseManager()

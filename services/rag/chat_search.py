@@ -19,7 +19,7 @@ class ChatSearchMixin:
         
         try:
             if os.path.exists(metadata_path):
-                with open(metadata_path, 'r', encoding='utf-8') as f:
+                with open(metadata_path, encoding='utf-8') as f:
                     metadata = json.load(f)
                     keywords = metadata.get('keywords', [])
                     if keywords:
@@ -95,7 +95,7 @@ class ChatSearchMixin:
                 seen_content_hashes = set()
                 relevance_score_fn = vector_store._select_relevance_score_fn()
 
-                for query, query_vector in query_vectors:
+                for _query, query_vector in query_vectors:
                     docs_and_scores = vector_store.similarity_search_with_score_by_vector(
                         query_vector, k=top_k
                     )

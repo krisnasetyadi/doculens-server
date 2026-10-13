@@ -295,9 +295,7 @@ async def answer_query(req: AgnosticQueryRequest, base_url: str, user: UserRecor
             task = decision.search_task
             if task == "summarize" and not (
                 is_whole_document_summary(req.question, titles) or not is_summary_request(req.question)
-            ):
-                task = "answer"
-            elif task == "summarize" and mentions_document_part(
+            ) or task == "summarize" and mentions_document_part(
                 _strip_titles(decision.search_query, titles), include_topics=False
             ):
                 task = "answer"

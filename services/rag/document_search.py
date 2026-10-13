@@ -5,7 +5,6 @@ verbatim from that class by MS-657."""
 import logging
 from config import config
 from langchain.schema import Document
-from services.rag.conversation.language import detect_reply_language, language_name
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -111,7 +110,7 @@ class DocumentSearchMixin:
         
         import re
         processed_results = []
-        for doc, score in sorted_results:
+        for doc, _score in sorted_results:
             original_content = doc.page_content
             # Backfill page metadata from [PAGE x] if page is missing/empty/generic
             if "page" not in doc.metadata or doc.metadata["page"] in ["?", "Unknown", None]:
@@ -133,103 +132,6 @@ class DocumentSearchMixin:
         
         logger.info(f"🎯 Final results after deduplication: {len(final_results)}")
         return final_results
-
-    def clean_context(self, text: str) -> str:
-        """Clean context text to remove noise that confuses the LLM"""
-        import re
-        
-        # Remove excessive whitespace and normalize
-        text = re.sub(r'\s+', ' ', text)
-        
-        # Remove diagram/flowchart artifacts (arrows, boxes)
-        text = re.sub(r'[→←↑↓►◄▲▼■□●○◆◇]', '', text)
-        text = re.sub(r'[\|│┃┆┊╎]', ' ', text)  # vertical lines
-        text = re.sub(r'[-─━]{3,}', ' ', text)  # horizontal lines
-        
-        # Remove repeated single characters that appear in diagrams
-        text = re.sub(r'(\b\w\b\s*){4,}', '', text)
-        
-        # Remove common PDF artifacts
-        text = re.sub(r'Page \d+ of \d+', '', text, flags=re.IGNORECASE)
-        text = re.sub(r'\[\d+\]', '', text)  # footnote markers
-        
-        # Remove text that looks like reversed/garbled (consecutive uppercase without spaces)
-        # Keep meaningful acronyms (2-6 chars) but remove long garbled strings
-        text = re.sub(r'\b[A-Z]{7,}\b', '', text)
-        
-        # Clean up multiple spaces again after removals
-        text = re.sub(r'\s+', ' ', text).strip()
-        
-        return text
-
-    def truncate_context(self, text, max_tokens=500):
-        """Truncate context to avoid token limit issues"""
-        # Clean the text first
-        text = self.clean_context(text)
-        
-        # Simple word-based truncation
-        words = text.split()
-        if len(words) > max_tokens:
-            truncated = " ".join(words[:max_tokens]) + "... [truncated]"
-            logger.warning(f"Context truncated from {len(words)} to {max_tokens} words")
-            return truncated
-        return text
-
-    def generate_answer(self, context_docs, question):
-        """Generate answer with enhanced context handling"""
-        if not context_docs:
-            return "Maaf, tidak menemukan informasi yang relevan dalam dokumen."
-
-        # Prepare context with source information
-        context_parts = []
-        for i, doc in enumerate(context_docs):
-            source = doc.metadata.get('source', 'Unknown')
-            page = doc.metadata.get('page', 'Unknown')
-            score = doc.metadata.get('similarity_score', 0)
-
-            # Truncate each document content to avoid token limit
-            truncated_content = self.truncate_context(doc.page_content, max_tokens=150)
-
-            context_parts.append(
-                f"[Source: {source}, Page: {page}]\n{truncated_content}\n"
-            )
-
-        context = "\n".join(context_parts)
-
-        # Further truncate the entire context if needed
-        context = self.truncate_context(context, max_tokens=400)
-
-        # Simplified prompt for flan-t5
-        answer_language = language_name(detect_reply_language(question)).split(" (")[0]
-        prompt_template = f"""Answer the question based on the context. Answer in {answer_language}.""" + """
-
-Context:
-{context}
-
-Question: {question}
-
-Answer:"""
-
-        prompt = prompt_template.format(context=context, question=question)
-
-        try:
-            result = self.llm.invoke(prompt)
-            answer = result.strip()
-            
-            # Validate output
-            if self._is_garbled_output(answer):
-                logger.warning(f"Garbled output in generate_answer: {answer[:100]}")
-                # Return best document content as fallback
-                best_doc = context_docs[0]
-                source = best_doc.metadata.get('source', 'dokumen')
-                page = best_doc.metadata.get('page', '?')
-                content = self.truncate_context(best_doc.page_content, max_tokens=150)
-                return f"Berdasarkan {source} (halaman {page}):\n\n{content}"
-            
-            return answer
-        except Exception as e:
-            logger.error(f"LLM generation failed: {str(e)}")
-            return "Maaf, terjadi kesalahan dalam menghasilkan jawaban."
 
     def extract_file_reference(self, query: str) -> Optional[str]:
         """Extract file name reference from query"""

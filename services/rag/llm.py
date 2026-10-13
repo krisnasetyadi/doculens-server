@@ -4,11 +4,11 @@ Mixin of services.rag.processor.PDFQAProcessor; the methods were moved
 verbatim from that class by MS-657."""
 import logging
 import torch
-from config import AVAILABLE_MODELS, LLMProvider, config
+from config import LLMProvider, config
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import HuggingFacePipeline
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, GenerationConfig, pipeline
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -149,16 +149,6 @@ class LLMMixin:
             **extra_kwargs,
         )
 
-    def get_available_models(self) -> Dict[str, List[str]]:
-        """Return available models per provider"""
-        return {provider.value: models for provider, models in AVAILABLE_MODELS.items()}
-
-    def get_current_model_info(self) -> str:
-        """Get current model identifier string"""
-        if self._current_provider and self._current_model:
-            return f"{self._current_provider.value}/{self._current_model}"
-        return f"{config.default_llm_provider.value}/{config.default_llm_model}"
-
     def initialize_components(self):
         """Initialize all components including database"""
         with self._init_lock:
@@ -184,17 +174,14 @@ class LLMMixin:
                 if config.default_llm_provider == LLMProvider.HUGGINGFACE:
                     try:
                         self.tokenizer = AutoTokenizer.from_pretrained(config.model_name)
-                    except:
+                    except Exception:
+                        logger.warning("Tokenizer %s failed to load; using flan-t5-small", config.model_name)
                         self.tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
 
                 self.initialize_database()
-            
+
                 self._initialized = True
                 logger.info(f"✅ All components initialized with model: {model_id}")
-
-            except Exception as e:
-                logger.error(f"Failed to initialize components: {str(e)}")
-                raise
 
             except Exception as e:
                 logger.error(f"Failed to initialize components: {str(e)}")

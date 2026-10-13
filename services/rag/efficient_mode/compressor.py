@@ -222,11 +222,7 @@ def _prune_sections(body: str, question: str) -> Tuple[str, bool]:
 
     keep = [False] * len(sections)
     for i, section in enumerate(sections):
-        if i < _KEEP_HEAD or i >= len(sections) - _KEEP_TAIL:
-            keep[i] = True
-        elif _is_heading(section):
-            keep[i] = True
-        elif _IMPORTANT_RE.search(section):
+        if i < _KEEP_HEAD or i >= len(sections) - _KEEP_TAIL or _is_heading(section) or _IMPORTANT_RE.search(section):
             keep[i] = True
 
     if question:

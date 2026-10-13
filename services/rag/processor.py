@@ -154,46 +154,10 @@ class PDFQAProcessor(
             ]
         }
 
-        # "Meta/help" — questions about the APP ITSELF (not document content),
-        # e.g. "apa yang bisa dilakukan disini". Checked separately from
-        # intent_patterns above because it must short-circuit the whole
-        # document-grounded pipeline (see is_meta_help_query/build_meta_help_answer):
-        # this is the one question type with no document to ground an LLM
-        # answer in, so it's kept deterministic instead of free-generated.
-        self.meta_help_patterns = [
-            r'apa\s+(saja\s+)?yang\s+bisa\s+(kamu|kau|anda|aplikasi\s+ini|doculens)',
-            r'apa\s+yang\s+bisa\s+(saya|kita)\s+lakukan\s+di\s*sini',
-            r'bisa\s+ngapain\s*(di\s*sini)?\s*\??$',
-            r'cara\s+(pakai|menggunakan|make)\s+(aplikasi|ini|doculens)',
-            r'fitur\s+apa\s+(saja\s+)?(yang\s+)?(ada|tersedia)',
-            r'command\s+apa\s+(saja\s+)?(yang\s+)?(ada|tersedia)',
-            r'^/?help$',
-            r'apa\s+yang\s+bisa\s+dilakukan\s+di\s*sini',
-        ]
-
         # Known "/" commands (must mirror chat-ui's SLASH_COMMANDS). Backend
         # guard only — the frontend intercepts unmatched slash input before
         # it ever reaches this API, this exists for direct API calls/bypass.
         self.known_slash_commands = {"/gap-check", "/collections", "/history", "/upload", "/help"}
-
-        # Enhanced table routing
-        self.enhanced_table_keywords = {
-            "user_profiles": {
-                "keywords": ['user', 'pengguna', 'karyawan', 'staff', 'employee', 'profil'],
-                "fields": ['name', 'email', 'department', 'position', 'phone'],
-                "query_types": ['siapa', 'cari orang', 'kontak', 'pegawai']
-            },
-            "products": {
-                "keywords": ['product', 'produk', 'barang', 'item', 'harga', 'price'],
-                "fields": ['name', 'category', 'price', 'description', 'stock_quantity'],
-                "query_types": ['harga', 'stok', 'barang', 'produk']
-            },
-            "orders": {
-                "keywords": ['order', 'pesanan', 'pembelian', 'transaksi'],
-                "fields": ['quantity', 'total_amount', 'status', 'order_date'],
-                "query_types": ['transaksi', 'pesanan', 'pembelian', 'order']
-            }
-        }
 
 
 processor = PDFQAProcessor()

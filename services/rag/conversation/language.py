@@ -168,10 +168,6 @@ def language_name(language: ReplyLanguage) -> str:
     return "Indonesian (Bahasa Indonesia)" if language == "id" else "English"
 
 
-def clamp_language(value: Optional[str]) -> ReplyLanguage:
-    return "id" if value == "id" else "en"
-
-
 __all__: List[str] = [
     "ReplyLanguage",
     "DEFAULT_LANGUAGE",
@@ -179,5 +175,4 @@ __all__: List[str] = [
     "detect_text_language",
     "answer_language_instruction",
     "language_name",
-    "clamp_language",
 ]

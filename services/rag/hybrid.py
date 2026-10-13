@@ -5,7 +5,6 @@ verbatim from that class by MS-657."""
 import logging
 from concurrent.futures import ThreadPoolExecutor
 from config import config
-from models import DatabaseResult
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
@@ -89,7 +88,7 @@ class HybridSearchMixin:
             logger.info(f"🗄️ Searching DB (weight: {db_weight})...")
             target_tables = self.get_target_tables(question.lower())
             db_results = self.query_structured_data(search_terms, target_tables)
-            for table_name, db_result in db_results.items():
+            for db_result in db_results.values():
                 if hasattr(db_result, 'data'):
                     for record in db_result.data:
                         if 'relevance_score' in record:
@@ -361,62 +360,3 @@ class HybridSearchMixin:
                         })
         
         return conflicts
-
-    def rank_and_combine_results(
-            self, 
-            question: str, 
-            pdf_docs: List, 
-            db_results: Dict[str, DatabaseResult], 
-            chat_docs: List, 
-            search_terms: List[str]
-        ) -> List[Dict[str, Any]]:
-            """
-            Gabungkan hasil dari PDF, database, dan chat, lalu beri peringkat berdasarkan relevansi.
-            
-            Returns:
-                List[Dict]: List hasil gabungan yang sudah diurutkan berdasarkan skor relevansi.
-            """
-            combined = []
-            
-            # 1. Tambahkan hasil PDF
-            for doc in pdf_docs:
-                score = doc.metadata.get('similarity_score', 0)
-                combined.append({
-                    'type': 'pdf',
-                    'content': doc.page_content,
-                    'score': score,
-                    'metadata': doc.metadata,
-                    'source': doc.metadata.get('source', 'Unknown')
-                })
-            
-            # 2. Tambahkan hasil database
-            for table_name, db_result in db_results.items():
-                for record in db_result.data:
-                    # Hitung skor untuk record database berdasarkan kemiripan dengan search_terms
-                    record_text = ' '.join([str(v) for v in record.values()])
-                    # Simple text match scoring: count matching terms
-                    record_lower = record_text.lower()
-                    score = sum(1.0 for term in search_terms if term.lower() in record_lower) / max(len(search_terms), 1)
-                    combined.append({
-                        'type': 'database',
-                        'content': record_text,
-                        'score': score,
-                        'metadata': {'table': table_name, 'record': record},
-                        'source': f'Database table: {table_name}'
-                    })
-            
-            # 3. Tambahkan hasil chat
-            for doc in chat_docs:
-                score = doc.metadata.get('similarity_score', 0)
-                combined.append({
-                    'type': 'chat',
-                    'content': doc.page_content,
-                    'score': score,
-                    'metadata': doc.metadata,
-                    'source': doc.metadata.get('source', 'Unknown')
-                })
-            
-            # Urutkan berdasarkan skor (descending)
-            combined.sort(key=lambda x: x['score'], reverse=True)
-            
-            return combined

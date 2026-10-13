@@ -51,7 +51,7 @@ async def test_health_check():
             "timestamp": datetime.now().isoformat()
         }
         
-        print(f"\n🎯 Complete health response:")
+        print("\n🎯 Complete health response:")
         for key, value in health_response.items():
             print(f"   {key}: {value}")
             
