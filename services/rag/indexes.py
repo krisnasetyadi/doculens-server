@@ -55,7 +55,7 @@ class IndexMixin:
         with self._cache_lock:
             return self._download_locks.setdefault(key, threading.Lock())
 
-    def _ensure_index_on_disk(self, collection_id, chat=False) -> bool:
+    def _fetch_index_to_disk(self, collection_id, chat=False) -> bool:
         """Download the collection's index from Supabase Storage if it isn't on
         local disk yet. Runs outside _cache_lock: a download is a network round
         trip per file, and holding the cache lock through it stalled every
@@ -95,7 +95,7 @@ class IndexMixin:
             return
         started = time.monotonic()
         with ThreadPoolExecutor(max_workers=max_workers) as pool:
-            results = list(pool.map(lambda job: self._ensure_index_on_disk(*job), jobs))
+            results = list(pool.map(lambda job: self._fetch_index_to_disk(*job), jobs))
         missing = [cid for (cid, chat), ok in zip(jobs, results) if not ok and not chat]
         with self._cache_lock:
             for cid in missing:
@@ -112,7 +112,7 @@ class IndexMixin:
                 logger.debug(f"Returning cached vector store for {collection_id}")
                 return self.vector_store_cache[collection_id]
 
-        self._ensure_index_on_disk(collection_id)
+        self._fetch_index_to_disk(collection_id)
 
         with self._cache_lock:
             # Another request may have loaded it while this one downloaded.
@@ -248,7 +248,7 @@ class IndexMixin:
                 return self.vector_store_cache[cache_key]
         
         index_path = os.path.join(config.chat_index_folder, collection_id)
-        self._ensure_index_on_disk(collection_id, chat=True)
+        self._fetch_index_to_disk(collection_id, chat=True)
         if not os.path.exists(index_path):
             logger.warning(f"Chat index not found: {index_path}")
             return None

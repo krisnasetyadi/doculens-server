@@ -48,7 +48,7 @@ class IndexDownloadTests(unittest.TestCase):
             return _write_index(dest_dir)
 
         with patch.object(supabase_storage, "download_index", side_effect=download):
-            self.assertTrue(processor._ensure_index_on_disk("c1"))
+            self.assertTrue(processor._fetch_index_to_disk("c1"))
         self.assertEqual(lock_was_free, [True])
 
     def test_concurrent_requests_download_once(self):
@@ -60,7 +60,7 @@ class IndexDownloadTests(unittest.TestCase):
             return _write_index(dest_dir)
 
         with patch.object(supabase_storage, "download_index", side_effect=download):
-            threads = [threading.Thread(target=processor._ensure_index_on_disk, args=("c1",)) for _ in range(3)]
+            threads = [threading.Thread(target=processor._fetch_index_to_disk, args=("c1",)) for _ in range(3)]
             for t in threads:
                 t.start()
             for t in threads:
@@ -87,7 +87,7 @@ class IndexDownloadTests(unittest.TestCase):
     def test_index_already_on_disk_is_not_downloaded(self):
         _write_index(os.path.join(config.index_folder, "c1"))
         with patch.object(supabase_storage, "download_index") as download:
-            self.assertTrue(processor._ensure_index_on_disk("c1"))
+            self.assertTrue(processor._fetch_index_to_disk("c1"))
         download.assert_not_called()
 
 
