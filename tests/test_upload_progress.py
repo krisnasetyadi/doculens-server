@@ -25,6 +25,7 @@ from models import UserRecord
 from services.auth import get_current_user
 from router import upload, chat
 from services.ingest.progress import progress_response, upload_progress_store, _UploadProgressStore
+from tests.testing_db import IsolatedSchemaTestCase
 
 
 class FakeEmbeddings(Embeddings):
@@ -139,7 +140,9 @@ class UploadProgressStoreTests(unittest.TestCase):
             self.assertIsNotNone(store.get("active", "alice"))
 
 
-class UploadRouteTests(unittest.TestCase):
+class UploadRouteTests(IsolatedSchemaTestCase):
+    """Runs the real upload routes, so the plan and storage-limit checks need
+    the app tables: an empty database (as in CI) has none until startup."""
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
