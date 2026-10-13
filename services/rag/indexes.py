@@ -5,7 +5,9 @@ verbatim from that class by MS-657."""
 import logging
 import os
 import re
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from config import config
 from langchain.schema import Document
 from langchain_community.vectorstores import FAISS
@@ -39,11 +41,70 @@ class IndexMixin:
                 self._missing_vector_stores.pop(collection_id, None)
             elif self.embeddings is not None:
                 # (Embeddings not loaded yet at startup is transient — not the index's fault.)
-                _, failures = self._missing_vector_stores.get(collection_id, (0.0, 0))
-                backoff = self.MISSING_VECTOR_STORE_BACKOFF_SECONDS
-                delay = backoff[min(failures, len(backoff) - 1)]
-                self._missing_vector_stores[collection_id] = (time.monotonic() + delay, failures + 1)
+                self._mark_missing(collection_id)
         return vector_store
+
+    def _mark_missing(self, collection_id):
+        """Skip this collection until its next backoff step; caller holds _cache_lock."""
+        _, failures = self._missing_vector_stores.get(collection_id, (0.0, 0))
+        backoff = self.MISSING_VECTOR_STORE_BACKOFF_SECONDS
+        delay = backoff[min(failures, len(backoff) - 1)]
+        self._missing_vector_stores[collection_id] = (time.monotonic() + delay, failures + 1)
+
+    def _download_lock(self, key):
+        with self._cache_lock:
+            return self._download_locks.setdefault(key, threading.Lock())
+
+    def _ensure_index_on_disk(self, collection_id, chat=False) -> bool:
+        """Download the collection's index from Supabase Storage if it isn't on
+        local disk yet. Runs outside _cache_lock: a download is a network round
+        trip per file, and holding the cache lock through it stalled every
+        other question (after an HF Space restart the disk is empty, so every
+        index is downloaded). The per-collection lock keeps two requests from
+        downloading the same index at once."""
+        folder = config.chat_index_folder if chat else config.index_folder
+        index_path = os.path.join(folder, collection_id)
+        index_file = os.path.join(index_path, "index.faiss")
+        if os.path.exists(index_file):
+            return True
+        with self._download_lock(("chat" if chat else "pdf", collection_id)):
+            if os.path.exists(index_file):
+                return True
+            try:
+                from services.storage import supabase as supabase_storage
+                if supabase_storage.is_enabled():
+                    logger.info(f"📥 Downloading {'chat ' if chat else ''}index from Supabase: {collection_id}")
+                    download = supabase_storage.download_chat_index if chat else supabase_storage.download_index
+                    if not download(collection_id, index_path):
+                        logger.warning(f"❌ Supabase download incomplete for {collection_id}")
+            except Exception as dl_err:
+                logger.warning(f"Supabase download error: {dl_err}")
+        return os.path.exists(index_file)
+
+    def prefetch_indexes(self, max_workers: int = 8):
+        """Download every active collection's index to local disk, a few at a
+        time, so the first question after a restart doesn't wait for them.
+        Disk only — nothing is loaded into memory (IndexCache does that on
+        demand). Collections whose index can't be downloaded start their
+        backoff now instead of on the first question."""
+        try:
+            jobs = [(cid, False) for cid in self.get_all_collections()]
+            jobs += [(cid, True) for cid in self.get_all_chat_collections()]
+        except Exception as exc:
+            logger.warning("prefetch_indexes: could not list collections: %s", exc)
+            return
+        started = time.monotonic()
+        with ThreadPoolExecutor(max_workers=max_workers) as pool:
+            results = list(pool.map(lambda job: self._ensure_index_on_disk(*job), jobs))
+        missing = [cid for (cid, chat), ok in zip(jobs, results) if not ok and not chat]
+        with self._cache_lock:
+            for cid in missing:
+                if cid not in self.vector_store_cache:
+                    self._mark_missing(cid)
+        logger.info(
+            "prefetch_indexes: %d/%d indexes on disk in %.1fs",
+            sum(results), len(jobs), time.monotonic() - started,
+        )
 
     def _load_vector_store(self, collection_id):
         with self._cache_lock:
@@ -51,20 +112,15 @@ class IndexMixin:
                 logger.debug(f"Returning cached vector store for {collection_id}")
                 return self.vector_store_cache[collection_id]
 
+        self._ensure_index_on_disk(collection_id)
+
+        with self._cache_lock:
+            # Another request may have loaded it while this one downloaded.
+            if collection_id in self.vector_store_cache:
+                return self.vector_store_cache[collection_id]
+
             logger.info(f"🔍 Loading vector store for collection: {collection_id}")
             index_path = os.path.join(config.index_folder, collection_id)
-
-            # ── If index not on disk, try Supabase download ────────────────
-            if not os.path.exists(os.path.join(index_path, "index.faiss")):
-                try:
-                    from services.storage import supabase as supabase_storage
-                    if supabase_storage.is_enabled():
-                        logger.info(f"📥 Downloading index from Supabase: {collection_id}")
-                        ok = supabase_storage.download_index(collection_id, index_path)
-                        if not ok:
-                            logger.warning(f"❌ Supabase download incomplete for {collection_id}")
-                except Exception as dl_err:
-                    logger.warning(f"Supabase download error: {dl_err}")
 
             if not os.path.exists(index_path):
                 logger.warning(f"❌ Index path not found: {index_path}")
@@ -192,14 +248,7 @@ class IndexMixin:
                 return self.vector_store_cache[cache_key]
         
         index_path = os.path.join(config.chat_index_folder, collection_id)
-        if not os.path.exists(os.path.join(index_path, "index.faiss")):
-            try:
-                from services.storage import supabase as supabase_storage
-                if supabase_storage.is_enabled():
-                    logger.info(f"Downloading chat index from S3: {collection_id}")
-                    supabase_storage.download_chat_index(collection_id, index_path)
-            except Exception as e:
-                logger.warning(f"S3 chat index download failed: {e}")
+        self._ensure_index_on_disk(collection_id, chat=True)
         if not os.path.exists(index_path):
             logger.warning(f"Chat index not found: {index_path}")
             return None

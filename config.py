@@ -293,6 +293,10 @@ class Config(BaseSettings):
     # collections are dropped past this and reload from disk on their next
     # query. A 1,000-chunk collection is roughly 3 MB.
     index_cache_max_bytes: int = Field(default=512 * 1024 * 1024)
+    # Download every active collection's index to local disk in the background
+    # at startup (processor.prefetch_indexes), so the first question after an
+    # HF Space restart doesn't wait for Supabase Storage downloads.
+    prefetch_indexes_on_startup: bool = Field(default=True)
 
     @property
     def effective_rate_limit_window_hours(self) -> float:

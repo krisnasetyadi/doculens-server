@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import os
 import logging
+import threading
 from config import config
 from services import errors
 from services.rag.processor import processor
@@ -50,6 +51,9 @@ async def startup_event():
     except Exception as e:
         logger.error(f"Startup failed: {str(e)}")
         raise
+    if config.prefetch_indexes_on_startup:
+        # Background thread: the app answers requests while indexes download.
+        threading.Thread(target=processor.prefetch_indexes, name="prefetch-indexes", daemon=True).start()
 
 
 @app.on_event("shutdown")
