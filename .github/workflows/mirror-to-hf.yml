@@ -1,0 +1,80 @@
+# Deploys `main` to the Hugging Face Space once the tests have passed on it.
+#
+# It clones the Space repo, runs scripts/sync_hf.py --write against it (the same
+# script used by hand, so SOURCE_ONLY / TARGET_ONLY decide what is copied), and
+# pushes a commit only if something changed. Pushing the Space's `main` rebuilds
+# and redeploys it.
+#
+# Setup (once, in this repo's Settings → Secrets and variables → Actions):
+#   - Variable `HF_MIRROR_REPO`: the Space as `owner/name`, e.g. `krisnasetyadi/doculens-api`.
+#   - Secret   `HF_MIRROR_TOKEN`: a Hugging Face access token with write access to that Space
+#     (huggingface.co → Settings → Access Tokens; fine-grained, "Write" on the Space).
+#
+# Nobody should commit to the Space directly any more; if someone does, the next
+# sync overwrites those files with what is here.
+name: Mirror main to Hugging Face
+
+on:
+  workflow_run:
+    workflows: [tests]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: mirror-to-hf
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  mirror:
+    # Manual runs always go; automatic runs only after a green test run on a push.
+    if: >-
+      vars.HF_MIRROR_REPO != '' && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The commit the tests ran on, not whatever main points at now.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Clone the Space
+        env:
+          HF_MIRROR_TOKEN: ${{ secrets.HF_MIRROR_TOKEN }}
+          HF_MIRROR_REPO: ${{ vars.HF_MIRROR_REPO }}
+        run: |
+          if [ -z "$HF_MIRROR_TOKEN" ]; then
+            echo "::error::Secret HF_MIRROR_TOKEN is not set."
+            exit 1
+          fi
+          GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 \
+            "https://user:${HF_MIRROR_TOKEN}@huggingface.co/spaces/${HF_MIRROR_REPO}" "$RUNNER_TEMP/space"
+
+      - name: Copy the code into the Space
+        run: python scripts/sync_hf.py --write --target "$RUNNER_TEMP/space"
+
+      - name: Commit and push
+        working-directory: ${{ runner.temp }}/space
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Space already matches ${SOURCE_SHA}; nothing to deploy."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Mirror ${GITHUB_REPOSITORY}@${SOURCE_SHA::7}"
+          git push origin HEAD:main

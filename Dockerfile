@@ -18,7 +18,7 @@ EXPOSE 7860
 WORKDIR /app
 
 # Install system dependencies
-# antiword: extracts text from legacy binary .doc uploads (utils.py
+# antiword: extracts text from legacy binary .doc uploads (services/ingest/documents.py
 # extract_text_from_doc) — python-docx only understands the newer .docx format.
 RUN apt-get update && apt-get install -y \
     build-essential \
@@ -31,7 +31,11 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 
 # Install Python dependencies
+# CPU-only torch first: the Space has no GPU, and the default Linux wheel pulls
+# several GB of CUDA libraries. requirements.txt's torch==2.7.0 is then already
+# satisfied by 2.7.0+cpu, so pip does not fetch the CUDA build again.
 RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir torch==2.7.0 --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt
 
 # Create directories for data and cache

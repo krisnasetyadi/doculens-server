@@ -1,13 +1,8 @@
 # models.py
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from typing import List, Optional, Dict, Any, Union
 from enum import Enum
 from datetime import datetime
-
-class SearchType(str, Enum):
-    UNSTRUCTURED = "unstructured"
-    STRUCTURED = "structured"
-    HYBRID = "hybrid"
 
 class ChatPlatform(str, Enum):
     WHATSAPP = "whatsapp"
@@ -15,26 +10,6 @@ class ChatPlatform(str, Enum):
     SLACK = "slack"
     TELEGRAM = "telegram"
     GENERIC = "generic"
-
-class QueryIntent(str, Enum):
-    COUNT = "count"
-    SEARCH = "search"
-    LIST = "list"
-    AGGREGATE = "aggregate"
-    SHOW_TABLES = "show_tables" 
-    SHOW_SCHEMA = "show_schema"
-    HELP = "help"
-    UNKNOWN = "unknown"
-
-class QueryRequest(BaseModel):
-    question: str
-    collection_id: Optional[str] = None  # Now optional
-    include_sources: bool = True
-    # search_type: SearchType = SearchType.UNSTRUCTURED
-class StructuredQueryRequest(BaseModel):
-    question: str
-    table_name: Optional[str] = None
-
 
 class UploadResponse(BaseModel):
     collection_id: str
@@ -172,7 +147,7 @@ class PaymentResponse(BaseModel):
 # ===================== TOKEN USAGE & ALLOCATION (MS-248) =====================
 # Workspace-level subscription usage plus, on top of it, per-member token
 # allocations that an admin distributes out of the workspace's token_limit
-# (see router/payment.py for how these are computed/persisted).
+# (see services/billing/allocation.py for how these are computed/persisted).
 
 class SubscriptionUsage(BaseModel):
     plan_name: str
@@ -221,7 +196,7 @@ class MemberTokenUsage(BaseModel):
 class MyMemberUsageResponse(BaseModel):
     usage: Optional[MemberTokenUsage] = None
     # Whether this user's workspace plan includes Compliance Gap Check
-    # (payment.GAP_CHECK_PLAN_IDS) — chat-ui hides the feature when False
+    # (services.billing.plans.GAP_CHECK_PLAN_IDS) — chat-ui hides the feature when False
     # instead of letting the user hit the 403 from enforce_gap_check_plan.
     gap_check_available: bool = False
 
@@ -275,7 +250,7 @@ class StorageUsageResponse(BaseModel):
 
 
 # Flat, plan-independent safety-net rate limit (same for every user) — see
-# router/payment.py::_get_rate_limit_status. Separate from SubscriptionUsage
+# services/billing/ledger.py::get_rate_limit_status. Separate from SubscriptionUsage
 # / MemberTokenUsage above, which track the per-plan/per-member allocation.
 class RateLimitStatus(BaseModel):
     used_tokens: int
@@ -320,14 +295,6 @@ class TokenRequestsResponse(BaseModel):
     pending_count: int
 
 
-class QAResponse(BaseModel):
-    answer: str
-    sources: List[str]  # Now includes collection IDs
-    collection_id: str   # "all_collections" when searching globally
-    processing_time: float
-    search_type: SearchType
-
-
 class CollectionInfo(BaseModel):
     collection_id: str
     document_count: int
@@ -347,7 +314,7 @@ class SetPdfCollectionActiveRequest(BaseModel):
 # ===================== SOURCE FOLDERS (MS-274) =====================
 # Folders group `collections` rows (kind='pdf' or 'chat') for the Files tab
 # only. Owner-scoped like collections themselves — there is no "workspace"
-# table to attach to (see storage.py::_team_admin_id for why).
+# table to attach to (see services/storage/supabase.py::_team_admin_id for why).
 
 class Folder(BaseModel):
     folder_id: str
@@ -380,97 +347,11 @@ class DatabaseResult(BaseModel):
     avg_relevance_score: Optional[float] = None  # Average score dari search results
 
 
-class PdfSourceInfo(BaseModel):
-    """PDF source with URL for direct access"""
-    file_name: str
-    collection_id: str
-    page: Optional[int] = None
-    relevance_score: Optional[float] = None
-    content_preview: Optional[str] = None
-    file_url: Optional[str] = None  # URL to access the PDF
-    page_url: Optional[str] = None  # URL with page parameter for direct jump
-    search_text: Optional[str] = None  # Text snippet for highlighting/searching in PDF viewer
-
-
-# models.py - Add these fields to HybridQueryRequest
-class HybridQueryRequest(BaseModel):
-    question: str
-    collection_id: Optional[str] = None  # DEPRECATED: use pdf_collection_ids instead
-    
-    # Collection Selection (Optional - if not provided, searches all)
-    pdf_collection_ids: Optional[List[str]] = None  # Specific PDF collections to search
-    chat_collection_ids: Optional[List[str]] = None  # Specific chat collections to search
-    public_link_ids: Optional[List[str]] = None  # Specific Public Link sources to search
-    
-    include_pdf_results: bool = True
-    include_db_results: bool = True
-    include_chat_results: bool = True  # NEW: Search in chat logs?
-    include_public_links: bool = False
-    source_mode: Optional[str] = None  # "pdf" | "chat" | "database" | "public_link" | "mixed" | "none"
-    
-    # LLM Selection (optional - defaults to config if not provided)
-    llm_provider: Optional[str] = None  # "huggingface", "ollama", "gemini"
-    llm_model: Optional[str] = None     # specific model name
-
-    # Skill selection (optional) - see GapAnalysisRequest for the dedicated
-    # gap-analysis flow. This lets normal chat scope itself to a skill
-    # context (e.g. the "meta/help" intent) without changing default behavior.
-    skill_id: Optional[str] = None
-
-class HybridResponse(BaseModel):
-    answer: str
-    pdf_sources: List[str]  # Keep for backward compatibility
-    pdf_sources_detailed: Optional[List[PdfSourceInfo]] = None  # NEW: Detailed PDF sources with URLs
-    db_results: Dict[str, Any]
-    chat_results: Optional[List[Dict[str, Any]]] = None  # NEW: Chat search results
-    processing_time: float
-    search_terms: List[str]
-    target_tables: Optional[List[str]] = None  # Tables that were searched (smart routing)
-    
-    # Model info - tells user which model generated this response
-    model_used: str  # e.g., "huggingface/google/flan-t5-base"
-    available_models: Optional[Dict[str, List[str]]] = None  # Only returned on first request or error
-
     # answer: str
     # pdf_sources: List[str]
     # db_results: Dict[str, DatabaseResult]  # FIXED: Dict bukan List
     # processing_time: float
     # search_terms: List[str]
-
-class SourceInfo(BaseModel):
-    type: str
-    source: str
-    confidence: Optional[float] = None
-    preview: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
-
-class StructuredQueryResponse(BaseModel):
-    answer: str
-    data: List[Dict[str, Any]]
-    intent: QueryIntent
-    table_used: str
-    sql_query: Optional[str] = None
-    processing_time: float
-
-class JoinQueryRequest(BaseModel):
-    question: str
-    join_type: Optional[str] = "auto"  # auto, inner, left, cross
-    limit: int = 20
-
-class JoinQueryResponse(BaseModel):
-    answer: str
-    data: List[Dict[str, Any]]
-    tables_used: List[str]
-    join_conditions: List[Dict[str, str]]
-    sql_query: Optional[str] = None
-    processing_time: float
-
-class TableRelationship(BaseModel):
-    table1: str
-    table2: str
-    join_condition: str
-    relationship_type: str 
-
 
 # ===================== CHAT MODELS =====================
 
@@ -505,7 +386,7 @@ class SetChatCollectionActiveRequest(BaseModel):
 
 # ===================== TELEGRAM MODELS =====================
 # Live connection (Telethon/MTProto login), not a file upload — see
-# router/telegram.py. A connection holds one encrypted user session; a
+# services/telegram.py. A connection holds one encrypted user session; a
 # connection can have multiple "selected chats", each of which becomes its
 # own searchable ChatCollection (platform=telegram) once synced.
 
@@ -607,28 +488,6 @@ class ChatUploadResponse(BaseModel):
     status: str
 
 
-class ChatSearchResult(BaseModel):
-    """Single result from chat search"""
-    message: ChatMessage
-    relevance_score: float
-    context_messages: Optional[List[ChatMessage]] = None  # Surrounding messages for context
-
-# models.py - tambahkan enhanced response model
-class EnhancedHybridResponse(BaseModel):
-    answer: str
-    answer_metadata: Dict[str, Any]
-    pdf_sources: List[str]
-    pdf_sources_detailed: Optional[List[PdfSourceInfo]] = None
-    db_results: Dict[str, Any]
-    chat_results: Optional[List[Dict[str, Any]]] = None
-    processing_time: float
-    search_analysis: Dict[str, Any]
-    merged_results_preview: Optional[List[Dict[str, Any]]] = None
-    conflicts: Optional[List[Dict[str, Any]]] = None
-    model_used: str
-    confidence_score: float  # Overall confidence 0-1
-
-
 # ===================== SKILL / GAP-ANALYSIS MODELS =====================
 # Generic "Reference Framework Gap Analysis" capability. skill_id selects
 # behavior; ISO 27001 is just the first framework_name used with
@@ -704,7 +563,7 @@ class SkillCreate(BaseModel):
     slash_command: str
     instruction: str          # body of the uploaded .md
     description: str = ""
-    scope: str = "personal"   # "team" is rejected for non-admins in router/skills.py
+    scope: str = "personal"   # "team" is rejected for non-admins in services/skills.py
 
     @field_validator("scope")
     @classmethod
@@ -766,3 +625,482 @@ class SkillResponse(BaseModel):
     owner_id: str
     created_at: Union[str, datetime] = ""
     updated_at: Union[str, datetime] = ""
+
+
+
+# ---------------------------------------------------------------------------
+# Chat sessions (router/sessions.py)
+# ---------------------------------------------------------------------------
+
+class StoredMessage(BaseModel):
+    id: str
+    role: str          # "user" | "assistant"
+    content: str
+    model_used: Optional[str] = None
+    created_at: str    # ISO
+
+class UpsertSessionRequest(BaseModel):
+    session_id: Optional[str] = None   # if None -> create new
+    # Optional past creation — omitted, the existing title (auto-derived or
+    # since renamed via PUT /sessions/{id}) is left untouched (MS-253).
+    title: Optional[str] = None
+    messages: List[StoredMessage]
+    pdf_collections: Optional[List[str]] = []
+    chat_collections: Optional[List[str]] = []
+
+class SessionResponse(BaseModel):
+    session_id: str
+    title: str
+    created_at: str
+    updated_at: str
+    messages: List[StoredMessage]
+    pdf_collections: List[str]
+    chat_collections: List[str]
+    # MS-237: only meaningful on the paginated GET below. POST (create/
+    # update) always returns the full list it was given, so has_more is
+    # correctly False there too — nothing more to page in.
+    has_more: bool = False
+    next_cursor: Optional[str] = None
+    # Total user-authored messages in the session (loaded or not) — lets the
+    # client draw one navigation marker per question, including ones it
+    # hasn't fetched yet.
+    total_user_turns: int = 0
+
+class SessionSummary(BaseModel):
+    session_id: str
+    title: str
+    message_count: int
+    created_at: str
+    updated_at: str
+    pdf_collections: List[str]
+    chat_collections: List[str]
+    # MS-417: set only when `q` matched inside a message and not in the title —
+    # a title match is shown by highlighting the title itself. Plain text, so
+    # the client can highlight by splitting on the query.
+    matched_snippet: Optional[str] = None
+    matched_message_id: Optional[str] = None
+
+class SessionQuestion(BaseModel):
+    """One entry in the navigation index — a question the user asked, with
+    just enough text to recognise it in a list."""
+    turn: int          # 1-based, counted from the start of the session
+    message_id: str
+    preview: str
+
+
+class SessionQuestionsResponse(BaseModel):
+    session_id: str
+    total: int         # every question in the session, even beyond the cap below
+    questions: List[SessionQuestion]
+
+
+class RenameSessionRequest(BaseModel):
+    title: str
+
+
+# ---------------------------------------------------------------------------
+# Auth (router/auth.py)
+# ---------------------------------------------------------------------------
+
+PASSWORD_MAX_BYTES = 72  # bcrypt hard limit
+
+def _validate_password_length(v: str) -> str:
+    if len(v.encode("utf-8")) > PASSWORD_MAX_BYTES:
+        raise ValueError(f"Password must be at most {PASSWORD_MAX_BYTES} bytes long")
+    return v
+
+
+EMAIL_MAX_LENGTH = 50
+NEW_MEMBER_PASSWORD_MIN_LENGTH = 8
+NEW_MEMBER_PASSWORD_MAX_LENGTH = 50
+
+
+def _validate_new_member_email(v: str) -> str:
+    if len(v) > EMAIL_MAX_LENGTH:
+        raise ValueError(f"Email must be at most {EMAIL_MAX_LENGTH} characters")
+    return v
+
+
+def _validate_new_member_password(v: str) -> str:
+    if len(v) < NEW_MEMBER_PASSWORD_MIN_LENGTH:
+        raise ValueError(f"Password must be at least {NEW_MEMBER_PASSWORD_MIN_LENGTH} characters")
+    if len(v) > NEW_MEMBER_PASSWORD_MAX_LENGTH:
+        raise ValueError(f"Password must be at most {NEW_MEMBER_PASSWORD_MAX_LENGTH} characters")
+    return _validate_password_length(v)
+
+
+NAME_MAX_LENGTH = 100
+
+
+def _validate_name(v: Optional[str]) -> Optional[str]:
+    if v is None:
+        return v
+    v = v.strip()
+    if not v:
+        raise ValueError("Name cannot be empty")
+    if len(v) > NAME_MAX_LENGTH:
+        raise ValueError(f"Name must be at most {NAME_MAX_LENGTH} characters")
+    return v
+
+
+class RegisterRequest(BaseModel):
+    email: EmailStr
+    password: str
+    name: Optional[str] = None
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        return _validate_password_length(v)
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_name(v)
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+class TokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    user_id: str
+    email: str
+    role: str
+    name: Optional[str] = None
+
+class UserRecord(BaseModel):
+    user_id: str
+    email: str
+    role: str
+    is_active: bool
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+class UpdateProfileRequest(BaseModel):
+    name: Optional[str] = None
+    avatar_url: Optional[str] = None
+    remove_avatar: bool = False  # explicit signal to clear avatar_url — None on avatar_url just means "leave as-is"
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_name(v)
+
+    @field_validator("avatar_url")
+    @classmethod
+    def validate_avatar_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
+        if not v.startswith("data:image/"):
+            raise ValueError("Avatar must be an image data URL")
+        if len(v) > 500_000:
+            raise ValueError("Avatar image is too large")
+        return v
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        return _validate_password_length(v)
+
+class AdminResetRequest(BaseModel):
+    user_id: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new_password(cls, v: str) -> str:
+        return _validate_password_length(v)
+
+
+class AdminCreateUserRequest(BaseModel):
+    email: EmailStr
+    password: str
+    # MS-402: optional custom token cap; omitted -> the workspace's Default
+    # Token Allocation (services/billing/allocation.py::assign_initial_allocation).
+    allocated_tokens: Optional[int] = Field(default=None, ge=0)
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        return _validate_new_member_email(v)
+
+    @field_validator("password")
+    @classmethod
+    def validate_password(cls, v: str) -> str:
+        return _validate_new_member_password(v)
+
+
+class AdminUserStatusRequest(BaseModel):
+    user_id: str
+    active: bool
+
+
+class AdminUpdateUserRequest(BaseModel):
+    name: Optional[str] = None
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, v: Optional[str]) -> Optional[str]:
+        return _validate_name(v) if v is not None else v
+
+
+class TeamMember(BaseModel):
+    user_id: str
+    email: str
+    role: str
+    is_active: bool
+    name: Optional[str] = None
+    created_at: datetime
+    # MS-402: only set on the create response, so the admin UI can land on
+    # this member's Token Settings with the value that was actually granted
+    # (allocation_clamped = reduced to fit what was left of the pool).
+    allocated_tokens: Optional[int] = None
+    allocation_clamped: bool = False
+
+
+class TeamMembersResponse(BaseModel):
+    members: list[TeamMember]
+    max_sub_users: int
+
+
+# ---------------------------------------------------------------------------
+# Agnostic query (router/agnostic.py, services/agnostic.py)
+# ---------------------------------------------------------------------------
+
+class MemoryTurn(BaseModel):
+    role: str  # "user" | "assistant"
+    content: str
+
+
+class AgnosticQueryRequest(BaseModel):
+    question: str = Field(..., min_length=1)
+
+    # Kept for schema compatibility with HF Space / old clients — ignored locally.
+    source: Optional[str] = Field(None)
+
+    # MS-237: which session this question belongs to (currently unused
+    # server-side — the client sends `memory` directly instead of us looking
+    # it up — kept so the contract already has it once that moves server-side).
+    session_id: Optional[str] = None
+    # Previous 5 messages so a follow-up like "ringkas semua di atas" has
+    # something to resolve against. Re-clamped below regardless of what the
+    # client sends.
+    memory: Optional[List[MemoryTurn]] = None
+
+    # MS-252: one-shot skill invocation — the uploaded Skill (see
+    # router/skills.py) whose `instruction` should shape THIS answer only.
+    # Resolved + authorization-checked server-side via
+    # storage.get_skill_for_user; an unresolved id is ignored, never an
+    # error (the client already cleared its own armed state either way).
+    skill_id: Optional[str] = None
+
+    include_pdf_results:  Optional[bool] = True
+    # Legacy: queries THIS app's own fixed database (app management data, not
+    # a user-connected source). Kept for backward compatibility only.
+    include_db_results:   Optional[bool] = False
+    include_chat_results: Optional[bool] = False
+    include_public_links: Optional[bool] = False
+    # Queries the user's own external database connection(s) set up in
+    # Sources > Database — the actual "database as a knowledge source" path.
+    include_external_db:  Optional[bool] = False
+    llm_provider:         Optional[str]  = None
+    llm_model:            Optional[str]  = None
+    source_mode:          Optional[str]  = None
+
+    # MS-247: opt-in context-compression experiment ("Efficient Mode" /
+    # caveman-inspired). Defaults to False so every existing caller is
+    # byte-for-byte unaffected — see services/rag/efficient_mode/compressor.py.
+    efficient_mode:       Optional[bool] = False
+
+    # Optional collection selectors (defaults to "all")
+    pdf_collection_ids:      Optional[List[str]] = None
+    chat_collection_ids:     Optional[List[str]] = None
+    public_link_ids:         Optional[List[str]] = None
+    external_db_connection_ids: Optional[List[str]] = None
+
+
+class PdfSourceDetail(BaseModel):
+    file_name:        str
+    collection_id:    str
+    page:             Optional[int]   = None
+    relevance_score:  Optional[float] = None
+    content_preview:  Optional[str]   = None
+    file_url:         Optional[str]   = None
+    page_url:         Optional[str]   = None
+    search_text:      Optional[str]   = None
+
+
+class AgnosticQueryResponse(BaseModel):
+    answer:               str
+    model_used:           str
+    pdf_sources:          List[str]
+    pdf_sources_detailed: List[PdfSourceDetail]
+    db_results:           Dict[str, Any]
+    chat_results:         List[Any]
+    processing_time:      float
+    search_terms:         List[str]
+    target_tables:        List[str]
+    source_type:          str = "Indexed Collections"
+    retrieved_count:      int = 0
+    # MS-247: populated only when efficient_mode was requested and the
+    # answer actually went through the LLM branch (absent for the
+    # system/meta-help/no-source short-circuits above, and for the
+    # low-confidence direct-extraction branch, none of which build a
+    # prompt/context to measure).
+    efficiency:           Optional[Dict[str, Any]] = None
+
+
+
+# ===================== ROUTE RESPONSES (MS-657) =====================
+# Bodies these routes already returned as plain dicts, declared so OpenAPI
+# documents them and a field that goes missing fails instead of vanishing.
+
+class MessageResponse(BaseModel):
+    message: str
+
+
+class UserActiveResponse(BaseModel):
+    status: str
+    user_id: str
+    active: bool
+
+
+class UserDeletedResponse(BaseModel):
+    status: str
+    user_id: str
+
+
+class CollectionActiveResponse(BaseModel):
+    status: str
+    collection_id: str
+    active: bool
+
+
+class CollectionFolderResponse(BaseModel):
+    status: str
+    collection_id: str
+    folder_id: Optional[str] = None
+
+
+class StatusMessageResponse(BaseModel):
+    status: str
+    message: str
+
+
+class CollectionDeletedResponse(BaseModel):
+    status: str
+    collection_id: str
+
+
+class TextLine(BaseModel):
+    line_number: int
+    content: str
+
+
+class TextContentResponse(BaseModel):
+    collection_id: str
+    file_name: str
+    total_lines: int
+    offset: int
+    limit: int
+    has_more: bool
+    lines: List[TextLine]
+
+
+class CollectionFile(BaseModel):
+    """created_at comes from the database row; size_bytes/modified_at from disk."""
+    file_name: str
+    url: str
+    created_at: Optional[Union[str, datetime]] = None
+    size_bytes: Optional[int] = None
+    modified_at: Optional[str] = None
+
+
+class CollectionFilesResponse(BaseModel):
+    collection_id: str
+    file_count: int
+    files: List[CollectionFile]
+
+
+class ChatCollectionsResponse(BaseModel):
+    collections: List[Dict[str, Any]]
+    count: int = 0
+
+
+class ChatPreviewResponse(BaseModel):
+    collection_id: str
+    file_name: str
+    content_preview: str
+    truncated: bool
+    max_chars: int
+
+
+class ChatMessagesResponse(BaseModel):
+    """WhatsApp sources fill `messages`; other text sources fill `lines`."""
+    collection_id: str
+    file_name: str
+    offset: int
+    limit: int
+    subtype: str
+    platform: str
+    total: int
+    has_more: bool
+    messages: List[Dict[str, Any]]
+    lines: List[TextLine]
+
+
+class RunDeletedResponse(BaseModel):
+    run_id: str
+    deleted: bool
+
+
+class FolderDeletedResponse(BaseModel):
+    folder_id: str
+    deleted: bool
+
+
+class SkillDeletedResponse(BaseModel):
+    skill_id: str
+    deleted: bool
+
+
+class SessionDeletedResponse(BaseModel):
+    status: str
+    session_id: str
+
+
+class ConnectionActiveResponse(BaseModel):
+    status: str
+    connection_id: str
+    active: bool
+
+
+class ConnectionDeletedResponse(BaseModel):
+    status: str
+    message: str
+    connection_id: str
+
+
+class PublicLinkActiveResponse(BaseModel):
+    status: str
+    link_id: str
+    active: bool
+
+
+class PublicLinkDeletedResponse(BaseModel):
+    status: str
+    message: str
+    link_id: str
+
+
+class AvailableModelsResponse(BaseModel):
+    default_provider: str
+    default_model: str
+    available_models: Dict[str, List[str]]
+    usage_hint: str

@@ -1,0 +1,621 @@
+# services/sessions.py
+"""
+Chat session persistence (moved out of router/sessions.py by MS-657).
+
+Schema (two tables, created by schema/sessions.py):
+  chat_sessions  - metadata (title, collections, timestamps)
+  chat_messages  - one row per message (FK to chat_sessions, CASCADE delete)
+"""
+
+import logging
+import re
+import uuid
+from datetime import datetime, timezone
+from typing import List, Optional
+
+from fastapi import HTTPException
+
+import db
+from models import (
+    RenameSessionRequest,
+    SessionQuestion,
+    SessionQuestionsResponse,
+    SessionResponse,
+    SessionSummary,
+    StoredMessage,
+    UpsertSessionRequest,
+)
+from models import UserRecord
+
+logger = logging.getLogger(__name__)
+
+# MS-237: how many *chats* GET /sessions/{id} returns per page. One chat is
+# one question plus the answer(s) that followed it — not one message row — so
+# a page never lands mid-exchange with a question whose answer is still on the
+# next page.
+PAGE_SIZE_DEFAULT = 5
+
+# MS-237: how many questions the navigation index below returns at most. It's
+# a flat list the client holds in memory for the hover panel, so it can't be
+# unbounded; past this the newest ones are the ones worth keeping (turn
+# numbers stay absolute, so the panel still labels them correctly).
+QUESTION_INDEX_LIMIT = 1000
+
+# MS-417: width of the snippet a search result carries, and how much of it sits
+# before the match. 120 matches the preview width the question index already
+# uses; the ~40-char lead keeps the matched term away from the left edge with
+# enough context after it to read. Ellipses are added outside this window.
+SNIPPET_LENGTH = 120
+SNIPPET_LEAD = 40
+
+
+# ---------------------------------------------------------------------------
+# DB helpers
+# ---------------------------------------------------------------------------
+
+
+def _ts(val) -> str:
+    """Convert a datetime or string to ISO string."""
+    if val is None:
+        return datetime.now(timezone.utc).isoformat()
+    if hasattr(val, "isoformat"):
+        return val.isoformat()
+    return str(val)
+
+
+def _get_required_conn():
+    conn = db.get_conn("sessions")
+    if not conn:
+        raise HTTPException(status_code=503, detail="Session database unavailable")
+    return conn
+
+
+def _parse_cursor(cursor: Optional[str]):
+    """"<created_at ISO>|<row id>" -> (created_at, id), or (None, None) if
+    absent/malformed — callers treat that as "start from the most recent"."""
+    if not cursor:
+        return None, None
+    try:
+        ts_str, id_str = cursor.rsplit("|", 1)
+        return ts_str, int(id_str)
+    except Exception:
+        return None, None
+
+
+# MS-417: assistant answers are stored as raw markdown — the UI renders them
+# with react-markdown, so the syntax never shows. A search snippet is the one
+# place a slice of that column is displayed as plain text, so the syntax has to
+# come off first; otherwise a cut lands on things like "**Section 8**" or, since
+# the answer prompt asks for markdown tables, a row of "| --- | --- |".
+_MD_CODE_FENCE = re.compile(r"```[^\n]*\n?")
+_MD_TABLE_RULE = re.compile(r"(?m)^[ \t]*\|?[ \t:\-|]+\|[ \t:\-|]*$")
+_MD_HORIZONTAL_RULE = re.compile(r"(?m)^[ \t]*([-*_])\1{2,}[ \t]*$")
+_MD_IMAGE = re.compile(r"!\[([^\]]*)\]\([^)]*\)")
+_MD_LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
+_MD_LINE_PREFIX = re.compile(r"(?m)^[ \t]*(?:[>#]+|[-*+]|\d+\.)[ \t]+")
+_MD_INLINE_CODE = re.compile(r"`+([^`]*)`+")
+_MD_STRIKETHROUGH = re.compile(r"~~(.+?)~~")
+_MD_ASTERISK_EMPHASIS = re.compile(r"(\*{1,3})(\S(?:.*?\S)?)\1")
+# Underscores only count as emphasis at a word edge, so snake_case survives.
+_MD_UNDERSCORE_EMPHASIS = re.compile(r"(?<![A-Za-z0-9])(_{1,3})(\S(?:.*?\S)?)\1(?![A-Za-z0-9])")
+_COLLAPSIBLE_WHITESPACE = re.compile(r"\s+")
+
+
+def _plain_text(content: str) -> str:
+    """Markdown source → a single line of readable text, for snippets."""
+    text = _MD_CODE_FENCE.sub(" ", content)
+    text = _MD_TABLE_RULE.sub(" ", text)
+    text = _MD_HORIZONTAL_RULE.sub(" ", text)
+    text = _MD_IMAGE.sub(r"\1", text)
+    text = _MD_LINK.sub(r"\1", text)
+    text = _MD_LINE_PREFIX.sub("", text)
+    text = _MD_INLINE_CODE.sub(r"\1", text)
+    text = _MD_STRIKETHROUGH.sub(r"\1", text)
+    text = _MD_ASTERISK_EMPHASIS.sub(r"\2", text)
+    text = _MD_UNDERSCORE_EMPHASIS.sub(r"\2", text)
+    text = text.replace("|", " ")
+    return _COLLAPSIBLE_WHITESPACE.sub(" ", text).strip()
+
+
+def _snippet_around(content: str, query: str) -> str:
+    """A fixed-width plain-text excerpt of `content` centred on `query`.
+
+    Ends that were cut carry an ellipsis; an excerpt that reaches the start or
+    end of the message doesn't. Word boundaries are respected, but never at the
+    cost of eating into the match itself — the whole point is to show it.
+
+    Falls back to the head of the message when the query can't be found in the
+    plain text, which happens when it only ever matched markdown syntax that
+    was just stripped (searching for "##", say).
+    """
+    text = _plain_text(content)
+    if not text or len(text) <= SNIPPET_LENGTH:
+        return text
+
+    pos = text.lower().find(query.lower()) if query else -1
+    start = max(0, pos - SNIPPET_LEAD) if pos >= 0 else 0
+    end = min(len(text), start + SNIPPET_LENGTH)
+    match_end = pos + len(query) if pos >= 0 else 0
+
+    if start > 0:
+        space = text.find(" ", start)
+        if space != -1 and space < (pos if pos >= 0 else end):
+            start = space + 1
+    if end < len(text):
+        space = text.rfind(" ", start, end)
+        if space != -1 and space >= match_end:
+            end = space
+
+    excerpt = text[start:end].strip()
+    return ("…" if start > 0 else "") + excerpt + ("…" if end < len(text) else "")
+
+
+def upsert_session(body: UpsertSessionRequest, user: UserRecord):
+    sid = body.session_id or str(uuid.uuid4())
+    conn = _get_required_conn()
+    try:
+        with conn.cursor() as cur:
+            if body.session_id:
+                cur.execute(
+                    "SELECT owner_id FROM chat_sessions WHERE session_id = %s",
+                    (sid,),
+                )
+                existing = cur.fetchone()
+                if (
+                    existing
+                    and existing.get("owner_id")
+                    and existing["owner_id"] != user.user_id
+                    and user.role != "admin"
+                ):
+                    raise HTTPException(status_code=403, detail="Not allowed to modify this session")
+
+            cur.execute("""
+                INSERT INTO chat_sessions
+                    (session_id, title, pdf_collections, chat_collections, owner_id, created_at, updated_at)
+                VALUES (%s, COALESCE(%s, 'Untitled conversation'), %s, %s, %s, now(), now())
+                ON CONFLICT (session_id) DO UPDATE
+                    SET title            = COALESCE(%s, chat_sessions.title),
+                        pdf_collections  = EXCLUDED.pdf_collections,
+                        chat_collections = EXCLUDED.chat_collections,
+                        owner_id         = COALESCE(chat_sessions.owner_id, EXCLUDED.owner_id),
+                        updated_at       = now()
+                RETURNING session_id, title, pdf_collections, chat_collections,
+                          created_at, updated_at
+            """, (
+                sid,
+                body.title,
+                body.pdf_collections or [],
+                body.chat_collections or [],
+                user.user_id,
+                body.title,
+            ))
+            session_row = cur.fetchone()
+
+            for m in body.messages:
+                cur.execute("""
+                    INSERT INTO chat_messages
+                        (message_id, session_id, role, content, model_used, created_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (message_id) DO UPDATE
+                        SET content    = EXCLUDED.content,
+                            model_used = EXCLUDED.model_used
+                """, (
+                    m.id,
+                    sid,
+                    m.role,
+                    m.content,
+                    m.model_used,
+                    m.created_at,
+                ))
+
+            cur.execute("""
+                SELECT message_id, role, content, model_used, created_at
+                FROM chat_messages
+                WHERE session_id = %s
+                ORDER BY created_at ASC, id ASC
+            """, (sid,))
+            msg_rows = cur.fetchall()
+
+        return SessionResponse(
+            session_id=session_row["session_id"],
+            title=session_row["title"],
+            created_at=_ts(session_row["created_at"]),
+            updated_at=_ts(session_row["updated_at"]),
+            messages=[
+                StoredMessage(
+                    id=r["message_id"],
+                    role=r["role"],
+                    content=r["content"],
+                    model_used=r["model_used"],
+                    created_at=_ts(r["created_at"]),
+                )
+                for r in msg_rows
+            ],
+            pdf_collections=list(session_row["pdf_collections"] or []),
+            chat_collections=list(session_row["chat_collections"] or []),
+            total_user_turns=sum(1 for r in msg_rows if r["role"] == "user"),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("sessions upsert DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to persist session")
+    finally:
+        conn.close()
+
+
+def list_sessions(q: Optional[str], user: UserRecord):
+    conn = _get_required_conn()
+    try:
+        search_clause = ""
+        match_join = ""
+        match_select = ""
+        match_group = ""
+        join_params: tuple = ()
+        where_params: tuple = ()
+        if q:
+            # Escape backslashes first — ILIKE's default escape char is `\`,
+            # so an unescaped literal backslash in the query would otherwise
+            # consume the next character (including the wildcards we add).
+            escaped = (
+                q.replace(chr(92), chr(92) * 2)
+                .replace("%", chr(92) + "%")
+                .replace("_", chr(92) + "_")
+            )
+            pattern = f"%{escaped}%"
+            # MS-417: the message match used to be an EXISTS test, which only
+            # answered yes/no. The same ILIKE now runs as a LATERAL join so the
+            # matching message comes back with it and the result can show a
+            # snippet. LIMIT 1 keeps it one row per session, so neither the set
+            # of matching sessions nor the message_count aggregate changes —
+            # only what we can say about each match.
+            match_join = """
+                LEFT JOIN LATERAL (
+                    SELECT cm.message_id, cm.content
+                    FROM chat_messages cm
+                    WHERE cm.session_id = s.session_id AND cm.content ILIKE %s
+                    ORDER BY cm.created_at ASC, cm.id ASC
+                    LIMIT 1
+                ) mm ON TRUE
+            """
+            match_select = ", mm.message_id AS matched_message_id, mm.content AS matched_content"
+            match_group = ", mm.message_id, mm.content"
+            search_clause = " AND (s.title ILIKE %s OR mm.message_id IS NOT NULL)"
+            join_params = (pattern,)
+            where_params = (pattern,)
+
+        with conn.cursor() as cur:
+            # The lateral join is textually before WHERE, so its parameter binds
+            # first — hence join_params ahead of the owner id, not after it.
+            if user.role == "admin":
+                cur.execute(f"""
+                    SELECT s.session_id,
+                           s.title,
+                           s.pdf_collections,
+                           s.chat_collections,
+                           s.created_at,
+                           s.updated_at,
+                           COUNT(m.id) AS message_count
+                           {match_select}
+                    FROM chat_sessions s
+                    LEFT JOIN chat_messages m ON m.session_id = s.session_id
+                    {match_join}
+                    WHERE TRUE {search_clause}
+                    GROUP BY s.session_id, s.title, s.pdf_collections,
+                             s.chat_collections, s.created_at, s.updated_at
+                             {match_group}
+                    ORDER BY s.updated_at DESC
+                    LIMIT 200
+                """, join_params + where_params)
+            else:
+                cur.execute(f"""
+                    SELECT s.session_id,
+                           s.title,
+                           s.pdf_collections,
+                           s.chat_collections,
+                           s.created_at,
+                           s.updated_at,
+                           COUNT(m.id) AS message_count
+                           {match_select}
+                    FROM chat_sessions s
+                    LEFT JOIN chat_messages m ON m.session_id = s.session_id
+                    {match_join}
+                    WHERE s.owner_id = %s {search_clause}
+                    GROUP BY s.session_id, s.title, s.pdf_collections,
+                             s.chat_collections, s.created_at, s.updated_at
+                             {match_group}
+                    ORDER BY s.updated_at DESC
+                    LIMIT 200
+                """, join_params + (user.user_id,) + where_params)
+            rows = cur.fetchall()
+
+        results: List[SessionSummary] = []
+        for r in rows:
+            snippet = None
+            matched_message_id = None
+            # A title match is presented by highlighting the title, so it takes
+            # precedence: no snippet even when messages matched as well.
+            title_matched = bool(q) and q.lower() in (r["title"] or "").lower()
+            if q and not title_matched and r.get("matched_content"):
+                snippet = _snippet_around(r["matched_content"], q) or None
+                if snippet:
+                    matched_message_id = r["matched_message_id"]
+            results.append(
+                SessionSummary(
+                    session_id=r["session_id"],
+                    title=r["title"],
+                    message_count=int(r["message_count"] or 0),
+                    created_at=_ts(r["created_at"]),
+                    updated_at=_ts(r["updated_at"]),
+                    pdf_collections=list(r["pdf_collections"] or []),
+                    chat_collections=list(r["chat_collections"] or []),
+                    matched_snippet=snippet,
+                    matched_message_id=matched_message_id,
+                )
+            )
+        return results
+    except Exception as e:
+        logger.error("sessions list DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to list sessions")
+    finally:
+        conn.close()
+
+
+def get_session(session_id: str, limit: int, before: Optional[str], user: UserRecord):
+    conn = _get_required_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT session_id, title, pdf_collections, chat_collections,
+                       owner_id, created_at, updated_at
+                FROM chat_sessions WHERE session_id = %s
+            """, (session_id,))
+            session_row = cur.fetchone()
+            if not session_row:
+                raise HTTPException(status_code=404, detail="Session not found")
+            if (
+                user.role != "admin"
+                and session_row.get("owner_id")
+                and session_row["owner_id"] != user.user_id
+            ):
+                raise HTTPException(status_code=403, detail="Not allowed to access this session")
+
+            # Page by chat, not by message row: number every message with a
+            # running count of the questions asked up to and including it
+            # (`chat_no`), then keep only the last `limit` of those numbers.
+            # A question and the answer(s) that followed it share one
+            # chat_no, so they always travel together — a plain
+            # "LIMIT 5 rows" would cut between them and strand an answer
+            # without its question (or vice versa) on the page boundary.
+            before_ts, before_id = _parse_cursor(before)
+            chat_page_sql = """
+                WITH ordered AS (
+                    SELECT message_id, role, content, model_used, created_at, id,
+                           SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END)
+                               OVER (ORDER BY created_at ASC, id ASC) AS chat_no
+                    FROM chat_messages
+                    WHERE session_id = %s
+                    {cursor_clause}
+                )
+                SELECT message_id, role, content, model_used, created_at, id
+                FROM ordered
+                WHERE chat_no > (SELECT COALESCE(MAX(chat_no), 0) FROM ordered) - %s
+                ORDER BY created_at ASC, id ASC
+            """
+            if before_ts is not None and before_id is not None:
+                cur.execute(
+                    chat_page_sql.format(cursor_clause="AND (created_at, id) < (%s, %s)"),
+                    (session_id, before_ts, before_id, limit),
+                )
+            else:
+                cur.execute(
+                    chat_page_sql.format(cursor_clause=""),
+                    (session_id, limit),
+                )
+            msg_rows = cur.fetchall()
+
+            # Anything still older than the page we just built means there's
+            # another page behind it. Asked as its own EXISTS rather than
+            # over-fetching a row, since the page size is counted in chats
+            # and a "+1 row" trick can't tell a whole extra chat from the
+            # tail of the current one.
+            has_more = False
+            if msg_rows:
+                oldest = msg_rows[0]
+                cur.execute("""
+                    SELECT EXISTS(
+                        SELECT 1 FROM chat_messages
+                        WHERE session_id = %s AND (created_at, id) < (%s, %s)
+                    ) AS more
+                """, (session_id, oldest["created_at"], oldest["id"]))
+                has_more = bool(cur.fetchone()["more"])
+
+            # Needed so the client can draw a navigation marker for every
+            # question ever asked in this session, including ones it hasn't
+            # paged in yet (MS-237 poin 9: click an unloaded marker -> fetch
+            # the pages between here and there, then scroll to it).
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM chat_messages WHERE session_id = %s AND role = 'user'",
+                (session_id,),
+            )
+            total_user_turns = int(cur.fetchone()["n"] or 0)
+
+        next_cursor = None
+        if has_more and msg_rows:
+            oldest = msg_rows[0]
+            next_cursor = f"{_ts(oldest['created_at'])}|{oldest['id']}"
+
+        return SessionResponse(
+            session_id=session_row["session_id"],
+            title=session_row["title"],
+            created_at=_ts(session_row["created_at"]),
+            updated_at=_ts(session_row["updated_at"]),
+            messages=[
+                StoredMessage(
+                    id=r["message_id"],
+                    role=r["role"],
+                    content=r["content"],
+                    model_used=r["model_used"],
+                    created_at=_ts(r["created_at"]),
+                )
+                for r in msg_rows
+            ],
+            pdf_collections=list(session_row["pdf_collections"] or []),
+            chat_collections=list(session_row["chat_collections"] or []),
+            has_more=has_more,
+            next_cursor=next_cursor,
+            total_user_turns=total_user_turns,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("sessions get DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to load session")
+    finally:
+        conn.close()
+
+
+def get_session_questions(session_id: str, user: UserRecord):
+    conn = _get_required_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT session_id, owner_id FROM chat_sessions WHERE session_id = %s",
+                (session_id,),
+            )
+            session_row = cur.fetchone()
+            if not session_row:
+                raise HTTPException(status_code=404, detail="Session not found")
+            if (
+                user.role != "admin"
+                and session_row.get("owner_id")
+                and session_row["owner_id"] != user.user_id
+            ):
+                raise HTTPException(status_code=403, detail="Not allowed to access this session")
+
+            # Numbered over the whole session first, then cut to the newest
+            # QUESTION_INDEX_LIMIT — so a capped response still reports each
+            # question's real turn number rather than renumbering from 1.
+            cur.execute("""
+                WITH numbered AS (
+                    SELECT message_id,
+                           LEFT(content, 120) AS preview,
+                           ROW_NUMBER() OVER (ORDER BY created_at ASC, id ASC) AS turn,
+                           created_at, id
+                    FROM chat_messages
+                    WHERE session_id = %s AND role = 'user'
+                )
+                SELECT message_id, preview, turn FROM (
+                    SELECT * FROM numbered ORDER BY created_at DESC, id DESC LIMIT %s
+                ) newest
+                ORDER BY turn ASC
+            """, (session_id, QUESTION_INDEX_LIMIT))
+            rows = cur.fetchall()
+
+            cur.execute(
+                "SELECT COUNT(*) AS n FROM chat_messages WHERE session_id = %s AND role = 'user'",
+                (session_id,),
+            )
+            total = int(cur.fetchone()["n"] or 0)
+
+        return SessionQuestionsResponse(
+            session_id=session_id,
+            total=total,
+            questions=[
+                SessionQuestion(
+                    turn=int(r["turn"]),
+                    message_id=r["message_id"],
+                    preview=r["preview"] or "",
+                )
+                for r in rows
+            ],
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("sessions questions DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to load session questions")
+    finally:
+        conn.close()
+
+
+def rename_session(session_id: str, body: RenameSessionRequest, user: UserRecord):
+    title = body.title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Title cannot be empty")
+    conn = _get_required_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT owner_id FROM chat_sessions WHERE session_id = %s",
+                (session_id,),
+            )
+            existing = cur.fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Session not found")
+            if (
+                user.role != "admin"
+                and existing.get("owner_id")
+                and existing["owner_id"] != user.user_id
+            ):
+                raise HTTPException(status_code=403, detail="Not allowed to rename this session")
+
+            cur.execute("""
+                UPDATE chat_sessions
+                SET title = %s, updated_at = now()
+                WHERE session_id = %s
+                RETURNING session_id, title, pdf_collections, chat_collections,
+                          created_at, updated_at
+            """, (title, session_id))
+            session_row = cur.fetchone()
+
+            cur.execute(
+                "SELECT COUNT(*) AS message_count FROM chat_messages WHERE session_id = %s",
+                (session_id,),
+            )
+            message_count = cur.fetchone()["message_count"]
+
+        return SessionSummary(
+            session_id=session_row["session_id"],
+            title=session_row["title"],
+            message_count=int(message_count or 0),
+            created_at=_ts(session_row["created_at"]),
+            updated_at=_ts(session_row["updated_at"]),
+            pdf_collections=list(session_row["pdf_collections"] or []),
+            chat_collections=list(session_row["chat_collections"] or []),
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("sessions rename DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to rename session")
+    finally:
+        conn.close()
+
+
+def delete_session(session_id: str, user: UserRecord):
+    conn = _get_required_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT owner_id FROM chat_sessions WHERE session_id = %s",
+                (session_id,),
+            )
+            existing = cur.fetchone()
+            if not existing:
+                raise HTTPException(status_code=404, detail="Session not found")
+            if (
+                user.role != "admin"
+                and existing.get("owner_id")
+                and existing["owner_id"] != user.user_id
+            ):
+                raise HTTPException(status_code=403, detail="Not allowed to delete this session")
+            cur.execute("DELETE FROM chat_sessions WHERE session_id = %s", (session_id,))
+        return {"status": "deleted", "session_id": session_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("sessions delete DB error: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to delete session")
+    finally:
+        conn.close()

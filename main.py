@@ -7,8 +7,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import asyncio
 import os
 import logging
+import threading
 from config import config
-from processor import processor
+from services import errors
+from services.rag.processor import processor
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,6 +24,7 @@ app = FastAPI(
     description="API for querying PDF documents with natural language",
     version="1.0.0"
 )
+errors.register(app)
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,12 +43,23 @@ os.makedirs(config.chat_index_folder, exist_ok=True)
 
 @app.on_event("startup")
 async def startup_event():
+    import schema
+    schema.ensure_all()
     try:
         processor.initialize_components()
         logger.info("Application startup completed")
     except Exception as e:
         logger.error(f"Startup failed: {str(e)}")
         raise
+    if config.prefetch_indexes_on_startup:
+        # Background thread: the app answers requests while indexes download.
+        threading.Thread(target=processor.prefetch_indexes, name="prefetch-indexes", daemon=True).start()
+
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    import db
+    db.close_pool()
 
 
 @app.get("/health")
@@ -90,7 +104,7 @@ def _health_payload():
 # Include routers
 from router.upload import router as upload_router
 from router.collections import router as collections_router
-from router.hybrid import router as hybrid_router
+from router.llm_models import router as llm_models_router
 from router.chat import router as chat_router
 from router.sessions import router as sessions_router
 from router.auth import router as auth_router
@@ -106,7 +120,7 @@ from router.folders import router as folders_router
 app.include_router(auth_router, prefix="/api/v1")           # Auth & RBAC
 app.include_router(upload_router, prefix="/api/v1")         # PDF upload
 app.include_router(collections_router, prefix="/api/v1")    # PDF collections
-app.include_router(hybrid_router, prefix="/api/v1")         # Hybrid search
+app.include_router(llm_models_router, prefix="/api/v1")     # Available LLM models
 app.include_router(chat_router, prefix="/api/v1")           # Chat collections
 app.include_router(sessions_router, prefix="/api/v1")       # Chat session history
 app.include_router(agnostic_router, prefix="/api/v1")       # Agnostic queries
@@ -137,62 +151,6 @@ async def get_version():
             "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}"
         },
         "timestamp": datetime.now().isoformat()
-    }
-
-
-@app.get("/api/v1/debug/paths")
-async def debug_paths():
-    """Debug endpoint to check file paths and directory structure"""
-    import os
-    
-    def get_collection_info(upload_folder):
-        if not os.path.exists(upload_folder):
-            return {"error": "Upload folder does not exist", "path": upload_folder}
-        
-        collections = []
-        try:
-            for col in os.listdir(upload_folder):
-                col_path = os.path.join(upload_folder, col)
-                if os.path.isdir(col_path):
-                    try:
-                        files = os.listdir(col_path)
-                        file_info = []
-                        for f in files:
-                            fp = os.path.join(col_path, f)
-                            if os.path.isfile(fp):
-                                file_info.append({
-                                    "name": f,
-                                    "size": os.path.getsize(fp),
-                                    "exists": True
-                                })
-                        collections.append({
-                            "id": col,
-                            "files": file_info,
-                            "count": len(file_info)
-                        })
-                    except Exception as e:
-                        collections.append({
-                            "id": col,
-                            "error": str(e)
-                        })
-        except Exception as e:
-            return {"error": f"Cannot list collections: {str(e)}"}
-        
-        return collections
-    
-    return {
-        "cwd": os.getcwd(),
-        "upload_folder": config.upload_folder,
-        "upload_folder_abs": os.path.abspath(config.upload_folder),
-        "upload_folder_exists": os.path.exists(config.upload_folder),
-        "index_folder": config.index_folder,
-        "index_folder_exists": os.path.exists(config.index_folder),
-        "collections": get_collection_info(config.upload_folder),
-        "environment": {
-            "HOME": os.environ.get("HOME", "not set"),
-            "SPACE_ID": os.environ.get("SPACE_ID", "not set (local)"),
-            "USER": os.environ.get("USER", "not set")
-        }
     }
 
 

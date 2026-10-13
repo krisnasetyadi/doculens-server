@@ -1,6 +1,25 @@
 # Scope
 FastAPI backend for DocuLens (hybrid BM25+FAISS RAG). Routers live in `router/`, one file per domain, all mounted under `/api/v1` in `main.py`.
 
+A router file only holds routes: read the request, call a function in `services/<domain>` (e.g. `services/billing/`), return the response. Rules, SQL and outside calls (Stripe, ...) go in `services/`, never in `router/` and never as new top-level modules in the repo root. Table creation lives in `schema/<domain>.py` and runs once at startup. Get database connections only from `db.get_conn()`.
+
+Layout — the repo root holds only `main.py`, `config.py`, `models.py` and `db.py`:
+
+```
+router/              routes only, one file per domain
+schema/              table creation, run once at startup
+services/<domain>.py one module per API domain (auth, sessions, upload, chat, collections, telegram, ...)
+services/billing/    plans, quotas, ledger, allocation, Stripe payments
+services/rag/        the RAG engine: processor.py composes one mixin per concern (routing, indexes,
+                     document/chat/public-link/structured-data search, hybrid, answer, llm, gap_check);
+                     conversation/, efficient_mode/, index_cache.py (memory cap for loaded indexes)
+services/storage/    supabase.py (Storage + collection/folder/skill/run rows), limits.py, app_db.py
+services/ingest/     documents.py (text extractors, indexing), chat_parser.py, chat_ingest.py, progress.py
+services/security/   ssrf_guard.py, telegram_crypto.py
+tests/               run from the repo root: python -m unittest discover -s tests -t .
+scripts/  migrations/
+```
+
 # Route Convention
 Every domain gets exactly ONE base path — list/create/delete/activate/upload/etc. are sub-paths under that one prefix, not scattered across different prefixes:
 
@@ -17,7 +36,7 @@ Every domain gets exactly ONE base path — list/create/delete/activate/upload/e
 
 /api/v1/payments/storage/usage     GET (workspace storage used vs plan limit, plus per-file and per-upload
                                      limits) — router/payment.py. Limits live in PLAN_QUOTAS; enforcement is in
-                                     storage_limits.py, called from router/upload.py and router/chat.py.
+                                     services/storage/limits.py, called from services/upload.py and services/chat.py.
 
 /api/v1/database-connections        GET/POST (list/create)
 /api/v1/database-connections/{id}/tables  GET
@@ -44,7 +63,7 @@ Every domain gets exactly ONE base path — list/create/delete/activate/upload/e
 The one intentional exception: `GET /files/{collection_id}/{file_name}` and `GET /collection/{collection_id}/files` in `router/collections.py` stay on their own path — they're referenced as literal URL strings returned to the client (file download links), not called by name from the frontend's endpoint enum, so renaming them has no cleanup benefit and only risks breaking existing links.
 
 # Two Backends Must Stay Identical
-This repo (`pdf-reader`, local dev backend) and `hf-doculens-api` (deployed HF Space) are kept functionally identical — **any change to a router file here must be mirrored to the same file in `hf-doculens-api`, and vice versa.** Verify both with `python -m py_compile router/<file>.py` and `python -c "import main"` after changing either.
+This repo (`pdf-reader`, local dev backend) is the source; `hf-doculens-api` (deployed HF Space) is a mirror of it. **Change code here, never in `hf-doculens-api` directly.** Once a push to `main` passes the tests, `.github/workflows/mirror-to-hf.yml` copies it into the Space and redeploys it. To sync by hand (e.g. from a branch), run `python scripts/sync_hf.py --write` to copy it over and `python scripts/sync_hf.py --check` to confirm they match (it exits 1 on any difference). Every file git tracks here is mirrored except the ones listed in `SOURCE_ONLY` in that script (notebooks, docs, sample data, `perf/`), so `git add` a new module before syncing. Verify both with `python -c "import main"` and the tests in `tests/` (`python -m unittest discover -s tests -t .` from the repo root).
 
 # Frontend Contract
 `chat-ui` (Next.js) is the only consumer of this API. Its `services/endpoint.ts` is the single source of truth for every path this backend must serve — one entry per domain, matching the prefixes above. If you rename a route here, update `endpoint.ts` in `chat-ui` in the same change (and vice versa) — the two must never drift apart, since there's no separate API contract/OpenAPI doc to catch a mismatch.

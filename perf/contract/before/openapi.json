@@ -1,0 +1,7056 @@
+{
+  "components": {
+    "schemas": {
+      "AdminCreateUserRequest": {
+        "properties": {
+          "allocated_tokens": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocated Tokens"
+          },
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "AdminCreateUserRequest",
+        "type": "object"
+      },
+      "AdminResetRequest": {
+        "properties": {
+          "new_password": {
+            "title": "New Password",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "new_password"
+        ],
+        "title": "AdminResetRequest",
+        "type": "object"
+      },
+      "AdminUpdateUserRequest": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "AdminUpdateUserRequest",
+        "type": "object"
+      },
+      "AdminUserStatusRequest": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "active"
+        ],
+        "title": "AdminUserStatusRequest",
+        "type": "object"
+      },
+      "AgnosticQueryRequest": {
+        "properties": {
+          "chat_collection_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Collection Ids"
+          },
+          "efficient_mode": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "title": "Efficient Mode"
+          },
+          "external_db_connection_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "External Db Connection Ids"
+          },
+          "include_chat_results": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "title": "Include Chat Results"
+          },
+          "include_db_results": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "title": "Include Db Results"
+          },
+          "include_external_db": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "title": "Include External Db"
+          },
+          "include_pdf_results": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": true,
+            "title": "Include Pdf Results"
+          },
+          "include_public_links": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": false,
+            "title": "Include Public Links"
+          },
+          "llm_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Model"
+          },
+          "llm_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Provider"
+          },
+          "memory": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MemoryTurn"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Memory"
+          },
+          "pdf_collection_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pdf Collection Ids"
+          },
+          "public_link_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Public Link Ids"
+          },
+          "question": {
+            "minLength": 1,
+            "title": "Question",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "skill_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Skill Id"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "source_mode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Mode"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "AgnosticQueryRequest",
+        "type": "object"
+      },
+      "AgnosticQueryResponse": {
+        "properties": {
+          "answer": {
+            "title": "Answer",
+            "type": "string"
+          },
+          "chat_results": {
+            "items": {},
+            "title": "Chat Results",
+            "type": "array"
+          },
+          "db_results": {
+            "additionalProperties": true,
+            "title": "Db Results",
+            "type": "object"
+          },
+          "efficiency": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Efficiency"
+          },
+          "model_used": {
+            "title": "Model Used",
+            "type": "string"
+          },
+          "pdf_sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pdf Sources",
+            "type": "array"
+          },
+          "pdf_sources_detailed": {
+            "items": {
+              "$ref": "#/components/schemas/PdfSourceDetail"
+            },
+            "title": "Pdf Sources Detailed",
+            "type": "array"
+          },
+          "processing_time": {
+            "title": "Processing Time",
+            "type": "number"
+          },
+          "retrieved_count": {
+            "default": 0,
+            "title": "Retrieved Count",
+            "type": "integer"
+          },
+          "search_terms": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Search Terms",
+            "type": "array"
+          },
+          "source_type": {
+            "default": "Indexed Collections",
+            "title": "Source Type",
+            "type": "string"
+          },
+          "target_tables": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Target Tables",
+            "type": "array"
+          }
+        },
+        "required": [
+          "answer",
+          "model_used",
+          "pdf_sources",
+          "pdf_sources_detailed",
+          "db_results",
+          "chat_results",
+          "processing_time",
+          "search_terms",
+          "target_tables"
+        ],
+        "title": "AgnosticQueryResponse",
+        "type": "object"
+      },
+      "Body_upload_chat_api_v1_chat_collections_upload_post": {
+        "properties": {
+          "file": {
+            "format": "binary",
+            "title": "File",
+            "type": "string"
+          },
+          "platform": {
+            "default": "whatsapp",
+            "title": "Platform",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_chat_api_v1_chat_collections_upload_post",
+        "type": "object"
+      },
+      "Body_upload_pdfs_api_v1_pdf_collections_upload_post": {
+        "properties": {
+          "files": {
+            "items": {
+              "format": "binary",
+              "type": "string"
+            },
+            "title": "Files",
+            "type": "array"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "title": "Body_upload_pdfs_api_v1_pdf_collections_upload_post",
+        "type": "object"
+      },
+      "ChangePasswordRequest": {
+        "properties": {
+          "current_password": {
+            "title": "Current Password",
+            "type": "string"
+          },
+          "new_password": {
+            "title": "New Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "title": "ChangePasswordRequest",
+        "type": "object"
+      },
+      "ChatUploadResponse": {
+        "description": "Response after uploading chat file",
+        "properties": {
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "string"
+          },
+          "date_range": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Date Range"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "participants": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Participants",
+            "type": "array"
+          },
+          "platform": {
+            "title": "Platform",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection_id",
+          "file_name",
+          "platform",
+          "message_count",
+          "participants",
+          "status"
+        ],
+        "title": "ChatUploadResponse",
+        "type": "object"
+      },
+      "CheckoutSessionResponse": {
+        "properties": {
+          "checkout_url": {
+            "title": "Checkout Url",
+            "type": "string"
+          },
+          "payment_id": {
+            "title": "Payment Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "checkout_url",
+          "payment_id"
+        ],
+        "title": "CheckoutSessionResponse",
+        "type": "object"
+      },
+      "CollectionInfo": {
+        "properties": {
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Created At"
+          },
+          "document_count": {
+            "title": "Document Count",
+            "type": "integer"
+          },
+          "file_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "File Names",
+            "type": "array"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          },
+          "owner_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner Id"
+          },
+          "status": {
+            "default": "active",
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "collection_id",
+          "document_count",
+          "created_at",
+          "file_names"
+        ],
+        "title": "CollectionInfo",
+        "type": "object"
+      },
+      "CreateCheckoutSessionRequest": {
+        "properties": {
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "plan_id"
+        ],
+        "title": "CreateCheckoutSessionRequest",
+        "type": "object"
+      },
+      "CreateDatabaseConnectionRequest": {
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "CreateDatabaseConnectionRequest",
+        "type": "object"
+      },
+      "CreatePublicLinkRequest": {
+        "properties": {
+          "item_urls": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Item Urls"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "CreatePublicLinkRequest",
+        "type": "object"
+      },
+      "CreateTokenRequestRequest": {
+        "properties": {
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          }
+        },
+        "title": "CreateTokenRequestRequest",
+        "type": "object"
+      },
+      "DatabaseConnectionSource": {
+        "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Created At"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "table_count": {
+            "title": "Table Count",
+            "type": "integer"
+          },
+          "tables": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DbTableInfo"
+            },
+            "title": "Tables",
+            "type": "array"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "connection_id",
+          "label",
+          "url",
+          "status",
+          "table_count",
+          "created_at"
+        ],
+        "title": "DatabaseConnectionSource",
+        "type": "object"
+      },
+      "DatabaseConnectionsResponse": {
+        "properties": {
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/DatabaseConnectionSource"
+            },
+            "title": "Connections",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connections",
+          "count"
+        ],
+        "title": "DatabaseConnectionsResponse",
+        "type": "object"
+      },
+      "DbColumnInfo": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "nullable": {
+            "default": true,
+            "title": "Nullable",
+            "type": "boolean"
+          },
+          "primary_key": {
+            "default": false,
+            "title": "Primary Key",
+            "type": "boolean"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "type"
+        ],
+        "title": "DbColumnInfo",
+        "type": "object"
+      },
+      "DbTableInfo": {
+        "properties": {
+          "columns": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/DbColumnInfo"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "row_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Row Count"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "DbTableInfo",
+        "type": "object"
+      },
+      "DriveFolderItem": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "item_type": {
+            "title": "Item Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "url",
+          "item_type"
+        ],
+        "title": "DriveFolderItem",
+        "type": "object"
+      },
+      "DriveFolderItemsResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DriveFolderItem"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "folder_id": {
+            "title": "Folder Id",
+            "type": "string"
+          },
+          "folders": {
+            "items": {
+              "$ref": "#/components/schemas/DriveFolderItem"
+            },
+            "title": "Folders",
+            "type": "array"
+          }
+        },
+        "required": [
+          "folder_id",
+          "files",
+          "folders",
+          "count"
+        ],
+        "title": "DriveFolderItemsResponse",
+        "type": "object"
+      },
+      "DriveFolderRequest": {
+        "properties": {
+          "max_depth": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": 5,
+            "title": "Max Depth"
+          },
+          "recursive": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": true,
+            "title": "Recursive"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "DriveFolderRequest",
+        "type": "object"
+      },
+      "EfficientModeStats": {
+        "properties": {
+          "avg_reduction_pct": {
+            "title": "Avg Reduction Pct",
+            "type": "number"
+          },
+          "queries_tested": {
+            "title": "Queries Tested",
+            "type": "integer"
+          },
+          "total_final_tokens_est": {
+            "title": "Total Final Tokens Est",
+            "type": "integer"
+          },
+          "total_raw_tokens_est": {
+            "title": "Total Raw Tokens Est",
+            "type": "integer"
+          },
+          "total_tokens_saved_est": {
+            "title": "Total Tokens Saved Est",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "queries_tested",
+          "avg_reduction_pct",
+          "total_raw_tokens_est",
+          "total_final_tokens_est",
+          "total_tokens_saved_est"
+        ],
+        "title": "EfficientModeStats",
+        "type": "object"
+      },
+      "Folder": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Created At"
+          },
+          "folder_id": {
+            "title": "Folder Id",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "parent_folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Folder Id"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "folder_id",
+          "name",
+          "owner_id",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "Folder",
+        "type": "object"
+      },
+      "FolderCreate": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Folder Id"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "FolderCreate",
+        "type": "object"
+      },
+      "FolderRename": {
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "parent_folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Folder Id"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "FolderRename",
+        "type": "object"
+      },
+      "GapAnalysisItem": {
+        "properties": {
+          "evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "recommendation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recommendation"
+          },
+          "source_citation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Citation"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target_collection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Collection Id"
+          }
+        },
+        "required": [
+          "label",
+          "status"
+        ],
+        "title": "GapAnalysisItem",
+        "type": "object"
+      },
+      "GapAnalysisRequest": {
+        "properties": {
+          "framework_name": {
+            "title": "Framework Name",
+            "type": "string"
+          },
+          "reference_collection_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reference Collection Ids",
+            "type": "array"
+          },
+          "scenario_input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario Input"
+          },
+          "skill_id": {
+            "title": "Skill Id",
+            "type": "string"
+          },
+          "target_collection_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Target Collection Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "skill_id",
+          "reference_collection_ids",
+          "framework_name"
+        ],
+        "title": "GapAnalysisRequest",
+        "type": "object"
+      },
+      "GapAnalysisResponse": {
+        "properties": {
+          "disclaimer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disclaimer"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/GapAnalysisItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "run": {
+            "$ref": "#/components/schemas/GapAnalysisRun"
+          },
+          "summary": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "required": [
+          "run",
+          "items",
+          "summary"
+        ],
+        "title": "GapAnalysisResponse",
+        "type": "object"
+      },
+      "GapAnalysisRun": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "default": "",
+            "title": "Created At"
+          },
+          "framework_name": {
+            "title": "Framework Name",
+            "type": "string"
+          },
+          "reference_collection_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reference Collection Ids",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "scenario_input": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario Input"
+          },
+          "skill_id": {
+            "title": "Skill Id",
+            "type": "string"
+          },
+          "status": {
+            "default": "completed",
+            "title": "Status",
+            "type": "string"
+          },
+          "target_collection_ids": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Target Collection Ids",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "skill_id",
+          "framework_name",
+          "reference_collection_ids"
+        ],
+        "title": "GapAnalysisRun",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "LoginRequest": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "LoginRequest",
+        "type": "object"
+      },
+      "MemberTokenUsage": {
+        "properties": {
+          "allocated_tokens": {
+            "title": "Allocated Tokens",
+            "type": "integer"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "is_default_allocation": {
+            "default": false,
+            "title": "Is Default Allocation",
+            "type": "boolean"
+          },
+          "quota_anchor_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quota Anchor At"
+          },
+          "quota_tiers": {
+            "items": {
+              "$ref": "#/components/schemas/TokenQuotaTierUsage"
+            },
+            "title": "Quota Tiers",
+            "type": "array"
+          },
+          "remaining_tokens": {
+            "title": "Remaining Tokens",
+            "type": "integer"
+          },
+          "usage_percent": {
+            "title": "Usage Percent",
+            "type": "number"
+          },
+          "used_tokens": {
+            "title": "Used Tokens",
+            "type": "integer"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "allocated_tokens",
+          "used_tokens",
+          "remaining_tokens",
+          "usage_percent"
+        ],
+        "title": "MemberTokenUsage",
+        "type": "object"
+      },
+      "MembersUsageResponse": {
+        "properties": {
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/MemberTokenUsage"
+            },
+            "title": "Members",
+            "type": "array"
+          },
+          "pool_plan_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pool Plan Name"
+          },
+          "pool_token_limit": {
+            "default": 0,
+            "title": "Pool Token Limit",
+            "type": "integer"
+          },
+          "subscription": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SubscriptionUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unallocated_tokens": {
+            "title": "Unallocated Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "members",
+          "unallocated_tokens"
+        ],
+        "title": "MembersUsageResponse",
+        "type": "object"
+      },
+      "MemoryTurn": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "role",
+          "content"
+        ],
+        "title": "MemoryTurn",
+        "type": "object"
+      },
+      "MoveToFolderRequest": {
+        "properties": {
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "string"
+          },
+          "folder_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Folder Id"
+          }
+        },
+        "required": [
+          "collection_id"
+        ],
+        "title": "MoveToFolderRequest",
+        "type": "object"
+      },
+      "MyMemberUsageResponse": {
+        "properties": {
+          "gap_check_available": {
+            "default": false,
+            "title": "Gap Check Available",
+            "type": "boolean"
+          },
+          "usage": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemberTokenUsage"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "MyMemberUsageResponse",
+        "type": "object"
+      },
+      "PaymentRecord": {
+        "properties": {
+          "amount": {
+            "title": "Amount",
+            "type": "integer"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Created At"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "payment_id": {
+            "title": "Payment Id",
+            "type": "string"
+          },
+          "plan_id": {
+            "title": "Plan Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "payment_id",
+          "plan_id",
+          "amount",
+          "currency",
+          "status",
+          "created_at"
+        ],
+        "title": "PaymentRecord",
+        "type": "object"
+      },
+      "PaymentResponse": {
+        "properties": {
+          "payment": {
+            "$ref": "#/components/schemas/PaymentRecord"
+          }
+        },
+        "required": [
+          "payment"
+        ],
+        "title": "PaymentResponse",
+        "type": "object"
+      },
+      "PdfSourceDetail": {
+        "properties": {
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "string"
+          },
+          "content_preview": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Content Preview"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "file_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Url"
+          },
+          "page": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page"
+          },
+          "page_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Page Url"
+          },
+          "relevance_score": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relevance Score"
+          },
+          "search_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Search Text"
+          }
+        },
+        "required": [
+          "file_name",
+          "collection_id"
+        ],
+        "title": "PdfSourceDetail",
+        "type": "object"
+      },
+      "PublicLinkItem": {
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "item_type": {
+            "title": "Item Type",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "url",
+          "item_type"
+        ],
+        "title": "PublicLinkItem",
+        "type": "object"
+      },
+      "PublicLinkSource": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Created At"
+          },
+          "item_count": {
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "items": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/PublicLinkItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "link_id": {
+            "title": "Link Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          },
+          "workspace_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Id"
+          }
+        },
+        "required": [
+          "link_id",
+          "title",
+          "url",
+          "status",
+          "item_count",
+          "created_at"
+        ],
+        "title": "PublicLinkSource",
+        "type": "object"
+      },
+      "PublicLinksResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/PublicLinkSource"
+            },
+            "title": "Links",
+            "type": "array"
+          }
+        },
+        "required": [
+          "links",
+          "count"
+        ],
+        "title": "PublicLinksResponse",
+        "type": "object"
+      },
+      "RateLimitStatus": {
+        "properties": {
+          "blocked": {
+            "title": "Blocked",
+            "type": "boolean"
+          },
+          "cap_tokens": {
+            "title": "Cap Tokens",
+            "type": "integer"
+          },
+          "reset_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reset At"
+          },
+          "used_tokens": {
+            "title": "Used Tokens",
+            "type": "integer"
+          },
+          "window_hours": {
+            "title": "Window Hours",
+            "type": "number"
+          }
+        },
+        "required": [
+          "used_tokens",
+          "cap_tokens",
+          "window_hours",
+          "blocked"
+        ],
+        "title": "RateLimitStatus",
+        "type": "object"
+      },
+      "RegisterRequest": {
+        "properties": {
+          "email": {
+            "format": "email",
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "password": {
+            "title": "Password",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ],
+        "title": "RegisterRequest",
+        "type": "object"
+      },
+      "RenameSessionRequest": {
+        "properties": {
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "RenameSessionRequest",
+        "type": "object"
+      },
+      "SessionQuestion": {
+        "description": "One entry in the navigation index — a question the user asked, with\njust enough text to recognise it in a list.",
+        "properties": {
+          "message_id": {
+            "title": "Message Id",
+            "type": "string"
+          },
+          "preview": {
+            "title": "Preview",
+            "type": "string"
+          },
+          "turn": {
+            "title": "Turn",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "turn",
+          "message_id",
+          "preview"
+        ],
+        "title": "SessionQuestion",
+        "type": "object"
+      },
+      "SessionQuestionsResponse": {
+        "properties": {
+          "questions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionQuestion"
+            },
+            "title": "Questions",
+            "type": "array"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "total",
+          "questions"
+        ],
+        "title": "SessionQuestionsResponse",
+        "type": "object"
+      },
+      "SessionResponse": {
+        "properties": {
+          "chat_collections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Chat Collections",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "has_more": {
+            "default": false,
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/StoredMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "pdf_collections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pdf Collections",
+            "type": "array"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "total_user_turns": {
+            "default": 0,
+            "title": "Total User Turns",
+            "type": "integer"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "title",
+          "created_at",
+          "updated_at",
+          "messages",
+          "pdf_collections",
+          "chat_collections"
+        ],
+        "title": "SessionResponse",
+        "type": "object"
+      },
+      "SessionSummary": {
+        "properties": {
+          "chat_collections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Chat Collections",
+            "type": "array"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "matched_message_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Message Id"
+          },
+          "matched_snippet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Matched Snippet"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "pdf_collections": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pdf Collections",
+            "type": "array"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "title",
+          "message_count",
+          "created_at",
+          "updated_at",
+          "pdf_collections",
+          "chat_collections"
+        ],
+        "title": "SessionSummary",
+        "type": "object"
+      },
+      "SetChatCollectionActiveRequest": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection_id",
+          "active"
+        ],
+        "title": "SetChatCollectionActiveRequest",
+        "type": "object"
+      },
+      "SetDatabaseConnectionActiveRequest": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection_id",
+          "active"
+        ],
+        "title": "SetDatabaseConnectionActiveRequest",
+        "type": "object"
+      },
+      "SetPdfCollectionActiveRequest": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection_id",
+          "active"
+        ],
+        "title": "SetPdfCollectionActiveRequest",
+        "type": "object"
+      },
+      "SetPublicLinkActiveRequest": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "link_id": {
+            "title": "Link Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "link_id",
+          "active"
+        ],
+        "title": "SetPublicLinkActiveRequest",
+        "type": "object"
+      },
+      "SetTelegramConnectionActiveRequest": {
+        "properties": {
+          "active": {
+            "title": "Active",
+            "type": "boolean"
+          },
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection_id",
+          "active"
+        ],
+        "title": "SetTelegramConnectionActiveRequest",
+        "type": "object"
+      },
+      "SkillCreate": {
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "instruction": {
+            "title": "Instruction",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "scope": {
+            "default": "personal",
+            "title": "Scope",
+            "type": "string"
+          },
+          "slash_command": {
+            "title": "Slash Command",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "slash_command",
+          "instruction"
+        ],
+        "title": "SkillCreate",
+        "type": "object"
+      },
+      "SkillResponse": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "default": "",
+            "title": "Created At"
+          },
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "instruction": {
+            "title": "Instruction",
+            "type": "string"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "owner_id": {
+            "title": "Owner Id",
+            "type": "string"
+          },
+          "scope": {
+            "title": "Scope",
+            "type": "string"
+          },
+          "skill_id": {
+            "title": "Skill Id",
+            "type": "string"
+          },
+          "slash_command": {
+            "title": "Slash Command",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "default": "",
+            "title": "Updated At"
+          }
+        },
+        "required": [
+          "skill_id",
+          "name",
+          "slash_command",
+          "instruction",
+          "scope",
+          "owner_id"
+        ],
+        "title": "SkillResponse",
+        "type": "object"
+      },
+      "SkillUpdate": {
+        "description": "Partial update — every field optional, omitted ones are left alone.",
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "instruction": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Instruction"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "scope": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scope"
+          },
+          "slash_command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Slash Command"
+          }
+        },
+        "title": "SkillUpdate",
+        "type": "object"
+      },
+      "StorageUsageResponse": {
+        "properties": {
+          "blocked": {
+            "title": "Blocked",
+            "type": "boolean"
+          },
+          "limit_bytes": {
+            "title": "Limit Bytes",
+            "type": "integer"
+          },
+          "max_batch_files": {
+            "title": "Max Batch Files",
+            "type": "integer"
+          },
+          "max_file_bytes": {
+            "title": "Max File Bytes",
+            "type": "integer"
+          },
+          "plan_name": {
+            "title": "Plan Name",
+            "type": "string"
+          },
+          "remaining_bytes": {
+            "title": "Remaining Bytes",
+            "type": "integer"
+          },
+          "usage_percent": {
+            "title": "Usage Percent",
+            "type": "number"
+          },
+          "used_bytes": {
+            "title": "Used Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "plan_name",
+          "used_bytes",
+          "limit_bytes",
+          "remaining_bytes",
+          "usage_percent",
+          "max_file_bytes",
+          "max_batch_files",
+          "blocked"
+        ],
+        "title": "StorageUsageResponse",
+        "type": "object"
+      },
+      "StoredMessage": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "model_used": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Used"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "role",
+          "content",
+          "created_at"
+        ],
+        "title": "StoredMessage",
+        "type": "object"
+      },
+      "SubscriptionUsage": {
+        "properties": {
+          "cancel_at_period_end": {
+            "default": false,
+            "title": "Cancel At Period End",
+            "type": "boolean"
+          },
+          "is_paid": {
+            "default": true,
+            "title": "Is Paid",
+            "type": "boolean"
+          },
+          "next_reset_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Reset Date"
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Period End"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "plan_name": {
+            "title": "Plan Name",
+            "type": "string"
+          },
+          "subscription_status": {
+            "title": "Subscription Status",
+            "type": "string"
+          },
+          "token_limit": {
+            "title": "Token Limit",
+            "type": "integer"
+          },
+          "token_remaining": {
+            "title": "Token Remaining",
+            "type": "integer"
+          },
+          "token_used": {
+            "title": "Token Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "plan_name",
+          "subscription_status",
+          "token_limit",
+          "token_used",
+          "token_remaining",
+          "period_start",
+          "period_end"
+        ],
+        "title": "SubscriptionUsage",
+        "type": "object"
+      },
+      "TeamMember": {
+        "properties": {
+          "allocated_tokens": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Allocated Tokens"
+          },
+          "allocation_clamped": {
+            "default": false,
+            "title": "Allocation Clamped",
+            "type": "boolean"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "role",
+          "is_active",
+          "created_at"
+        ],
+        "title": "TeamMember",
+        "type": "object"
+      },
+      "TeamMembersResponse": {
+        "properties": {
+          "max_sub_users": {
+            "title": "Max Sub Users",
+            "type": "integer"
+          },
+          "members": {
+            "items": {
+              "$ref": "#/components/schemas/TeamMember"
+            },
+            "title": "Members",
+            "type": "array"
+          }
+        },
+        "required": [
+          "members",
+          "max_sub_users"
+        ],
+        "title": "TeamMembersResponse",
+        "type": "object"
+      },
+      "TelegramConnectStartRequest": {
+        "properties": {
+          "api_hash": {
+            "title": "Api Hash",
+            "type": "string"
+          },
+          "api_id": {
+            "title": "Api Id",
+            "type": "integer"
+          },
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Label"
+          },
+          "phone": {
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "api_id",
+          "api_hash",
+          "phone"
+        ],
+        "title": "TelegramConnectStartRequest",
+        "type": "object"
+      },
+      "TelegramConnectStartResponse": {
+        "properties": {
+          "flow_id": {
+            "title": "Flow Id",
+            "type": "string"
+          },
+          "phone": {
+            "title": "Phone",
+            "type": "string"
+          }
+        },
+        "required": [
+          "flow_id",
+          "phone"
+        ],
+        "title": "TelegramConnectStartResponse",
+        "type": "object"
+      },
+      "TelegramConnectVerifyRequest": {
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "flow_id": {
+            "title": "Flow Id",
+            "type": "string"
+          },
+          "password": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Password"
+          }
+        },
+        "required": [
+          "flow_id",
+          "code"
+        ],
+        "title": "TelegramConnectVerifyRequest",
+        "type": "object"
+      },
+      "TelegramConnectVerifyResponse": {
+        "properties": {
+          "connection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TelegramConnectionSource"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "TelegramConnectVerifyResponse",
+        "type": "object"
+      },
+      "TelegramConnectionSource": {
+        "properties": {
+          "connection_id": {
+            "title": "Connection Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Created At"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "phone_masked": {
+            "title": "Phone Masked",
+            "type": "string"
+          },
+          "selected_chats": {
+            "default": [],
+            "items": {
+              "$ref": "#/components/schemas/TelegramSelectedChat"
+            },
+            "title": "Selected Chats",
+            "type": "array"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "connection_id",
+          "label",
+          "phone_masked",
+          "status",
+          "created_at"
+        ],
+        "title": "TelegramConnectionSource",
+        "type": "object"
+      },
+      "TelegramConnectionsResponse": {
+        "properties": {
+          "connections": {
+            "items": {
+              "$ref": "#/components/schemas/TelegramConnectionSource"
+            },
+            "title": "Connections",
+            "type": "array"
+          },
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "connections",
+          "count"
+        ],
+        "title": "TelegramConnectionsResponse",
+        "type": "object"
+      },
+      "TelegramDialog": {
+        "properties": {
+          "dialog_id": {
+            "title": "Dialog Id",
+            "type": "string"
+          },
+          "participants_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Participants Count"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dialog_id",
+          "title",
+          "type"
+        ],
+        "title": "TelegramDialog",
+        "type": "object"
+      },
+      "TelegramDialogsResponse": {
+        "properties": {
+          "count": {
+            "title": "Count",
+            "type": "integer"
+          },
+          "dialogs": {
+            "items": {
+              "$ref": "#/components/schemas/TelegramDialog"
+            },
+            "title": "Dialogs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dialogs",
+          "count"
+        ],
+        "title": "TelegramDialogsResponse",
+        "type": "object"
+      },
+      "TelegramSelectedChat": {
+        "properties": {
+          "chat_collection_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Chat Collection Id"
+          },
+          "dialog_id": {
+            "title": "Dialog Id",
+            "type": "string"
+          },
+          "last_synced_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Synced At"
+          },
+          "message_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Count"
+          },
+          "status": {
+            "default": "active",
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dialog_id",
+          "title",
+          "type"
+        ],
+        "title": "TelegramSelectedChat",
+        "type": "object"
+      },
+      "TelegramSyncRequest": {
+        "properties": {
+          "dialog_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dialog Ids",
+            "type": "array"
+          },
+          "message_limit": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message Limit"
+          }
+        },
+        "required": [
+          "dialog_ids"
+        ],
+        "title": "TelegramSyncRequest",
+        "type": "object"
+      },
+      "TelegramSyncResponse": {
+        "properties": {
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/TelegramSyncResult"
+            },
+            "title": "Results",
+            "type": "array"
+          }
+        },
+        "required": [
+          "results"
+        ],
+        "title": "TelegramSyncResponse",
+        "type": "object"
+      },
+      "TelegramSyncResult": {
+        "properties": {
+          "chat_collection_id": {
+            "title": "Chat Collection Id",
+            "type": "string"
+          },
+          "dialog_id": {
+            "title": "Dialog Id",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "message_count": {
+            "title": "Message Count",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dialog_id",
+          "title",
+          "chat_collection_id",
+          "message_count",
+          "status"
+        ],
+        "title": "TelegramSyncResult",
+        "type": "object"
+      },
+      "TokenQuotaTierUsage": {
+        "properties": {
+          "blocked": {
+            "title": "Blocked",
+            "type": "boolean"
+          },
+          "interval": {
+            "title": "Interval",
+            "type": "string"
+          },
+          "next_reset_date": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Next Reset Date"
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Period Start"
+          },
+          "token_limit": {
+            "title": "Token Limit",
+            "type": "integer"
+          },
+          "token_remaining": {
+            "title": "Token Remaining",
+            "type": "integer"
+          },
+          "token_used": {
+            "title": "Token Used",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "interval",
+          "token_limit",
+          "token_used",
+          "token_remaining",
+          "period_start",
+          "next_reset_date",
+          "blocked"
+        ],
+        "title": "TokenQuotaTierUsage",
+        "type": "object"
+      },
+      "TokenRequestRecord": {
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "format": "date-time",
+                "type": "string"
+              }
+            ],
+            "title": "Created At"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Message"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_id",
+          "user_id",
+          "email",
+          "status",
+          "created_at"
+        ],
+        "title": "TokenRequestRecord",
+        "type": "object"
+      },
+      "TokenRequestResponse": {
+        "properties": {
+          "request": {
+            "$ref": "#/components/schemas/TokenRequestRecord"
+          }
+        },
+        "required": [
+          "request"
+        ],
+        "title": "TokenRequestResponse",
+        "type": "object"
+      },
+      "TokenRequestsResponse": {
+        "properties": {
+          "pending_count": {
+            "title": "Pending Count",
+            "type": "integer"
+          },
+          "requests": {
+            "items": {
+              "$ref": "#/components/schemas/TokenRequestRecord"
+            },
+            "title": "Requests",
+            "type": "array"
+          }
+        },
+        "required": [
+          "requests",
+          "pending_count"
+        ],
+        "title": "TokenRequestsResponse",
+        "type": "object"
+      },
+      "TokenResponse": {
+        "properties": {
+          "access_token": {
+            "title": "Access Token",
+            "type": "string"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "token_type": {
+            "default": "bearer",
+            "title": "Token Type",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "access_token",
+          "user_id",
+          "email",
+          "role"
+        ],
+        "title": "TokenResponse",
+        "type": "object"
+      },
+      "UpdateMemberAllocationRequest": {
+        "properties": {
+          "allocated_tokens": {
+            "minimum": 0.0,
+            "title": "Allocated Tokens",
+            "type": "integer"
+          },
+          "daily_token_quota": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Daily Token Quota"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          },
+          "weekly_token_quota": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weekly Token Quota"
+          }
+        },
+        "required": [
+          "user_id",
+          "allocated_tokens"
+        ],
+        "title": "UpdateMemberAllocationRequest",
+        "type": "object"
+      },
+      "UpdateMemberAllocationResponse": {
+        "properties": {
+          "member": {
+            "$ref": "#/components/schemas/MemberTokenUsage"
+          },
+          "unallocated_tokens": {
+            "title": "Unallocated Tokens",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "member",
+          "unallocated_tokens"
+        ],
+        "title": "UpdateMemberAllocationResponse",
+        "type": "object"
+      },
+      "UpdateProfileRequest": {
+        "properties": {
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "remove_avatar": {
+            "default": false,
+            "title": "Remove Avatar",
+            "type": "boolean"
+          }
+        },
+        "title": "UpdateProfileRequest",
+        "type": "object"
+      },
+      "UpdateWorkspaceTokenSettingsRequest": {
+        "properties": {
+          "default_member_allocation": {
+            "minimum": 0.0,
+            "title": "Default Member Allocation",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "default_member_allocation"
+        ],
+        "title": "UpdateWorkspaceTokenSettingsRequest",
+        "type": "object"
+      },
+      "UploadFromUrlRequest": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "url": {
+            "title": "Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "title": "UploadFromUrlRequest",
+        "type": "object"
+      },
+      "UploadFromUrlsRequest": {
+        "properties": {
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "urls": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Urls",
+            "type": "array"
+          }
+        },
+        "required": [
+          "urls"
+        ],
+        "title": "UploadFromUrlsRequest",
+        "type": "object"
+      },
+      "UploadResponse": {
+        "properties": {
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "string"
+          },
+          "file_count": {
+            "title": "File Count",
+            "type": "integer"
+          },
+          "file_names": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Names"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "collection_id",
+          "file_count",
+          "status"
+        ],
+        "title": "UploadResponse",
+        "type": "object"
+      },
+      "UpsertSessionRequest": {
+        "properties": {
+          "chat_collections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": [],
+            "title": "Chat Collections"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/StoredMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "pdf_collections": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": [],
+            "title": "Pdf Collections"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          }
+        },
+        "required": [
+          "messages"
+        ],
+        "title": "UpsertSessionRequest",
+        "type": "object"
+      },
+      "UserRecord": {
+        "properties": {
+          "avatar_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Avatar Url"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          },
+          "is_active": {
+            "title": "Is Active",
+            "type": "boolean"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "role": {
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id",
+          "email",
+          "role",
+          "is_active"
+        ],
+        "title": "UserRecord",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WorkspaceTokenSettings": {
+        "properties": {
+          "default_member_allocation": {
+            "title": "Default Member Allocation",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "default_member_allocation"
+        ],
+        "title": "WorkspaceTokenSettings",
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "description": "API for querying PDF documents with natural language",
+    "title": "PDF QA API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/": {
+      "get": {
+        "operationId": "root__get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Root"
+      }
+    },
+    "/api/v1/agnostic/query": {
+      "post": {
+        "operationId": "agnostic_query_api_v1_agnostic_query_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgnosticQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgnosticQueryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Agnostic Query",
+        "tags": [
+          "agnostic"
+        ]
+      }
+    },
+    "/api/v1/analysis/gap-analysis": {
+      "post": {
+        "description": "Run a Skill against reference (+ optional target) collections and\npersist the result as a run. Generic across skills — not ISO-specific.",
+        "operationId": "run_gap_analysis_api_v1_analysis_gap_analysis_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GapAnalysisRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GapAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Run Gap Analysis"
+      }
+    },
+    "/api/v1/analysis/gap-analysis/runs": {
+      "get": {
+        "description": "History of runs visible to the current user (own runs, or all for admins).",
+        "operationId": "list_gap_analysis_runs_api_v1_analysis_gap_analysis_runs_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GapAnalysisRun"
+                  },
+                  "title": "Response List Gap Analysis Runs Api V1 Analysis Gap Analysis Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Gap Analysis Runs"
+      }
+    },
+    "/api/v1/analysis/gap-analysis/{run_id}": {
+      "delete": {
+        "description": "Delete a stored run — runs never overwrite each other (each gets a\nfresh run_id), so this is the only way to remove one from history.",
+        "operationId": "delete_gap_analysis_run_api_v1_analysis_gap_analysis__run_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Gap Analysis Run"
+      },
+      "get": {
+        "description": "Full result of a stored run — this is the 'view everything in-app'\npath (not just download): the frontend's full-table dialog reads from\nthis endpoint, no re-analysis needed.",
+        "operationId": "get_gap_analysis_run_api_v1_analysis_gap_analysis__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GapAnalysisResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Gap Analysis Run"
+      }
+    },
+    "/api/v1/analysis/gap-analysis/{run_id}/export": {
+      "get": {
+        "description": "Render a stored run into a downloadable report. Pure render of\nalready-persisted data — no LLM call. Per plan, this is part of Skill 1's\nMVP (not deferred): download is an additional way to take the report\noutside the app, not the only way to see the full result.",
+        "operationId": "export_gap_analysis_run_api_v1_analysis_gap_analysis__run_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "format",
+            "required": false,
+            "schema": {
+              "default": "markdown",
+              "pattern": "^(markdown|pdf)$",
+              "title": "Format",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Export Gap Analysis Run"
+      }
+    },
+    "/api/v1/auth/admin/reset-password": {
+      "post": {
+        "description": "Admin-only: reset a team member's password. Scoped to created_by =\nadmin.user_id — an admin can only reset passwords for members they\ncreated themselves, not any arbitrary user in the system.",
+        "operationId": "admin_reset_password_api_v1_auth_admin_reset_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminResetRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Admin Reset Password"
+      }
+    },
+    "/api/v1/auth/admin/users": {
+      "get": {
+        "description": "Admin-only: list the team members this admin has added, plus their quota.",
+        "operationId": "list_admin_users_api_v1_auth_admin_users_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMembersResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Admin Users"
+      },
+      "post": {
+        "description": "Admin-only: add a team member under this admin, capped by max_sub_users. New members always get role 'user'.",
+        "operationId": "add_admin_user_api_v1_auth_admin_users_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminCreateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMember"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Add Admin User"
+      }
+    },
+    "/api/v1/auth/admin/users/activate": {
+      "post": {
+        "description": "Admin-only: activate/deactivate a team member this admin created.\nScoped to created_by = admin.user_id, so an admin can never touch a\nmember outside their own team (and can never deactivate themselves,\nsince their own row has no created_by pointing at themselves).",
+        "operationId": "set_admin_user_status_api_v1_auth_admin_users_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUserStatusRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Admin User Status"
+      }
+    },
+    "/api/v1/auth/admin/users/{user_id}": {
+      "delete": {
+        "description": "Admin-only: remove a team member this admin created. Scoped to\ncreated_by = admin.user_id, same guard as the other per-member admin\nmutations (and an admin can never remove themselves this way, since\ntheir own row has no created_by pointing at themselves).\n\nHard-deletes the member's chat history (chat_sessions cascades to\nchat_messages via ON DELETE CASCADE) along with their account.\nDeliberately scoped to just that: their uploaded sources (documents),\nskills, and gap-analysis runs are left untouched —\nwhat happens to those on removal is a separate, not-yet-scoped piece\nof work, not part of this ticket.",
+        "operationId": "delete_admin_user_api_v1_auth_admin_users__user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Admin User"
+      },
+      "put": {
+        "description": "Admin-only: rename a team member this admin created. Scoped to\ncreated_by = admin.user_id, same guard as the other per-member admin\nmutations.",
+        "operationId": "update_admin_user_api_v1_auth_admin_users__user_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "user_id",
+            "required": true,
+            "schema": {
+              "title": "User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AdminUpdateUserRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TeamMember"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Admin User"
+      }
+    },
+    "/api/v1/auth/change-password": {
+      "post": {
+        "description": "Change the current user's password (requires valid token).",
+        "operationId": "change_password_api_v1_auth_change_password_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Change Password"
+      }
+    },
+    "/api/v1/auth/login": {
+      "post": {
+        "description": "Login and receive a JWT access token.",
+        "operationId": "login_api_v1_auth_login_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Login"
+      }
+    },
+    "/api/v1/auth/me": {
+      "get": {
+        "description": "Return the current user's full profile, refreshed from the DB — the\nJWT alone doesn't carry avatar_url and its is_active claim can go stale.",
+        "operationId": "me_api_v1_auth_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Me"
+      },
+      "post": {
+        "description": "Update the current user's display name and/or avatar. Pass\nremove_avatar=true to clear the avatar back to the initials fallback.",
+        "operationId": "update_profile_api_v1_auth_me_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserRecord"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Profile"
+      }
+    },
+    "/api/v1/auth/register": {
+      "post": {
+        "description": "Register a new user. First registered user becomes admin automatically.",
+        "operationId": "register_api_v1_auth_register_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RegisterRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register"
+      }
+    },
+    "/api/v1/chat-collections": {
+      "get": {
+        "description": "List all available chat collections",
+        "operationId": "list_chat_collections_api_v1_chat_collections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Chat Collections"
+      }
+    },
+    "/api/v1/chat-collections/activate": {
+      "post": {
+        "description": "Toggle a chat collection's active status (used as a knowledge source).",
+        "operationId": "set_chat_collection_active_api_v1_chat_collections_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetChatCollectionActiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Chat Collection Active"
+      }
+    },
+    "/api/v1/chat-collections/move-to-folder": {
+      "post": {
+        "description": "Assign (or unassign) a chat/WhatsApp collection to a folder (MS-274).\nAdmin-gated, matching every other chat-collections mutation — chat rows\ncarry no per-row owner_id (see storage.py). Every caller here is already\nan admin (require_role(\"admin\") above), so — same as the pdf endpoint's\nadmin branch — any folder is a valid target, not just ones the caller\npersonally created.",
+        "operationId": "move_chat_collection_to_folder_api_v1_chat_collections_move_to_folder_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveToFolderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Chat Collection To Folder"
+      }
+    },
+    "/api/v1/chat-collections/upload": {
+      "post": {
+        "description": "Upload and process a chat export file\n\n- **file**: Chat export file (TXT for WhatsApp)\n- **platform**: Chat platform (whatsapp, teams, slack). Default: whatsapp",
+        "operationId": "upload_chat_api_v1_chat_collections_upload_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "stream_progress",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Stream Progress",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_chat_api_v1_chat_collections_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChatUploadResponse"
+                }
+              },
+              "application/x-ndjson": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Chat"
+      }
+    },
+    "/api/v1/chat-collections/uploads/{upload_id}": {
+      "get": {
+        "operationId": "get_chat_upload_status_api_v1_chat_collections_uploads__upload_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Chat Upload Status"
+      }
+    },
+    "/api/v1/chat-collections/{collection_id}": {
+      "delete": {
+        "description": "Delete a chat collection",
+        "operationId": "delete_chat_collection_api_v1_chat_collections__collection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Chat Collection"
+      }
+    },
+    "/api/v1/chat-collections/{collection_id}/messages": {
+      "get": {
+        "description": "Preview recognized WhatsApp messages, or raw text lines for other sources.\nBoth formats are read-only and paginated (MS-415).",
+        "operationId": "get_chat_collection_messages_api_v1_chat_collections__collection_id__messages_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Chat Collection Messages"
+      }
+    },
+    "/api/v1/chat-collections/{collection_id}/preview": {
+      "get": {
+        "description": "Return plain-text preview content from an uploaded chat collection file.",
+        "operationId": "preview_chat_collection_api_v1_chat_collections__collection_id__preview_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "max_chars",
+            "required": false,
+            "schema": {
+              "default": 20000,
+              "maximum": 200000,
+              "minimum": 500,
+              "title": "Max Chars",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Preview Chat Collection"
+      }
+    },
+    "/api/v1/collection/{collection_id}/files": {
+      "get": {
+        "description": "List all PDF files in a collection (Supabase DB → local disk fallback).",
+        "operationId": "list_collection_files_api_v1_collection__collection_id__files_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Collection Files"
+      }
+    },
+    "/api/v1/database-connections": {
+      "get": {
+        "operationId": "list_database_connections_api_v1_database_connections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseConnectionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Database Connections"
+      },
+      "post": {
+        "operationId": "create_database_connection_api_v1_database_connections_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDatabaseConnectionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseConnectionSource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Database Connection"
+      }
+    },
+    "/api/v1/database-connections/activate": {
+      "post": {
+        "operationId": "set_database_connection_active_api_v1_database_connections_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetDatabaseConnectionActiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Database Connection Active"
+      }
+    },
+    "/api/v1/database-connections/{connection_id}": {
+      "delete": {
+        "operationId": "delete_database_connection_api_v1_database_connections__connection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Database Connection"
+      }
+    },
+    "/api/v1/database-connections/{connection_id}/tables": {
+      "get": {
+        "operationId": "refresh_database_connection_tables_api_v1_database_connections__connection_id__tables_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DatabaseConnectionSource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Refresh Database Connection Tables"
+      }
+    },
+    "/api/v1/debug/paths": {
+      "get": {
+        "description": "Debug endpoint to check file paths and directory structure",
+        "operationId": "debug_paths_api_v1_debug_paths_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Debug Paths"
+      }
+    },
+    "/api/v1/files/{collection_id}/{file_name}": {
+      "get": {
+        "description": "Serve an uploaded document (PDF, DOCX, DOC, CSV, XLSX, TXT; the route\nname is kept for backward compatibility with existing callers).\nPriority: Supabase signed URL redirect → local disk FileResponse.\n\nThe response always declares the file's real content type, and marks it\ninline only for the formats a browser can actually render (see\nINLINE_VIEWABLE_EXTS); everything else is sent as a download carrying its\noriginal filename.",
+        "operationId": "serve_pdf_file_api_v1_files__collection_id___file_name__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "file_name",
+            "required": true,
+            "schema": {
+              "title": "File Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Serve Pdf File"
+      }
+    },
+    "/api/v1/models/available": {
+      "get": {
+        "description": "Get list of available LLM models (all FREE)",
+        "operationId": "get_available_models_api_v1_models_available_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Available Models"
+      }
+    },
+    "/api/v1/payments/checkout-session": {
+      "post": {
+        "operationId": "create_checkout_session_api_v1_payments_checkout_session_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateCheckoutSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutSessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Checkout Session"
+      }
+    },
+    "/api/v1/payments/efficient-mode/stats": {
+      "get": {
+        "description": "MS-247 \"Efficient Mode\" mini-dashboard (Settings > Efficient Mode).\nScoped to this user's own queries only (not the whole workspace) —\nthis is a personal \"did toggling it on actually help\" comparison, not\na billing figure, so it doesn't need admin/workspace aggregation like\nthe rest of this file's usage endpoints.",
+        "operationId": "get_my_efficient_mode_stats_api_v1_payments_efficient_mode_stats_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EfficientModeStats"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Efficient Mode Stats"
+      }
+    },
+    "/api/v1/payments/rate-limit/me": {
+      "get": {
+        "description": "Any authenticated user — lets the frontend pre-emptively disable the\nchat composer (and show a reset countdown) instead of only finding out\nthey're blocked after a query already 429s.",
+        "operationId": "get_my_rate_limit_api_v1_payments_rate_limit_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RateLimitStatus"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Rate Limit"
+      }
+    },
+    "/api/v1/payments/session/{session_id}": {
+      "get": {
+        "description": "No auth required — same guest-friendly model as checkout-session.\nAuthorization here is possession of the Stripe-generated session_id\nitself (only known to the browser Stripe just redirected back), the\nsame trust model as a typical guest order-confirmation link.",
+        "operationId": "get_payment_by_session_api_v1_payments_session__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaymentResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Payment By Session"
+      }
+    },
+    "/api/v1/payments/storage/usage": {
+      "get": {
+        "description": "Workspace storage used against the plan's limit (MS-504). Members see\ntheir workspace's totals, since the quota is shared.",
+        "operationId": "get_storage_usage_api_v1_payments_storage_usage_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StorageUsageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Storage Usage"
+      }
+    },
+    "/api/v1/payments/subscription/allocations": {
+      "post": {
+        "description": "Admin-only — set one team member's token cap, carved out of the\nworkspace's token_limit. Scoped to created_by = admin.user_id, same\nguard as auth.py's other per-member admin mutations — except the admin\ncan also target their own user_id, to allocate themselves a slice of\nthe same pool for their own budget discipline (MS-248 follow-up).",
+        "operationId": "set_member_allocation_api_v1_payments_subscription_allocations_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateMemberAllocationRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UpdateMemberAllocationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Member Allocation"
+      }
+    },
+    "/api/v1/payments/subscription/cancel": {
+      "post": {
+        "description": "Admin-only — cancel-at-period-end (not immediate): the admin already\npaid for the current period, so access/token_limit are untouched until\nperiod_end. This just stops next_reset_date implying it'll keep going\npast that — there's no auto-renewal to actually cancel (see module\ndocstring), so all this does is flag the period as non-renewable.",
+        "operationId": "cancel_subscription_api_v1_payments_subscription_cancel_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionUsage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Cancel Subscription"
+      }
+    },
+    "/api/v1/payments/subscription/me": {
+      "get": {
+        "description": "Any authenticated user — their own allocation/consumption within\ntheir workspace's current subscription period, for the Usage tab.",
+        "operationId": "get_my_usage_api_v1_payments_subscription_me_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyMemberUsageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get My Usage"
+      }
+    },
+    "/api/v1/payments/subscription/members": {
+      "get": {
+        "description": "Admin-only — subscription overview plus every team member's own\nallocation/consumption, for the Billing tab's allocation editor. The\nadmin is included as the first row (MS-248 follow-up) — they're a\nparticipant in the same shared pool as their team, not a special case,\nso they can optionally cap their own usage for budget discipline and\nraise it back up themselves whenever they want.",
+        "operationId": "get_members_usage_api_v1_payments_subscription_members_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MembersUsageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Members Usage"
+      }
+    },
+    "/api/v1/payments/subscription/request-more": {
+      "post": {
+        "description": "Any authenticated user — ask their workspace admin for a bigger\nallocation. In-app only for now (the admin sees it next time they open\nBilling, via polling) — a real push-notification channel is a\nseparate, larger follow-up. One pending request at a time per user;\ndismissing an old one (admin-side) frees them up to ask again.",
+        "operationId": "request_more_tokens_api_v1_payments_subscription_request_more_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTokenRequestRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRequestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Request More Tokens"
+      }
+    },
+    "/api/v1/payments/subscription/requests": {
+      "get": {
+        "description": "Admin-only — pending (and recently resolved) token requests from\ntheir team, for the Billing tab and the sidebar's pending-count badge.",
+        "operationId": "list_token_requests_api_v1_payments_subscription_requests_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRequestsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Token Requests"
+      }
+    },
+    "/api/v1/payments/subscription/requests/{request_id}/dismiss": {
+      "post": {
+        "description": "Admin-only — mark a request as handled (whether or not they actually\nraised the member's allocation via the allocation editor elsewhere in\nthe same Billing tab) so it stops showing as pending, and frees that\nmember up to send a new request later if they need to.",
+        "operationId": "dismiss_token_request_api_v1_payments_subscription_requests__request_id__dismiss_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "request_id",
+            "required": true,
+            "schema": {
+              "title": "Request Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenRequestResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Dismiss Token Request"
+      }
+    },
+    "/api/v1/payments/subscription/resume": {
+      "post": {
+        "description": "Admin-only — undo a pending cancellation, as long as the paid period\nhasn't ended yet (matches standard \"resume before it lapses\" UX).",
+        "operationId": "resume_subscription_api_v1_payments_subscription_resume_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SubscriptionUsage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Resume Subscription"
+      }
+    },
+    "/api/v1/payments/subscription/settings": {
+      "get": {
+        "description": "Admin-only (MS-402) — this workspace's Default Token Allocation.",
+        "operationId": "get_workspace_token_settings_api_v1_payments_subscription_settings_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceTokenSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Workspace Token Settings"
+      },
+      "put": {
+        "description": "Admin-only (MS-402) — set the Default Token Allocation new members\nget, and that members without an explicit allocation are capped at.\nCan't exceed the plan's whole token_limit — a default no single member\ncould ever be granted would only ever be clamped.",
+        "operationId": "update_workspace_token_settings_api_v1_payments_subscription_settings_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateWorkspaceTokenSettingsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceTokenSettings"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Workspace Token Settings"
+      }
+    },
+    "/api/v1/payments/webhook": {
+      "post": {
+        "description": "No auth — Stripe calls this directly. First raw-body endpoint in this\ncodebase: signature verification needs the exact raw bytes, not a parsed\nPydantic model.",
+        "operationId": "stripe_webhook_api_v1_payments_webhook_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Stripe Webhook"
+      }
+    },
+    "/api/v1/pdf-collections": {
+      "get": {
+        "description": "List PDF document collections visible to the current user.\n\nAdmins see every collection (Supabase DB → S3 scan → local disk fallback).\nNon-admins only see DB-backed collections they own — the S3-scan and\nlocal-disk fallbacks can't be attributed to an owner, so they're\nadmin-only.",
+        "operationId": "list_collections_api_v1_pdf_collections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/CollectionInfo"
+                  },
+                  "title": "Response List Collections Api V1 Pdf Collections Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Collections"
+      }
+    },
+    "/api/v1/pdf-collections/activate": {
+      "post": {
+        "description": "Toggle a PDF collection's active status (used as a knowledge source).",
+        "operationId": "set_pdf_collection_active_api_v1_pdf_collections_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPdfCollectionActiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Pdf Collection Active"
+      }
+    },
+    "/api/v1/pdf-collections/drive/folder-items": {
+      "post": {
+        "operationId": "list_drive_folder_items_api_v1_pdf_collections_drive_folder_items_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DriveFolderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DriveFolderItemsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Drive Folder Items"
+      }
+    },
+    "/api/v1/pdf-collections/move-to-folder": {
+      "post": {
+        "description": "Assign (or unassign, when folder_id is null) a PDF collection to a\nfolder (MS-274). Owner-gated like every other pdf-collections mutation.",
+        "operationId": "move_pdf_collection_to_folder_api_v1_pdf_collections_move_to_folder_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MoveToFolderRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Move Pdf Collection To Folder"
+      }
+    },
+    "/api/v1/pdf-collections/upload": {
+      "post": {
+        "description": "Upload and process document files (PDF, DOC, DOCX, CSV, XLSX, TXT), then\npersist to Supabase Storage.",
+        "operationId": "upload_pdfs_api_v1_pdf_collections_upload_post",
+        "parameters": [
+          {
+            "description": "Persistence mode: auto (default), local (disk only), database (require DATABASE_URL)",
+            "in": "query",
+            "name": "persist_mode",
+            "required": false,
+            "schema": {
+              "default": "auto",
+              "description": "Persistence mode: auto (default), local (disk only), database (require DATABASE_URL)",
+              "enum": [
+                "auto",
+                "local",
+                "database"
+              ],
+              "title": "Persist Mode",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "stream_progress",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Stream Progress",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_pdfs_api_v1_pdf_collections_upload_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              },
+              "application/x-ndjson": {}
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Pdfs"
+      }
+    },
+    "/api/v1/pdf-collections/upload-from-url": {
+      "post": {
+        "description": "Download a public PDF from a remote URL (including Google Drive public links) and process it as a collection.",
+        "operationId": "upload_pdf_from_url_api_v1_pdf_collections_upload_from_url_post",
+        "parameters": [
+          {
+            "description": "Persistence mode: auto (default), local (disk only), database (require DATABASE_URL)",
+            "in": "query",
+            "name": "persist_mode",
+            "required": false,
+            "schema": {
+              "default": "auto",
+              "description": "Persistence mode: auto (default), local (disk only), database (require DATABASE_URL)",
+              "enum": [
+                "auto",
+                "local",
+                "database"
+              ],
+              "title": "Persist Mode",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadFromUrlRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Pdf From Url"
+      }
+    },
+    "/api/v1/pdf-collections/upload-from-urls": {
+      "post": {
+        "operationId": "upload_pdfs_from_urls_api_v1_pdf_collections_upload_from_urls_post",
+        "parameters": [
+          {
+            "description": "Persistence mode: auto (default), local (disk only), database (require DATABASE_URL)",
+            "in": "query",
+            "name": "persist_mode",
+            "required": false,
+            "schema": {
+              "default": "auto",
+              "description": "Persistence mode: auto (default), local (disk only), database (require DATABASE_URL)",
+              "enum": [
+                "auto",
+                "local",
+                "database"
+              ],
+              "title": "Persist Mode",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadFromUrlsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Pdfs From Urls"
+      }
+    },
+    "/api/v1/pdf-collections/uploads/{upload_id}": {
+      "get": {
+        "operationId": "get_pdf_upload_status_api_v1_pdf_collections_uploads__upload_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "upload_id",
+            "required": true,
+            "schema": {
+              "title": "Upload Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Pdf Upload Status"
+      }
+    },
+    "/api/v1/pdf-collections/{collection_id}": {
+      "delete": {
+        "description": "Delete a collection from Supabase Storage + DB and local disk.",
+        "operationId": "delete_collection_api_v1_pdf_collections__collection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Collection"
+      }
+    },
+    "/api/v1/pdf-collections/{collection_id}/text-content": {
+      "get": {
+        "description": "Paginated plain-text content for a .txt document source (kind='pdf'),\nread line by line, for the formatted text viewer (MS-415). Read-only —\nnever writes to the stored file.",
+        "operationId": "get_pdf_text_content_api_v1_pdf_collections__collection_id__text_content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "collection_id",
+            "required": true,
+            "schema": {
+              "title": "Collection Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "file_name",
+            "required": true,
+            "schema": {
+              "title": "File Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Pdf Text Content"
+      }
+    },
+    "/api/v1/public-links": {
+      "get": {
+        "operationId": "list_public_links_api_v1_public_links_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLinksResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Public Links"
+      },
+      "post": {
+        "operationId": "create_public_link_api_v1_public_links_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreatePublicLinkRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PublicLinkSource"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Public Link"
+      }
+    },
+    "/api/v1/public-links/activate": {
+      "post": {
+        "operationId": "set_public_link_active_api_v1_public_links_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetPublicLinkActiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Public Link Active"
+      }
+    },
+    "/api/v1/public-links/{link_id}": {
+      "delete": {
+        "operationId": "delete_public_link_api_v1_public_links__link_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "link_id",
+            "required": true,
+            "schema": {
+              "title": "Link Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Public Link"
+      }
+    },
+    "/api/v1/sessions": {
+      "get": {
+        "description": "Return sessions owned by the current user (all sessions for admins),\nordered by most recent, with message counts.\n\nIf `q` is given, also matches sessions whose title OR any message\ncontent contains it (case-insensitive), not just the title.",
+        "operationId": "list_sessions_api_v1_sessions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "q",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Q"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SessionSummary"
+                  },
+                  "title": "Response List Sessions Api V1 Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Sessions"
+      },
+      "post": {
+        "description": "Create or update a session.\nSession metadata goes into chat_sessions.\nEach message is upserted into chat_messages (by message_id).",
+        "operationId": "upsert_session_api_v1_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpsertSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upsert Session"
+      }
+    },
+    "/api/v1/sessions/{session_id}": {
+      "delete": {
+        "description": "Delete a session. Messages are cascade-deleted automatically.",
+        "operationId": "delete_session_api_v1_sessions__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Session"
+      },
+      "get": {
+        "description": "Return a session's most recent `limit` chats — one chat being one\nquestion plus the answer(s) that followed it, so `limit=5` is 5 complete\nexchanges, not 5 message rows. MS-237: was \"all messages, always\"; a\nlong-lived conversation no longer dumps its entire history into one\nresponse. Pass the previous response's `next_cursor` as `before` to page\nfurther back; `has_more`/`next_cursor` come back falsy once the start of\nthe conversation is reached.",
+        "operationId": "get_session_api_v1_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 5,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Before"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Session"
+      },
+      "put": {
+        "description": "Rename a session. Title only — messages are untouched, so this never\nneeds the client to resend the whole conversation just to relabel it.",
+        "operationId": "rename_session_api_v1_sessions__session_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RenameSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionSummary"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rename Session"
+      }
+    },
+    "/api/v1/sessions/{session_id}/questions": {
+      "get": {
+        "description": "Every question asked in this session, as a flat index: turn number,\nthe message id to scroll to, and a short preview.\n\nMS-237: this backs the chat navigation panel, which lists the whole\nconversation while the thread itself is still paginated 5 chats at a\ntime. Content is truncated in SQL so the response stays small no matter\nhow long the individual messages are — the panel only ever shows one\nline per question.",
+        "operationId": "get_session_questions_api_v1_sessions__session_id__questions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionQuestionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Session Questions"
+      }
+    },
+    "/api/v1/skills": {
+      "get": {
+        "description": "Skills this account may use: its own, plus its admin's team skills.",
+        "operationId": "list_skills_api_v1_skills_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SkillResponse"
+                  },
+                  "title": "Response List Skills Api V1 Skills Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Skills"
+      },
+      "post": {
+        "description": "Upload a skill. `scope=\"team\"` is admin-only — checked server-side, since\nhiding the toggle in the UI would still leave the endpoint open.",
+        "operationId": "create_skill_api_v1_skills_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Skill"
+      }
+    },
+    "/api/v1/skills/{skill_id}": {
+      "delete": {
+        "description": "Owner-only hard delete, matching how collections and runs are removed.",
+        "operationId": "delete_skill_api_v1_skills__skill_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Skill"
+      },
+      "get": {
+        "operationId": "get_skill_api_v1_skills__skill_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Skill"
+      },
+      "put": {
+        "description": "Owner-only edit. A member can see an admin's team skill but not change it.",
+        "operationId": "update_skill_api_v1_skills__skill_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "skill_id",
+            "required": true,
+            "schema": {
+              "title": "Skill Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SkillUpdate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SkillResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Update Skill"
+      }
+    },
+    "/api/v1/source-folders": {
+      "get": {
+        "description": "Folders this account may use: its own, or every folder for an admin.",
+        "operationId": "list_folders_api_v1_source_folders_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/Folder"
+                  },
+                  "title": "Response List Folders Api V1 Source Folders Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Folders"
+      },
+      "post": {
+        "operationId": "create_folder_api_v1_source_folders_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Folder"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Folder"
+      }
+    },
+    "/api/v1/source-folders/{folder_id}": {
+      "delete": {
+        "description": "Owner-only delete. Direct child folders and sources move up one level.",
+        "operationId": "delete_folder_api_v1_source_folders__folder_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "title": "Folder Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Folder"
+      },
+      "put": {
+        "description": "Owner-only rename. An admin can see another user's folder but not\nrename it, same rule as skill edits (router/skills.py).",
+        "operationId": "rename_folder_api_v1_source_folders__folder_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "folder_id",
+            "required": true,
+            "schema": {
+              "title": "Folder Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FolderRename"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Folder"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Rename Folder"
+      }
+    },
+    "/api/v1/telegram-connections": {
+      "get": {
+        "operationId": "list_telegram_connections_api_v1_telegram_connections_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramConnectionsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Telegram Connections"
+      }
+    },
+    "/api/v1/telegram-connections/activate": {
+      "post": {
+        "operationId": "set_telegram_connection_active_api_v1_telegram_connections_activate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetTelegramConnectionActiveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Set Telegram Connection Active"
+      }
+    },
+    "/api/v1/telegram-connections/connect/start": {
+      "post": {
+        "operationId": "telegram_connect_start_api_v1_telegram_connections_connect_start_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelegramConnectStartRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramConnectStartResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Telegram Connect Start"
+      }
+    },
+    "/api/v1/telegram-connections/connect/verify": {
+      "post": {
+        "operationId": "telegram_connect_verify_api_v1_telegram_connections_connect_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelegramConnectVerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramConnectVerifyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Telegram Connect Verify"
+      }
+    },
+    "/api/v1/telegram-connections/{connection_id}": {
+      "delete": {
+        "description": "Revoke the saved session. Already-synced chats stay searchable as\nregular chat collections — deleting the connection only stops future\nsyncing, same as deleting a database connection doesn't unsync past\nquery results.",
+        "operationId": "delete_telegram_connection_api_v1_telegram_connections__connection_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Telegram Connection"
+      }
+    },
+    "/api/v1/telegram-connections/{connection_id}/dialogs": {
+      "get": {
+        "operationId": "list_telegram_dialogs_api_v1_telegram_connections__connection_id__dialogs_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramDialogsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Telegram Dialogs"
+      }
+    },
+    "/api/v1/telegram-connections/{connection_id}/sync": {
+      "post": {
+        "operationId": "sync_telegram_connection_api_v1_telegram_connections__connection_id__sync_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "connection_id",
+            "required": true,
+            "schema": {
+              "title": "Connection Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TelegramSyncRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TelegramSyncResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Sync Telegram Connection"
+      }
+    },
+    "/api/v1/version": {
+      "get": {
+        "description": "Get backend version and last deployment timestamp",
+        "operationId": "get_version_api_v1_version_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Version"
+      }
+    },
+    "/health": {
+      "get": {
+        "description": "Comprehensive health check including database status",
+        "operationId": "health_check_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health Check"
+      }
+    }
+  }
+}

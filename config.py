@@ -3,7 +3,6 @@ from pydantic import Field, field_validator
 from typing import List, Optional
 from enum import Enum
 from urllib.parse import urlparse
-import os
 
 
 # Whitelist of allowed table names (security: prevents SQL injection)
@@ -106,7 +105,7 @@ class Config(BaseSettings):
     chat_upload_folder: str = Field(default="data/chat_uploads")
     chat_index_folder: str = Field(default="data/chat_indices")
 
-    # Legacy .doc extraction shells out to the `antiword` CLI (utils.py).
+    # Legacy .doc extraction shells out to the `antiword` CLI (services/ingest/documents.py).
     # Defaults to bare "antiword" (resolved via PATH) — correct in the Docker
     # deployment, where apt-get installs it onto the system PATH. Override
     # with a full path on a machine where antiword exists but isn't on PATH
@@ -229,7 +228,7 @@ class Config(BaseSettings):
         return bool(self.telegram_session_encryption_key)
 
     # Stripe (dummy/test-mode payment flow — MS-90). Test-mode keys only;
-    # see router/payment.py.
+    # see services/billing/payments.py.
     stripe_secret_key: Optional[str] = Field(default=None)
     stripe_webhook_secret: Optional[str] = Field(default=None)
     # Used to build the Checkout success/cancel redirect URLs.
@@ -237,11 +236,11 @@ class Config(BaseSettings):
 
     # Global per-user token rate limit (MS-248 follow-up) — a flat safety net
     # against runaway Gemini billing, applied to every user the same way,
-    # independent of the per-member monthly allocation in router/payment.py.
+    # independent of the per-member monthly allocation in services/billing/allocation.py.
     # Sliding window: a user is blocked once the sum of their token_usage in
     # the last rate_limit_window_hours reaches the cap, and unblocks
     # gradually as old usage ages out of the window (see
-    # router/payment.py::_get_rate_limit_status). Both are env-overridable so
+    # services/billing/ledger.py::get_rate_limit_status). Both are env-overridable so
     # they can be turned down for testing (e.g. a tiny cap + a short window)
     # without a code change.
     rate_limit_token_cap: int = Field(default=300_000)
@@ -271,23 +270,33 @@ class Config(BaseSettings):
     # Roughly one small query's cost; 0 restores the old `used >= cap`.
     query_token_reserve: int = Field(default=2_000)
     # What one chat request is counted as while its LLM call is in flight
-    # (see payment.begin_in_flight) — its expected COST, not the gate
+    # (see services.billing.inflight.begin_in_flight) — its expected COST, not the gate
     # headroom above. Measured: conversation ~2k, RAG answer 3.7k-4.7k.
     query_in_flight_estimate: int = Field(default=5_000)
     # Same idea for one Gap Check run, which makes many LLM calls: reserved
-    # while it runs (see payment.begin_in_flight) so chats running in
+    # while it runs (see services.billing.inflight.begin_in_flight) so chats running in
     # parallel in the same workspace can't spend the room it will need.
     # Measured runs cost 130k-260k tokens; exceeds_cap clamps any reserve
     # to half the cap, so small (Free) plans aren't blocked outright by it.
     gap_check_token_reserve: int = Field(default=100_000)
 
     # MS-504: upload and storage limits. These are the defaults every plan
-    # starts from (see PLAN_QUOTAS in router/payment.py); override per
+    # starts from (see PLAN_QUOTAS in services/billing/plans.py); override per
     # deployment through env, e.g. MAX_FILE_SIZE_BYTES=1048576 to test the
     # limits without needing a 50 MB file.
     max_file_size_bytes: int = Field(default=50 * 1024 * 1024)
     max_batch_files: int = Field(default=10)
     storage_quota_bytes: int = Field(default=5 * 1024 * 1024 * 1024)
+
+    # MS-657: memory budget for loaded search indexes (FAISS vectors, their
+    # chunk text, and the BM25 index built from it). Least recently used
+    # collections are dropped past this and reload from disk on their next
+    # query. A 1,000-chunk collection is roughly 3 MB.
+    index_cache_max_bytes: int = Field(default=512 * 1024 * 1024)
+    # Download every active collection's index to local disk in the background
+    # at startup (processor.prefetch_indexes), so the first question after an
+    # HF Space restart doesn't wait for Supabase Storage downloads.
+    prefetch_indexes_on_startup: bool = Field(default=True)
 
     @property
     def effective_rate_limit_window_hours(self) -> float:

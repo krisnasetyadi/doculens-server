@@ -1,0 +1,49 @@
+{
+  "recorded_at": "2026-10-09T04:04:04+00:00",
+  "machine": "Windows-10-10.0.26200-SP0",
+  "base_url": "http://127.0.0.1:8765",
+  "paths": {
+    "db_connection": {
+      "runs": 20,
+      "median_ms": 51.9,
+      "p95_ms": 162.0,
+      "min_ms": 43.4
+    },
+    "agnostic_query_cold": {
+      "runs": 1,
+      "median_ms": 8293.6,
+      "p95_ms": 8293.6,
+      "min_ms": 8293.6
+    },
+    "agnostic_query_warm": {
+      "runs": 5,
+      "median_ms": 5455.4,
+      "p95_ms": 5923.2,
+      "min_ms": 5217.2
+    },
+    "list_pdf_sources": {
+      "runs": 20,
+      "median_ms": 186.2,
+      "p95_ms": 317.1,
+      "min_ms": 158.6
+    },
+    "list_chat_sources": {
+      "runs": 20,
+      "median_ms": 259.8,
+      "p95_ms": 526.1,
+      "min_ms": 157.7
+    },
+    "list_sessions": {
+      "runs": 20,
+      "median_ms": 164.6,
+      "p95_ms": 276.4,
+      "min_ms": 138.9
+    },
+    "load_session": {
+      "runs": 20,
+      "median_ms": 144.8,
+      "p95_ms": 316.8,
+      "min_ms": 103.4
+    }
+  }
+}
