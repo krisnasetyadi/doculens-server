@@ -25,4 +25,6 @@ async def agnostic_query(
     user: UserRecord = Depends(get_current_user),
 ):
     base_url = str(request.base_url).rstrip('/')
-    return await agnostic_service.answer_query(req, base_url, user)
+    # request.is_disconnected lets the service stop working on a question
+    # the user stopped (MS-667: the browser aborts the request).
+    return await agnostic_service.answer_query(req, base_url, user, is_disconnected=request.is_disconnected)

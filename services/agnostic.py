@@ -11,9 +11,9 @@ import asyncio
 import logging
 import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
 
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 
 from config import config
 from services.rag.conversation.guard import is_internal_question
@@ -137,9 +137,55 @@ def _collection_ids_for(titles: List[str], collections: List[Tuple[str, str]]) -
     return [cid for cid, title in collections if title.strip().lower() in wanted]
 
 
+# MS-667: the user can stop a question while it is being answered; the
+# browser then aborts the request. "Client closed request": nobody is
+# listening any more, so the response body is empty.
+STOPPED_STATUS = 499
 
-async def answer_query(req: AgnosticQueryRequest, base_url: str, user: UserRecord) -> AgnosticQueryResponse:
-    """Everything behind POST /agnostic/query; `base_url` builds the file links in the sources."""
+
+class QueryStopped(Exception):
+    """The user stopped the question. Not an error: nothing is logged as one."""
+
+
+class StopCheck:
+    """Asks the request whether the user has stopped the question. Asked right
+    before and right after each model call rather than polled on a timer:
+    retrieval can take less than any polling interval, and a stop in that
+    window must still keep the model from being called."""
+
+    def __init__(self, is_disconnected: Optional[Callable[[], Awaitable[bool]]] = None):
+        self._is_disconnected = is_disconnected
+        self._stopped = False
+
+    async def stopped(self) -> bool:
+        if not self._stopped and self._is_disconnected is not None:
+            self._stopped = await self._is_disconnected()
+        return self._stopped
+
+
+
+async def answer_query(
+    req: AgnosticQueryRequest,
+    base_url: str,
+    user: UserRecord,
+    is_disconnected: Optional[Callable[[], Awaitable[bool]]] = None,
+) -> Union[AgnosticQueryResponse, Response]:
+    """Everything behind POST /agnostic/query; `base_url` builds the file links in the sources.
+
+    `is_disconnected` (the request's) is polled while the question runs. Once
+    the user has stopped it, the model is not called any more; a model call
+    already running is left to finish so its tokens are counted, then no
+    answer is sent (MS-667)."""
+    try:
+        return await _answer_query(req, base_url, user, StopCheck(is_disconnected))
+    except QueryStopped:
+        logger.info("agnostic_query: stopped by the user (user=%s)", user.user_id)
+        return Response(status_code=STOPPED_STATUS)
+
+
+async def _answer_query(
+    req: AgnosticQueryRequest, base_url: str, user: UserRecord, stop: StopCheck,
+) -> AgnosticQueryResponse:
     start_time = datetime.now()
     logger.info("agnostic_query: question=%r user=%s", req.question, user.user_id)
     is_admin = user.role == "admin"
@@ -267,14 +313,21 @@ async def answer_query(req: AgnosticQueryRequest, base_url: str, user: UserRecor
                     question=req.question,
                     scope_collection_ids=_collection_ids_for(scoped_titles, collections),
                     task="summarize" if scoped_titles and is_whole_document_summary(req.question, scoped_titles) else "answer",
+                    stop=stop,
                 )
 
             usage = await asyncio.to_thread(get_usage_snapshot, user)
+            if await stop.stopped():
+                raise QueryStopped
             decision = await asyncio.to_thread(
                 processor.route_message,
                 req.question, language, memory_payload, is_admin, titles, len(allowed_pdf_ids),
                 usage, req.llm_provider, req.llm_model, has_source,
             )
+            if await stop.stopped():
+                # The router call already ran: count it, answer nothing.
+                await _log_tokens(user.user_id, decision.total_tokens)
+                raise QueryStopped
 
             if decision.action == "reply":
                 await _log_tokens(user.user_id, decision.total_tokens)
@@ -306,13 +359,14 @@ async def answer_query(req: AgnosticQueryRequest, base_url: str, user: UserRecor
                 question=decision.search_query,
                 scope_collection_ids=_collection_ids_for(scoped_titles, collections),
                 task=task,
+                stop=stop,
             )
         finally:
             # Every path above logs usage before returning, so the
             # reservation only drops once the real cost is on the ledger.
             end_in_flight(reservation)
 
-    except HTTPException:
+    except (HTTPException, QueryStopped):
         raise
     except Exception as e:
         logger.exception("agnostic_query failed")
@@ -333,6 +387,7 @@ async def _run_metered_query(
     question: Optional[str] = None,
     scope_collection_ids: Optional[List[str]] = None,
     task: str = "answer",
+    stop: Optional[StopCheck] = None,
 ) -> "AgnosticQueryResponse":
     """The token-costing half of agnostic_query — everything from source
     resolution through the LLM call and usage logging, run while the
@@ -345,7 +400,9 @@ async def _run_metered_query(
     search to collections the user named (ignored when it doesn't overlap
     what they may see); `task="summarize"` on a scoped search reads chunks
     spread across those collections instead of the top similarity hits.
-    `routing_tokens` is the router call that sent the message here."""
+    `routing_tokens` is the router call that sent the message here.
+    `stop` (MS-667): a question stopped before the model call goes no
+    further; stopped during it, its tokens are logged and no response is built."""
     question = question or req.question
     scoped_ids = [cid for cid in (scope_collection_ids or []) if cid in allowed_pdf_ids]
     if scoped_ids and req.include_pdf_results:
@@ -408,6 +465,12 @@ async def _run_metered_query(
                 req.skill_id, user.user_id,
             )
 
+    if stop is not None and await stop.stopped():
+        # Stopped while the sources were being retrieved: the model is never
+        # called, so only a router call that brought the message here costs.
+        await _log_tokens(user.user_id, routing_tokens)
+        raise QueryStopped
+
     # Generate answer
     answer_result = await asyncio.to_thread(
         processor.generate_hybrid_answer,
@@ -460,6 +523,11 @@ async def _run_metered_query(
             )
     except Exception:
         logger.warning("agnostic_query: failed to log token usage", exc_info=True)
+
+    # Stopped while the model was answering: its tokens are on the ledger
+    # above; the answer itself goes nowhere.
+    if stop is not None and await stop.stopped():
+        raise QueryStopped
 
     # Map PDF docs -> response fields
     pdf_sources: List[str] = []
