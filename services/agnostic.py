@@ -192,10 +192,12 @@ async def _answer_query(
     try:
         # Resolve collections — scoped to what this user is allowed to see.
         # Admins can reach every PDF collection; everyone else only their own.
-        # One query returns both the ids and their display titles (which the
-        # router needs to name/scope collections), filtered in SQL.
+        # Deactivated collections are left out entirely: not searched, not
+        # summarized, not named to the router (MS-665). One query returns both
+        # the ids and their display titles (which the router needs to
+        # name/scope collections), filtered in SQL.
         collections = await asyncio.to_thread(
-            supabase_storage.list_collection_titles_for_user, user.user_id, is_admin
+            supabase_storage.list_active_collection_titles_for_user, user.user_id, is_admin
         )
         allowed_pdf_ids = {cid for cid, _ in collections}
         titles = [title for _, title in collections]
@@ -248,8 +250,10 @@ async def _answer_query(
         #   structured args (query / collection / task) that then run through
         #   the same RAG pipeline. Small talk goes there too, so "ok" after an
         #   offer becomes a real, scoped search instead of a pleasantry.
+        # The PDF toggle only counts with at least one active collection
+        # behind it — with every file deactivated it has nothing to search.
         has_source = any([
-            req.include_pdf_results, req.include_db_results,
+            req.include_pdf_results and bool(pdf_collection_ids), req.include_db_results,
             req.include_chat_results, req.include_public_links,
             req.include_external_db,
         ])

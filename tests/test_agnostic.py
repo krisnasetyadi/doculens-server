@@ -46,7 +46,7 @@ class AgnosticTestCase(unittest.TestCase):
         self.http = TestClient(app, raise_server_exceptions=False)
 
         patches = {
-            "titles": patch.object(agnostic_service.supabase_storage, "list_collection_titles_for_user",
+            "titles": patch.object(agnostic_service.supabase_storage, "list_active_collection_titles_for_user",
                                    return_value=COLLECTIONS),
             "skill": patch.object(agnostic_service.supabase_storage, "get_skill_for_user", return_value=None),
             "workspace": patch.object(agnostic_service, "resolve_workspace_id", return_value="w1"),
@@ -125,6 +125,16 @@ class AdminSourcesTest(AgnosticTestCase):
         self.ask(include_pdf_results=False, include_db_results=True)
         args = hybrid_args(self.m["search"])
         self.assertEqual((args["pdf_ids"], args["search_pdfs"], args["search_db"]), ([], False, True))
+
+    def test_every_file_deactivated_asks_for_a_source(self):
+        """MS-665: with no active collection the PDF toggle has nothing to
+        search, so a data question is told to pick a source, not answered
+        "not found" from an empty search."""
+        self.m["titles"].return_value = []
+        resp = self.ask()
+        self.assertEqual(resp.json()["model_used"], "system/no-source-selected")
+        self.m["search"].assert_not_called()
+        self.m["answer"].assert_not_called()
 
 
 class ResponseTest(AgnosticTestCase):

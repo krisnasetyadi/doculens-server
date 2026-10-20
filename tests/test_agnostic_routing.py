@@ -32,7 +32,7 @@ class AgnosticEndpointTests(unittest.TestCase):
         )
         self.client = TestClient(self.app)
         self.patches = [
-            patch.object(agnostic_service.supabase_storage, "list_collection_titles_for_user",
+            patch.object(agnostic_service.supabase_storage, "list_active_collection_titles_for_user",
                          return_value=[("c1", "ISO Policy"), ("c2", "Section 3 Handbook")]),
             patch.object(agnostic_service.supabase_storage, "list_collections",
                          side_effect=AssertionError("must not scan every tenant's collections")),
@@ -216,7 +216,7 @@ class ConcurrencyEndpointTests(unittest.IsolatedAsyncioTestCase):
             user_id="u1", email="u1@example.com", role="admin", is_active=True
         )
         for target, attr, kwargs in [
-            (agnostic_service.supabase_storage, "list_collection_titles_for_user", {"return_value": [("c1", "ISO Policy")]}),
+            (agnostic_service.supabase_storage, "list_active_collection_titles_for_user", {"return_value": [("c1", "ISO Policy")]}),
             (agnostic_service, "resolve_workspace_id", {"return_value": "w1"}),
             (agnostic_service, "enforce_rate_limit", {}),
             (agnostic_service, "enforce_plan_limit", {"return_value": None}),

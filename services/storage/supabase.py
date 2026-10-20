@@ -563,12 +563,15 @@ def list_collection_ids_for_user(user_id: str, is_admin: bool) -> List[str]:
         conn.close()
 
 
-def list_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[str, str]]:
-    """(collection_id, display title) for the same collections
-    list_collection_ids_for_user allows — one query, filtered in SQL, so the
+def list_active_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[str, str]]:
+    """(collection_id, display title) for the active ones among the
+    collections list_collection_ids_for_user allows — one query, filtered in SQL, so the
     chat router can name/scope a user's collections without reading every
     tenant's rows (list_collections) on each message. Display title falls
-    back to the first file name, then the id, like the chat UI does."""
+    back to the first file name, then the id, like the chat UI does.
+
+    Only active collections: these are the sources chat searches and names,
+    and a file the user deactivated must not reach the answer (MS-665)."""
     conn = db.get_conn("storage")
     if not conn:
         return []
@@ -577,12 +580,12 @@ def list_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[
             if is_admin:
                 cur.execute(
                     "SELECT collection_id, title, file_names FROM collections "
-                    "WHERE kind = 'pdf' ORDER BY created_at DESC"
+                    "WHERE kind = 'pdf' AND status = 'active' ORDER BY created_at DESC"
                 )
             else:
                 cur.execute(
                     "SELECT collection_id, title, file_names FROM collections "
-                    "WHERE kind = 'pdf' AND owner_id = %s ORDER BY created_at DESC",
+                    "WHERE kind = 'pdf' AND status = 'active' AND owner_id = %s ORDER BY created_at DESC",
                     (user_id,),
                 )
             rows = cur.fetchall()
@@ -591,7 +594,7 @@ def list_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[
             for r in rows
         ]
     except Exception as e:
-        logger.warning("list_collection_titles_for_user failed: %s", e)
+        logger.warning("list_active_collection_titles_for_user failed: %s", e)
         return []
     finally:
         conn.close()

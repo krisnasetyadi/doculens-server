@@ -102,6 +102,17 @@ class ActivateAndMoveTest(CollectionsTestCase):
         self.assertEqual(self.client(owner).post("/api/v1/pdf-collections/activate",
                                                  json={"collection_id": "nope", "active": True}).status_code, 404)
 
+    def test_deactivated_collections_are_not_chat_sources(self):
+        """MS-665: chat searches and names only the collections left active."""
+        owner = user()
+        kept = self.collection(owner, title="Report")
+        dropped = self.collection(owner, title="Attendance Mei")
+        self.client(owner).post("/api/v1/pdf-collections/activate", json={"collection_id": dropped, "active": False})
+        for is_admin in (False, True):
+            ids = [cid for cid, _ in storage.list_active_collection_titles_for_user(owner.user_id, is_admin)]
+            self.assertIn(kept, ids)
+            self.assertNotIn(dropped, ids)
+
     def test_move_to_folder(self):
         owner, stranger = user(), user()
         cid = self.collection(owner)
