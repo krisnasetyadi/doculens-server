@@ -9,7 +9,7 @@ The "agnostic" label is preserved for UI compatibility; internally this
 is the same hybrid-search path with a HybridResponse-compatible schema.
 """
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 
 from models import AgnosticQueryRequest, AgnosticQueryResponse, UserRecord
 from services import agnostic as agnostic_service
@@ -18,13 +18,18 @@ from services.auth import get_current_user
 router = APIRouter(tags=["agnostic"])
 
 
-@router.post("/agnostic/query", response_model=AgnosticQueryResponse)
+@router.post("/agnostic/query", response_model=AgnosticQueryResponse,
+             responses={200: {"content": {agnostic_service.STREAM_MEDIA_TYPE: {}}}})
 async def agnostic_query(
     req: AgnosticQueryRequest,
     request: Request,
+    stream: bool = Query(False),
     user: UserRecord = Depends(get_current_user),
 ):
     base_url = str(request.base_url).rstrip('/')
     # request.is_disconnected lets the service stop working on a question
-    # the user stopped (MS-667: the browser aborts the request).
-    return await agnostic_service.answer_query(req, base_url, user, is_disconnected=request.is_disconnected)
+    # the user stopped (MS-667: the browser aborts the request). With
+    # stream=true the answer is NDJSON events as the model writes it (MS-906).
+    return await agnostic_service.answer_query(
+        req, base_url, user, is_disconnected=request.is_disconnected, stream=stream,
+    )
