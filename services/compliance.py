@@ -53,6 +53,14 @@ def _can_access_run(row: Optional[dict], user: UserRecord) -> bool:
     return row.get("owner_id") == user.user_id
 
 
+# Auditor wording for the downloaded report only; stored statuses and the API keep met / not_met.
+EXPORT_STATUS_LABELS = {"met": "comply", "not_met": "not comply"}
+
+
+def _export_status(status: str) -> str:
+    return EXPORT_STATUS_LABELS.get(status, status)
+
+
 def _render_markdown(run_row: dict, items: List[dict]) -> str:
     lines = [
         f"# Laporan Gap Analysis — {run_row.get('framework_name', '')}",
@@ -72,7 +80,7 @@ def _render_markdown(run_row: dict, items: List[dict]) -> str:
         source = (item.get("source_citation") or item.get("target_collection_id") or "").replace("|", "/")
         evidence = (item.get("evidence") or "").replace("\n", " ").replace("|", "/")
         recommendation = (item.get("recommendation") or "").replace("\n", " ").replace("|", "/")
-        lines.append(f"| {item.get('label', '')} | {source} | {item.get('status', '')} | {evidence} | {recommendation} |")
+        lines.append(f"| {item.get('label', '')} | {source} | {_export_status(item.get('status', ''))} | {evidence} | {recommendation} |")
     return "\n".join(lines)
 
 
@@ -145,7 +153,7 @@ def _render_pdf(run_row: dict, items: List[dict], markdown_fallback: str) -> byt
             if has_multiple_targets:
                 source = item.get("source_citation") or item.get("target_collection_id") or ""
                 row.append(cell(source))
-            row.append(cell(item.get("status", "")))
+            row.append(cell(_export_status(item.get("status", ""))))
             row.append(cell(item.get("evidence", "")))
             row.append(cell(item.get("recommendation", "")))
             table_data.append(row)
