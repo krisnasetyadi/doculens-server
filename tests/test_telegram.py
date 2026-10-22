@@ -24,6 +24,8 @@ from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError
 
+import db
+from schema import telegram as schema_telegram
 from services.storage import supabase as storage
 from services.security import telegram_crypto
 from config import config
@@ -80,6 +82,8 @@ class FakeTelegram:
         # "password" (2FA account) or "hang" (nobody scans until the timeout).
         self.qr_script = []
         self.qr_tokens = 0
+        self.log_outs = 0
+        self.log_out_error = None
         self.dialogs = []
         self.entities = {}
         self.participants = {}
@@ -132,6 +136,12 @@ class FakeTelegram:
 
             async def qr_login(self):
                 return account.FakeQR(account)
+
+            async def log_out(self):
+                if account.log_out_error:
+                    raise account.log_out_error
+                account.log_outs += 1
+                return True
 
             async def get_participants(self, entity, limit):
                 if entity.id not in account.participants:
@@ -229,7 +239,7 @@ class ConnectFlowTest(TelegramTestCase):
         self.assertTrue(self.account.clients[0].disconnected)
 
         row = self.sql("SELECT * FROM telegram_connections")[0]
-        self.assertEqual((row["api_id"], row["phone"]), (12345, PHONE))
+        self.assertEqual((row["api_id"], row["phone"]), (12345, "+628*******890"))  # only kept masked
         self.assertEqual(telegram_crypto.decrypt_secret(row["api_hash_enc"]), "app-hash")
         self.assertEqual(telegram_crypto.decrypt_secret(row["session_enc"]), "SESSION-STRING")
         # the flow is used up
@@ -338,7 +348,7 @@ class QrFlowTest(TelegramTestCase):
         self.assertEqual((client.api_id, client.api_hash, client.device_model), (777, "doculens-hash", "DocuLens"))
         self.assertTrue(client.disconnected)
         row = self.sql("SELECT * FROM telegram_connections")[0]
-        self.assertEqual((row["api_id"], row["phone"]), (777, PHONE))
+        self.assertEqual((row["api_id"], row["phone"]), (777, "+628*******890"))
         self.assertEqual(telegram_crypto.decrypt_secret(row["session_enc"]), "SESSION-STRING")
 
     def test_an_expired_token_is_renewed_until_the_scan(self):
@@ -498,6 +508,70 @@ class SyncTest(TelegramTestCase):
         self.assertEqual(self.sync().status_code, 400)
         self.assertEqual(self.http.post("/api/v1/telegram-connections/nope/sync", json={"dialog_ids": ["1"]}).status_code, 404)
 
+    def synced_chat(self):
+        collection_id = self.sync("-20").json()["results"][0]["chat_collection_id"]
+        self.assertEqual(len(self.chat_rows(collection_id)), 1)
+        self.assertTrue((self.chat_dir / collection_id).exists())
+        return collection_id
+
+    def chat_rows(self, collection_id):
+        return self.sql("SELECT collection_id FROM collections WHERE collection_id = %s AND kind = 'chat'", (collection_id,))
+
+    def test_deleting_the_connection_logs_out_and_deletes_its_chats(self):
+        collection_id = self.synced_chat()
+        resp = self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(self.account.log_outs, 1)
+        self.assertEqual(self.chat_rows(collection_id), [])
+        self.assertFalse((self.chat_dir / collection_id).exists())
+        self.assertEqual(self.sql("SELECT * FROM telegram_selected_chats"), [])
+        self.assertEqual(self.sql("SELECT * FROM telegram_connections"), [])
+
+    def test_an_unreachable_telegram_does_not_stop_the_delete(self):
+        collection_id = self.synced_chat()
+        self.account.log_out_error = ConnectionError("Telegram unreachable")
+        self.assertEqual(self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}").status_code, 200)
+        self.assertEqual(self.chat_rows(collection_id), [])
+        self.assertEqual(self.sql("SELECT * FROM telegram_connections"), [])
+
+        self.connection_id = self.connect()["connection_id"]
+        self.account.authorized = False  # a session the user already revoked in Telegram
+        self.assertEqual(self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}").status_code, 200)
+
+    def test_a_chat_that_cannot_be_deleted_keeps_the_connection(self):
+        collection_id = self.synced_chat()
+        with patch.object(telegram_service.chat_service, "delete_chat_collection", side_effect=RuntimeError("storage down")):
+            resp = self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}")
+        self.assertEqual(resp.status_code, 500)
+        self.assertIn("connection was kept", resp.json()["detail"])
+        self.assertEqual(len(self.sql("SELECT * FROM telegram_connections")), 1)
+        self.assertEqual(len(self.chat_rows(collection_id)), 1)
+        # trying again once storage is back finishes the job
+        self.assertEqual(self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}").status_code, 200)
+        self.assertEqual(self.chat_rows(collection_id), [])
+
+
+class PhoneMigrationTest(TelegramTestCase):
+    def test_numbers_saved_before_masking_are_masked_once(self):
+        phones = [PHONE, " +62 812 ", "12345", "+1234567", "5", ""]
+        for i, phone in enumerate(phones):
+            self.sql(
+                """INSERT INTO telegram_connections (connection_id, user_id, api_id, api_hash_enc, phone, label, session_enc)
+                   VALUES (%s, 'u', 1, 'h', %s, 'l', 's')""",
+                (f"old-{i}", phone),
+            )
+        for _ in range(2):  # every startup runs it; the second run must change nothing
+            conn = db.get_conn("test")
+            try:
+                with patch.object(schema_telegram, "_tables_ensured", False):
+                    schema_telegram.ensure(conn)
+            finally:
+                conn.close()
+            stored = {r["connection_id"]: r["phone"] for r in self.sql("SELECT connection_id, phone FROM telegram_connections")}
+            # the SQL masking must match the Python one new rows use
+            self.assertEqual([stored[f"old-{i}"] for i in range(len(phones))],
+                             [telegram_service._mask_phone(p) for p in phones])
+
 
 class HelperTest(unittest.TestCase):
     """Pure helpers; no database needed."""
@@ -506,6 +580,11 @@ class HelperTest(unittest.TestCase):
         self.assertEqual(telegram_service._mask_phone("12345"), "1****")
         self.assertEqual(telegram_service._mask_phone("1234567"), "1234*567")
         self.assertEqual(telegram_service._mask_phone(PHONE), "+628*******890")
+        self.assertEqual(telegram_service._mask_phone(""), "")
+        # masking a masked number changes nothing, so stored rows can be re-masked safely
+        for phone in ("12345", "1234567", PHONE):
+            masked = telegram_service._mask_phone(phone)
+            self.assertEqual(telegram_service._mask_phone(masked), masked)
 
     def test_transcript_names(self):
         self.assertEqual(telegram_service._telegram_transcript_name("  ...  ", 42), "telegram-42.txt")

@@ -105,8 +105,7 @@ async def delete_telegram_connection(
     connection_id: str,
     _: UserRecord = Depends(require_role("admin")),
 ):
-    """Revoke the saved session. Already-synced chats stay searchable as
-    regular chat collections — deleting the connection only stops future
-    syncing, same as deleting a database connection doesn't unsync past
-    query results."""
+    """Log the session out of Telegram and delete every chat it synced, then
+    the connection itself (MS-911): nothing taken from the account stays
+    searchable."""
     return await telegram_service.delete_connection(connection_id)

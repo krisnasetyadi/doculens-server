@@ -54,6 +54,20 @@ def ensure(conn) -> None:
                     ON telegram_selected_chats (connection_id);
                 ALTER TABLE telegram_selected_chats
                     ADD COLUMN IF NOT EXISTS message_count INTEGER;
+
+                -- MS-911: a phone number is only kept masked, the way
+                -- services/telegram.py _mask_phone writes it; mask rows saved
+                -- before that. Masking an already masked number changes
+                -- nothing, so this is safe at every startup.
+                UPDATE telegram_connections
+                   SET phone = CASE
+                       WHEN length(btrim(phone)) <= 6
+                           THEN left(btrim(phone), 1) || repeat('*', greatest(length(btrim(phone)) - 1, 0))
+                       ELSE left(btrim(phone), 4)
+                            || repeat('*', greatest(length(btrim(phone)) - 7, 1))
+                            || right(btrim(phone), 3)
+                   END
+                 WHERE btrim(phone) <> '' AND position('*' in phone) = 0;
                 """
             )
         _tables_ensured = True

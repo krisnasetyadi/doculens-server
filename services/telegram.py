@@ -22,7 +22,8 @@ user-managed source rather than a one-time file.
 SECURITY: a saved Telethon session is equivalent to full access to the
 Telegram account that logged in — read every chat, send messages as that
 user. Both the session and the connection's api_hash are encrypted at rest
-(services/security/telegram_crypto.py) and never returned to the client. Losing
+(services/security/telegram_crypto.py) and never returned to the client; the
+phone number is only stored masked (schema/telegram.py masks older rows). Losing
 TELEGRAM_SESSION_ENCRYPTION_KEY makes stored secrets permanently
 undecryptable (by design — there is no server-side escape hatch).
 
@@ -77,6 +78,7 @@ from models import (
     TelegramSyncResponse,
     TelegramSyncResult,
 )
+from services import chat as chat_service
 from services.ingest.chat_ingest import ingest_chat_messages
 from services.security.telegram_crypto import encrypt_secret, decrypt_secret
 
@@ -432,7 +434,9 @@ async def _save_signed_in_connection(entry: Dict[str, Any]) -> TelegramConnectio
                     _telegram_user_id(),
                     entry["api_id"],
                     encrypt_secret(entry["api_hash"]),
-                    phone,
+                    # Only the masked number is kept: nothing needs the full
+                    # one after sign-in, and the list shows it masked anyway.
+                    _mask_phone(phone),
                     label,
                     encrypt_secret(session_string),
                 ),
@@ -753,6 +757,24 @@ async def set_connection_active(body: SetTelegramConnectionActiveRequest):
 
 
 async def delete_connection(connection_id: str):
+    """Disconnecting leaves nothing DocuLens took from the account behind: the
+    session is logged out of Telegram, every chat it synced is deleted, then
+    the connection (its selected chats go with it, ON DELETE CASCADE).
+    Telegram being unreachable does not stop the rest; a synced chat that
+    cannot be deleted does, so it is never left searchable without a way to
+    retry."""
+    row = _get_connection_row(connection_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Telegram connection not found")
+
+    await _log_out_saved_session(row)
+    failed = await _delete_synced_chats(connection_id)
+    if failed:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not delete {failed} synced chat(s), so the connection was kept. Try again.",
+        )
+
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -773,3 +795,55 @@ async def delete_connection(connection_id: str):
         raise HTTPException(status_code=500, detail="Failed to delete Telegram connection")
     finally:
         conn.close()
+
+
+async def _log_out_saved_session(row: Dict[str, Any]) -> None:
+    """Remove DocuLens from the account's Telegram > Settings > Devices. Best
+    effort: an unreachable Telegram or an already revoked session is logged."""
+    connection_id = row["connection_id"]
+    try:
+        client = await _connect_with_saved_session(row)
+    except Exception as exc:
+        logger.warning("telegram: could not reach %s to log it out: %s", connection_id, getattr(exc, "detail", exc))
+        return
+    try:
+        await client.log_out()
+    except Exception as exc:
+        logger.warning("telegram: log out of %s failed: %s", connection_id, exc)
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
+
+async def _delete_synced_chats(connection_id: str) -> int:
+    """Delete every chat collection this connection synced; returns how many
+    could not be deleted. One already gone (404) counts as deleted."""
+    conn = db.get_conn("telegram")
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT chat_collection_id FROM telegram_selected_chats
+                WHERE connection_id = %s AND chat_collection_id IS NOT NULL AND chat_collection_id <> ''
+                """,
+                (connection_id,),
+            )
+            collection_ids = [r["chat_collection_id"] for r in cur.fetchall() or []]
+    finally:
+        conn.close()
+
+    failed = 0
+    for collection_id in collection_ids:
+        try:
+            await chat_service.delete_chat_collection(collection_id)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                failed += 1
+                logger.error("telegram: deleting chat %s failed: %s", collection_id, exc.detail)
+        except Exception as exc:
+            failed += 1
+            logger.error("telegram: deleting chat %s failed: %s", collection_id, exc)
+    return failed
