@@ -17,6 +17,9 @@ from models import (
     TelegramConnectVerifyResponse,
     TelegramConnectionsResponse,
     TelegramDialogsResponse,
+    TelegramQrCancelRequest,
+    TelegramQrLoginState,
+    TelegramQrStartRequest,
     TelegramSyncRequest,
     TelegramSyncResponse,
     UserRecord,
@@ -41,6 +44,30 @@ async def telegram_connect_verify(
     user: UserRecord = Depends(require_role("admin")),
 ):
     return await telegram_service.verify_connect(body)
+
+
+@router.post("/telegram-connections/connect/qr/start", response_model=TelegramQrLoginState)
+async def telegram_qr_start(
+    body: TelegramQrStartRequest,
+    _: UserRecord = Depends(require_role("admin")),
+):
+    return await telegram_service.start_qr_connect(body)
+
+
+@router.get("/telegram-connections/connect/qr/status", response_model=TelegramQrLoginState)
+async def telegram_qr_status(
+    flow_id: str,
+    _: UserRecord = Depends(require_role("admin")),
+):
+    return await telegram_service.qr_connect_status(flow_id)
+
+
+@router.post("/telegram-connections/connect/qr/cancel")
+async def telegram_qr_cancel(
+    body: TelegramQrCancelRequest,
+    _: UserRecord = Depends(require_role("admin")),
+):
+    return await telegram_service.cancel_qr_connect(body)
 
 
 @router.get("/telegram-connections", response_model=TelegramConnectionsResponse)

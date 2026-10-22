@@ -45,6 +45,7 @@ Every domain gets exactly ONE base path — list/create/delete/activate/upload/e
                                      — router/database_connections.py
 
 /api/v1/telegram-connections        GET (list) + connect/start, connect/verify,
+                                     connect/qr/start, connect/qr/status, connect/qr/cancel,
                                      {id}/dialogs, {id}/sync, activate, {id} DELETE
                                      — router/telegram.py
 

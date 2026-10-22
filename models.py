@@ -455,6 +455,27 @@ class TelegramConnectVerifyResponse(BaseModel):
     connection: Optional[TelegramConnectionSource] = None
 
 
+class TelegramQrStartRequest(BaseModel):
+    label: Optional[str] = None
+
+
+class TelegramQrCancelRequest(BaseModel):
+    flow_id: str
+
+
+class TelegramQrLoginState(BaseModel):
+    """Where a QR sign-in stands. The client polls it and draws `qr_url` (a
+    tg://login link Telegram issued) as the QR code; it changes whenever the
+    token is renewed. "password_required" continues on connect/verify with the
+    same flow_id, like the code flow."""
+    flow_id: str
+    status: str  # "waiting" | "password_required" | "connected" | "expired" | "error"
+    qr_url: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    connection: Optional[TelegramConnectionSource] = None
+    error: Optional[str] = None
+
+
 class TelegramSyncRequest(BaseModel):
     dialog_ids: List[str]
     # Kept for older clients; sync now reads the full available dialog history.
