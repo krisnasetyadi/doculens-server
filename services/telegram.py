@@ -2,15 +2,17 @@
 """
 Telegram as a live chat source (Telethon/MTProto), not a file upload.
 
-Flow: connect (api_id + api_hash + phone -> OTP -> optional 2FA) -> pick
+Flow: connect (phone -> OTP -> optional 2FA) -> pick
 which chats/groups to bring in -> sync (repeatable) -> each selected chat
 becomes a searchable ChatCollection via the same pipeline WhatsApp uploads
 use (services/ingest/chat_ingest.py).
 
-api_id/api_hash (from https://my.telegram.org/apps) are entered per-connection
-in the connect form rather than via server config, so different admins can
-each bring their own Telegram app registration — see
-models.TelegramConnectStartRequest.
+The Telegram *application* every new connection signs in through is
+DocuLens's own registration from server config (TELEGRAM_API_ID /
+TELEGRAM_API_HASH, MS-911), so admins never register one. A start request may
+still carry its own api_id/api_hash (clients older than MS-911), and every
+saved connection keeps the pair it was made with, because a session only
+works with the app that created it.
 
 Mirrors services/database_connections.py's structure (its own small schema in
 the app's own database, admin-only, connect/list/activate/delete) since a
@@ -82,6 +84,23 @@ def _require_telegram_enabled() -> None:
             status_code=503,
             detail="Telegram integration is not configured — set TELEGRAM_SESSION_ENCRYPTION_KEY in the backend .env",
         )
+
+
+def _app_credentials(api_id: Optional[int], api_hash: Optional[str]) -> tuple[int, str]:
+    """The Telegram app a new sign-in goes through: the one the request names
+    (clients older than MS-911), otherwise DocuLens's own registration."""
+    if api_id is not None or api_hash is not None:
+        if not api_id:
+            raise HTTPException(status_code=400, detail="API ID is required")
+        if not (api_hash or "").strip():
+            raise HTTPException(status_code=400, detail="API hash is required")
+        return api_id, api_hash.strip()
+    if not config.telegram_app_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="Telegram is not configured on this server: set TELEGRAM_API_ID and TELEGRAM_API_HASH in the backend .env",
+        )
+    return config.telegram_api_id, config.telegram_api_hash.strip()
 
 
 def _cleanup_pending_logins() -> None:
@@ -252,7 +271,9 @@ def _new_client(api_id: int, api_hash: str, session_string: Optional[str] = None
     from telethon import TelegramClient
     from telethon.sessions import StringSession
 
-    return TelegramClient(StringSession(session_string), api_id, api_hash)
+    # device_model is the name the account owner sees in Telegram's
+    # Settings > Devices, where they can also revoke this session.
+    return TelegramClient(StringSession(session_string), api_id, api_hash, device_model="DocuLens")
 
 
 async def _connect_with_saved_session(row: Dict[str, Any]):
@@ -278,10 +299,9 @@ async def start_connect(body: TelegramConnectStartRequest):
     phone = body.phone.strip()
     if not phone:
         raise HTTPException(status_code=400, detail="Phone number is required")
-    if not body.api_hash.strip():
-        raise HTTPException(status_code=400, detail="API hash is required")
+    api_id, api_hash = _app_credentials(body.api_id, body.api_hash)
 
-    client = _new_client(body.api_id, body.api_hash.strip())
+    client = _new_client(api_id, api_hash)
     try:
         await client.connect()
         sent = await client.send_code_request(phone)
@@ -296,8 +316,8 @@ async def start_connect(body: TelegramConnectStartRequest):
     flow_id = str(uuid.uuid4())
     _pending_logins[flow_id] = {
         "client": client,
-        "api_id": body.api_id,
-        "api_hash": body.api_hash.strip(),
+        "api_id": api_id,
+        "api_hash": api_hash,
         "phone": phone,
         "phone_code_hash": sent.phone_code_hash,
         "label": (body.label or "").strip() or None,
@@ -383,7 +403,9 @@ async def list_connections():
             )
             rows = cur.fetchall() or []
             connections = [_as_connection_source(cur, r) for r in rows]
-        return TelegramConnectionsResponse(connections=connections, count=len(connections))
+        return TelegramConnectionsResponse(
+            connections=connections, count=len(connections), app_configured=config.telegram_app_configured,
+        )
     except Exception as exc:
         logger.error("telegram: list connections failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to list Telegram connections")

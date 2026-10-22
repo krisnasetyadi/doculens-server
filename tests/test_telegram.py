@@ -83,8 +83,9 @@ class FakeTelegram:
         account = self
 
         class FakeClient:
-            def __init__(self, session, api_id, api_hash):
+            def __init__(self, session, api_id, api_hash, device_model=None):
                 self.saved_session, self.api_id, self.api_hash = session, api_id, api_hash
+                self.device_model = device_model
                 self.session = SimpleNamespace(save=lambda: "SESSION-STRING")
                 self.disconnected = False
                 account.clients.append(self)
@@ -143,6 +144,9 @@ class TelegramTestCase(IsolatedSchemaTestCase):
         self.stack.enter_context(patch("telethon.TelegramClient", self.account.client_class()))
         self.stack.enter_context(patch("telethon.sessions.StringSession", lambda session=None: session))
         self.stack.enter_context(patch.object(config, "telegram_session_encryption_key", Fernet.generate_key().decode()))
+        # No DocuLens app registration unless a test sets one, whatever the local .env holds.
+        self.stack.enter_context(patch.object(config, "telegram_api_id", None))
+        self.stack.enter_context(patch.object(config, "telegram_api_hash", None))
         telegram_crypto._fernet.cache_clear()
         self.addCleanup(telegram_crypto._fernet.cache_clear)
         self.stack.enter_context(patch.object(processor, "embeddings", FakeEmbeddings()))
@@ -224,6 +228,32 @@ class ConnectFlowTest(TelegramTestCase):
         self.assertEqual(self.http.post("/api/v1/telegram-connections/connect/verify",
                                         json={"flow_id": "nope", "code": "1"}).status_code, 400)
         self.assertEqual(self.sql("SELECT * FROM telegram_connections"), [])
+
+    def test_phone_login_without_api_fields_uses_the_doculens_app(self):
+        self.assertFalse(self.http.get("/api/v1/telegram-connections").json()["app_configured"])
+        resp = self.http.post("/api/v1/telegram-connections/connect/start", json={"phone": PHONE})
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn("not configured", resp.json()["detail"])
+        self.assertEqual(self.account.clients, [])  # nothing was sent to Telegram
+
+        with patch.object(config, "telegram_api_id", 777), patch.object(config, "telegram_api_hash", "  doculens-hash  "):
+            self.assertTrue(self.http.get("/api/v1/telegram-connections").json()["app_configured"])
+            flow_id = self.http.post("/api/v1/telegram-connections/connect/start", json={"phone": PHONE}).json()["flow_id"]
+            resp = self.http.post("/api/v1/telegram-connections/connect/verify", json={"flow_id": flow_id, "code": "11111"})
+        self.assertEqual(resp.json()["status"], "connected")
+        client = self.account.clients[0]
+        self.assertEqual((client.api_id, client.api_hash, client.device_model), (777, "doculens-hash", "DocuLens"))
+        row = self.sql("SELECT * FROM telegram_connections")[0]
+        self.assertEqual(row["api_id"], 777)
+        self.assertEqual(telegram_crypto.decrypt_secret(row["api_hash_enc"]), "doculens-hash")
+
+    def test_a_start_that_names_its_own_app_must_name_it_fully(self):
+        with patch.object(config, "telegram_api_id", 777), patch.object(config, "telegram_api_hash", "doculens-hash"):
+            no_id = self.http.post("/api/v1/telegram-connections/connect/start", json={"phone": PHONE, "api_hash": "x"})
+            self.assertEqual((no_id.status_code, no_id.json()["detail"]), (400, "API ID is required"))
+            own = self.start()  # a client older than MS-911 still brings its own app
+            self.assertEqual(own.status_code, 200)
+        self.assertEqual((self.account.clients[-1].api_id, self.account.clients[-1].api_hash), (12345, "app-hash"))
 
     def test_disabled_without_an_encryption_key_and_admin_only(self):
         with patch.object(config, "telegram_session_encryption_key", None):
