@@ -20,11 +20,18 @@ WORKDIR /app
 # Install system dependencies
 # antiword: extracts text from legacy binary .doc uploads (services/ingest/documents.py
 # extract_text_from_doc) — python-docx only understands the newer .docx format.
+# tesseract-ocr (+ Indonesian, English and orientation data): reads scanned PDF
+# pages with no embedded text (services/ingest/ocr.py). The osd data is what
+# lets it straighten sideways or upside-down photos.
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
     curl \
     antiword \
+    tesseract-ocr \
+    tesseract-ocr-ind \
+    tesseract-ocr-eng \
+    tesseract-ocr-osd \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first (for better caching)

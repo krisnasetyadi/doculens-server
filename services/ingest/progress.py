@@ -19,7 +19,8 @@ from typing import Callable, Optional
 from fastapi import HTTPException
 from fastapi.responses import StreamingResponse
 
-ProgressCallback = Callable[[str, int], None]
+# (stage, progress 0-100, optional pages such as {"page": 3, "total": 12})
+ProgressCallback = Callable[..., None]
 logger = logging.getLogger(__name__)
 
 # How long a finished record stays queryable — just long enough for a reload
@@ -52,8 +53,11 @@ class _UploadProgressStore:
             record = self._records.get(upload_id)
             if not record:
                 return
+            record.pop("pages", None)
             if event["type"] == "progress":
                 record.update(stage=event["stage"], progress=event["progress"])
+                if event.get("pages"):
+                    record["pages"] = event["pages"]
             elif event["type"] == "ready":
                 record.update(status="success", stage="ready", progress=100,
                               result=event["result"], _finished_at=monotonic())
@@ -85,19 +89,23 @@ def progress_response(work: Callable[[ProgressCallback], dict], *, upload_id: st
     disconnected = Event()
     last_progress = 9
     last_stage = None
+    last_pages = None
 
     def publish(event: dict):
         upload_progress_store.update(upload_id, event)
         if not disconnected.is_set():
             loop.call_soon_threadsafe(queue.put_nowait, event)
 
-    def report(stage: str, progress: int):
-        nonlocal last_progress, last_stage
+    def report(stage: str, progress: int, pages: Optional[dict] = None):
+        nonlocal last_progress, last_stage, last_pages
         progress = max(last_progress, min(99, int(progress)))
-        if progress == last_progress and stage == last_stage:
+        if progress == last_progress and stage == last_stage and pages == last_pages:
             return
-        last_progress, last_stage = progress, stage
-        publish({"type": "progress", "stage": stage, "progress": progress})
+        last_progress, last_stage, last_pages = progress, stage, pages
+        event = {"type": "progress", "stage": stage, "progress": progress}
+        if pages:
+            event["pages"] = pages
+        publish(event)
 
     def run():
         try:

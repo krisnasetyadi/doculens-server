@@ -288,6 +288,20 @@ class Config(BaseSettings):
     max_batch_files: int = Field(default=10)
     storage_quota_bytes: int = Field(default=5 * 1024 * 1024 * 1024)
 
+    # MS-908: OCR for PDF pages that carry no embedded text (scans, phone
+    # photos). Needs the tesseract binary plus its ind, eng and osd data
+    # (installed in the Dockerfile); without it scanned pages are skipped
+    # and the upload says so. A page is OCR'd when its embedded text is
+    # shorter than ocr_min_page_chars. The page and time caps are per file,
+    # so one huge scan cannot hold the single worker for everyone else.
+    ocr_enabled: bool = Field(default=True)
+    ocr_languages: str = Field(default="ind+eng")
+    ocr_min_page_chars: int = Field(default=20)
+    ocr_dpi: int = Field(default=200)
+    ocr_max_pages_per_file: int = Field(default=40)
+    ocr_time_limit_seconds: int = Field(default=120)
+    ocr_page_timeout_seconds: int = Field(default=30)
+
     # MS-657: memory budget for loaded search indexes (FAISS vectors, their
     # chunk text, and the BM25 index built from it). Least recently used
     # collections are dropped past this and reload from disk on their next

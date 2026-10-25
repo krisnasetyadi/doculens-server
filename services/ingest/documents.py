@@ -8,32 +8,41 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS # type: ignore
 from langchain_core.documents import Document
 from config import config
+from services.ingest.ocr import PdfOcr
 from services.ingest.progress import ProgressCallback
 
 logger = logging.getLogger(__name__)
 
 
-def extract_text_from_pdf(pdf_path, on_page=None):
-    """Extract page-by-page clean text and page numbers from PDF"""
+def extract_text_from_pdf(pdf_path, on_page=None, on_ocr_page=None, ocr_stats=None):
+    """Extract page-by-page clean text and page numbers from PDF.
+
+    A page with no embedded text (a scan) is read with OCR instead, so mixed
+    PDFs keep every page. on_ocr_page(page, total) fires before each OCR'd
+    page; ocr_stats, when given, collects what OCR read and what it skipped."""
     pages_data = []
+    ocr = PdfOcr(pdf_path, ocr_stats)
     try:
         with pdfplumber.open(pdf_path) as pdf:
             for page_num, page in enumerate(pdf.pages, 1):
-                page_text = page.extract_text()
+                page_text = re.sub(r'\s+', ' ', page.extract_text() or '').strip()
+                if ocr.needs_ocr(page_text):
+                    if on_ocr_page:
+                        on_ocr_page(page_num, len(pdf.pages))
+                    page_text = ocr.read_page(page_num - 1, page_text)
                 if page_text:
-                    # Clean text
-                    page_text = re.sub(r'\s+', ' ', page_text).strip()
-                    if page_text:
-                        pages_data.append({
-                            "text": page_text,
-                            "page": page_num
-                        })
+                    pages_data.append({
+                        "text": page_text,
+                        "page": page_num
+                    })
                 if on_page:
                     on_page(page_num, len(pdf.pages))
         return pages_data if pages_data else None
     except Exception as e:
         logger.error(f"Failed to extract text from {pdf_path}: {str(e)}")
         return None
+    finally:
+        ocr.close()
 
 
 def extract_text_from_docx(docx_path):
@@ -241,7 +250,31 @@ def build_source_index(documents, embeddings, on_progress: ProgressCallback | No
     return vector_store
 
 
-def process_pdfs(pdf_paths, collection_id, on_progress: ProgressCallback | None = None):
+def _extract_pdf_with_progress(extract_text, pdf_path, file_index, file_count, on_progress, ocr_stats):
+    """Read one PDF, reporting per-page progress inside this file's share of
+    the reading band, and switching the stage to "ocr" on scanned pages."""
+    if not on_progress:
+        return extract_text(pdf_path, ocr_stats=ocr_stats)
+    scanned_page = []  # filled while the page being read is OCR'd
+
+    def band(done, total):
+        return 10 + int(20 * (file_index + done / total) / file_count)
+
+    def on_ocr_page(page, total):
+        scanned_page[:] = [page]
+        on_progress("ocr", band(page - 1, total), {"page": page, "total": total})
+
+    def on_page(done, total):
+        if scanned_page:
+            scanned_page.clear()
+            on_progress("ocr", band(done, total), {"page": done, "total": total})
+        else:
+            on_progress("reading", band(done, total))
+
+    return extract_text(pdf_path, on_page=on_page, on_ocr_page=on_ocr_page, ocr_stats=ocr_stats)
+
+
+def process_pdfs(pdf_paths, collection_id, on_progress: ProgressCallback | None = None, ocr_stats: dict | None = None):
     """Process uploaded documents (PDF, DOCX, CSV, XLSX, TXT — despite the
     name, kept for backward compatibility with existing callers) with
     improved page-level text splitting."""
@@ -252,10 +285,10 @@ def process_pdfs(pdf_paths, collection_id, on_progress: ProgressCallback | None 
     for file_index, pdf_path in enumerate(pdf_paths):
         ext = os.path.splitext(pdf_path)[1].lower()
         extract_text = DOCUMENT_EXTRACTORS.get(ext, extract_text_from_pdf)
-        if on_progress and ext == ".pdf":
-            pages_data = extract_text(pdf_path, on_page=lambda done, total: on_progress(
-                "reading", 10 + int(20 * (file_index + done / total) / len(pdf_paths)),
-            ))
+        if ext == ".pdf":
+            pages_data = _extract_pdf_with_progress(
+                extract_text, pdf_path, file_index, len(pdf_paths), on_progress, ocr_stats,
+            )
         else:
             pages_data = extract_text(pdf_path)
         if on_progress:
