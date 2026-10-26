@@ -7,6 +7,12 @@ which chats/groups to bring in -> sync (repeatable) -> each selected chat
 becomes a searchable ChatCollection via the same pipeline WhatsApp uploads
 use (services/ingest/chat_ingest.py).
 
+History range (MS-912): each selected chat keeps the last month, 3 months, year
+or everything (telegram_selected_chats.history_range). Sync fetches only that
+range and rebuilds the collection from it, so every later sync drops the messages
+that have fallen out of it. A single chat can be removed on its own, with all its
+stored data, without deleting the connection (remove_chat).
+
 The Telegram *application* every new connection signs in through is
 DocuLens's own registration from server config (TELEGRAM_API_ID /
 TELEGRAM_API_HASH, MS-911), so admins never register one. A start request may
@@ -50,7 +56,7 @@ import re
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -62,6 +68,8 @@ from models import (
     ChatMessage,
     ChatPlatform,
     SetTelegramConnectionActiveRequest,
+    TelegramChatRangeRequest,
+    TelegramChatRemovedResponse,
     TelegramConnectionsResponse,
     TelegramConnectionSource,
     TelegramConnectStartRequest,
@@ -77,9 +85,13 @@ from models import (
     TelegramSyncRequest,
     TelegramSyncResponse,
     TelegramSyncResult,
+    UserRecord,
 )
 from services import chat as chat_service
+from services.billing.plans import resolve_storage_limits
 from services.ingest.chat_ingest import ingest_chat_messages
+from services.storage import limits as storage_limits
+from services.storage import supabase as supabase_storage
 from services.security.telegram_crypto import encrypt_secret, decrypt_secret
 
 logger = logging.getLogger(__name__)
@@ -199,29 +211,35 @@ def _telegram_user_id() -> str:
     return os.getenv("DB_CONNECTIONS_USER_ID", os.getenv("DEV_USER_ID", "db-connections-local-user"))
 
 
+_SELECTED_CHAT_COLUMNS = (
+    "dialog_id, dialog_title, dialog_type, chat_collection_id, message_count, history_range, status, last_synced_at"
+)
+
+
+def _as_selected_chat(r: Dict[str, Any]) -> TelegramSelectedChat:
+    return TelegramSelectedChat(
+        dialog_id=r["dialog_id"],
+        title=r["dialog_title"],
+        type=r["dialog_type"],
+        chat_collection_id=r.get("chat_collection_id"),
+        message_count=r.get("message_count"),
+        history_range=r["history_range"],
+        status=r["status"],
+        last_synced_at=app_db.ts(r["last_synced_at"]) if r.get("last_synced_at") else None,
+    )
+
+
 def _selected_chats_for(cur, connection_id: str) -> List[TelegramSelectedChat]:
     cur.execute(
-        """
-        SELECT dialog_id, dialog_title, dialog_type, chat_collection_id, message_count, status, last_synced_at
+        f"""
+        SELECT {_SELECTED_CHAT_COLUMNS}
         FROM telegram_selected_chats
         WHERE connection_id = %s
         ORDER BY created_at ASC
         """,
         (connection_id,),
     )
-    rows = cur.fetchall() or []
-    return [
-        TelegramSelectedChat(
-            dialog_id=r["dialog_id"],
-            title=r["dialog_title"],
-            type=r["dialog_type"],
-            chat_collection_id=r.get("chat_collection_id"),
-            message_count=r.get("message_count"),
-            status=r["status"],
-            last_synced_at=app_db.ts(r["last_synced_at"]) if r.get("last_synced_at") else None,
-        )
-        for r in rows
-    ]
+    return [_as_selected_chat(r) for r in cur.fetchall() or []]
 
 
 def _as_connection_source(cur, row: Dict[str, Any]) -> TelegramConnectionSource:
@@ -250,7 +268,10 @@ def _get_connection_row(connection_id: str) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
-def _upsert_selected_chat(connection_id: str, dialog_id: str, title: str, dialog_type: str, chat_collection_id: str, message_count: int) -> None:
+def _upsert_selected_chat(
+    connection_id: str, dialog_id: str, title: str, dialog_type: str,
+    chat_collection_id: str, message_count: int, history_range: str,
+) -> None:
     conn = db.get_conn("telegram")
     if not conn:
         return
@@ -259,35 +280,57 @@ def _upsert_selected_chat(connection_id: str, dialog_id: str, title: str, dialog
             cur.execute(
                 """
                 INSERT INTO telegram_selected_chats
-                    (connection_id, dialog_id, dialog_title, dialog_type, chat_collection_id, message_count, last_synced_at)
-                VALUES (%s, %s, %s, %s, %s, %s, now())
+                    (connection_id, dialog_id, dialog_title, dialog_type, chat_collection_id, message_count,
+                     history_range, last_synced_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, now())
                 ON CONFLICT (connection_id, dialog_id) DO UPDATE SET
                     dialog_title       = EXCLUDED.dialog_title,
                     dialog_type        = EXCLUDED.dialog_type,
                     chat_collection_id = EXCLUDED.chat_collection_id,
                     message_count      = EXCLUDED.message_count,
+                    history_range      = EXCLUDED.history_range,
                     last_synced_at     = now()
                 """,
-                (connection_id, dialog_id, title, dialog_type, chat_collection_id, message_count),
+                (connection_id, dialog_id, title, dialog_type, chat_collection_id, message_count, history_range),
             )
     finally:
         conn.close()
 
 
-def _get_selected_chat_collection_id(connection_id: str, dialog_id: str) -> Optional[str]:
+def _get_selected_chat(connection_id: str, dialog_id: str) -> Optional[Dict[str, Any]]:
+    """The saved row for one chat of a connection (its collection and range), or None."""
     conn = db.get_conn("telegram")
     if not conn:
-        return None
+        raise HTTPException(status_code=503, detail="Database unavailable")
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT chat_collection_id FROM telegram_selected_chats WHERE connection_id = %s AND dialog_id = %s",
+                """
+                SELECT chat_collection_id, history_range FROM telegram_selected_chats
+                WHERE connection_id = %s AND dialog_id = %s
+                """,
                 (connection_id, dialog_id),
             )
-            row = cur.fetchone()
-            return row["chat_collection_id"] if row else None
+            return cur.fetchone()
     finally:
         conn.close()
+
+
+# How far back each range reaches. A "month" is 30 days and a "year" 365: the
+# range is a cut-off for what to keep, not a calendar, so it needs no more.
+_HISTORY_RANGE_DAYS: Dict[str, Optional[int]] = {"1m": 30, "3m": 90, "1y": 365, "all": None}
+_HISTORY_RANGE_WORDS = {"1m": "month", "3m": "3 months", "1y": "year"}
+
+
+def _utcnow() -> datetime:
+    """Now as a naive UTC time, the same kind as the message dates below."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+def _range_cutoff(history_range: str, now: datetime) -> Optional[datetime]:
+    """Messages older than this are not kept; None keeps everything."""
+    days = _HISTORY_RANGE_DAYS[history_range]
+    return None if days is None else now - timedelta(days=days)
 
 
 def _touch_connection_synced(connection_id: str) -> None:
@@ -581,7 +624,9 @@ async def list_dialogs(connection_id: str):
 
     client = await _connect_with_saved_session(row)
     try:
-        dialogs = await client.get_dialogs(limit=200)
+        # No limit: the picker lists every chat, group and channel and the client
+        # searches them, so an older chat can still be found (MS-912).
+        dialogs = await client.get_dialogs()
         result = [
             TelegramDialog(
                 dialog_id=str(d.id),
@@ -597,19 +642,21 @@ async def list_dialogs(connection_id: str):
     return TelegramDialogsResponse(dialogs=result, count=len(result))
 
 
-async def sync_connection(connection_id: str, body: TelegramSyncRequest):
+async def sync_connection(connection_id: str, body: TelegramSyncRequest, user: UserRecord):
     _require_telegram_enabled()
     row = _get_connection_row(connection_id)
     if not row:
         raise HTTPException(status_code=404, detail="Telegram connection not found")
     if not body.dialog_ids:
         raise HTTPException(status_code=400, detail="Select at least one chat to sync")
+    limits, workspace_id = resolve_storage_limits(user)
 
     client = await _connect_with_saved_session(row)
     results: List[TelegramSyncResult] = []
 
     try:
         for dialog_id_str in body.dialog_ids:
+            title = dialog_id_str  # until Telegram gives the name, so a failure still says which chat
             try:
                 dialog_id = int(dialog_id_str)
                 entity = await client.get_entity(dialog_id)
@@ -634,12 +681,19 @@ async def sync_connection(connection_id: str, body: TelegramSyncRequest):
                 except Exception:
                     pass  # channels/broadcasts often can't list participants — fall back to sender id below
 
+                saved = _get_selected_chat(connection_id, dialog_id_str)
+                history_range = body.ranges.get(dialog_id_str) or (saved["history_range"] if saved else "all")
+                cutoff = _range_cutoff(history_range, _utcnow())
+
                 messages_by_id: Dict[int, ChatMessage] = {}
-                # A bounded newest-first fetch silently drops older replies and
-                # replaces the existing index with that incomplete window on re-sync.
-                # Fetch all available history so old collections are backfilled too.
+                # Messages come newest first, so the first one older than the range ends
+                # the fetch. The collection is rebuilt from what was fetched, which is how
+                # a re-sync drops messages that have fallen out of the range.
                 fetched_count = outgoing_count = 0
                 async for msg in client.iter_messages(entity, limit=None):
+                    sent_at = msg.date.replace(tzinfo=None) if msg.date else None
+                    if cutoff and sent_at and sent_at < cutoff:
+                        break
                     fetched_count += 1
                     outgoing_count += bool(getattr(msg, "out", False))
                     text = getattr(msg, "text", None) or getattr(msg, "message", None)
@@ -654,7 +708,7 @@ async def sync_connection(connection_id: str, body: TelegramSyncRequest):
                     messages_by_id[msg.id] = ChatMessage(
                         message_id=f"tg_{dialog_id}_{msg.id}",
                         sender=sender_name,
-                        timestamp=msg.date.replace(tzinfo=None) if msg.date else datetime.now(),
+                        timestamp=sent_at or datetime.now(),
                         content=text,
                         platform=ChatPlatform.TELEGRAM,
                     )
@@ -669,16 +723,21 @@ async def sync_connection(connection_id: str, body: TelegramSyncRequest):
                 )
 
                 if not messages:
+                    # Nothing is written, so a chat synced before keeps what it has.
+                    empty = (
+                        "No messages with text or media found in this chat"
+                        if cutoff is None
+                        else f"No messages with text or media in the last {_HISTORY_RANGE_WORDS[history_range]}"
+                    )
                     results.append(
                         TelegramSyncResult(
                             dialog_id=dialog_id_str, title=title, chat_collection_id="",
-                            message_count=0, status="error", error="No messages with text or media found in this chat",
+                            message_count=0, status="error", error=empty,
                         )
                     )
                     continue
 
-                existing_collection_id = _get_selected_chat_collection_id(connection_id, dialog_id_str)
-                collection_id = existing_collection_id or str(uuid.uuid4())
+                collection_id = (saved and saved["chat_collection_id"]) or str(uuid.uuid4())
                 file_name = _telegram_transcript_name(title, dialog_id)
                 os.makedirs(config.chat_upload_folder, exist_ok=True)
                 with tempfile.NamedTemporaryFile(
@@ -687,13 +746,32 @@ async def sync_connection(connection_id: str, body: TelegramSyncRequest):
                     staged_path = staged.name
                 try:
                     _write_telegram_transcript(staged_path, messages)
-                    collection = await ingest_chat_messages(
-                        collection_id,
-                        messages,
-                        file_name=file_name,
-                        platform=ChatPlatform.TELEGRAM,
-                        raw_file_path=staged_path,
+
+                    # The stored transcript counts toward the workspace quota like an
+                    # uploaded chat file (MS-504), checked before the slow indexing
+                    # starts so a refused sync leaves what the chat had untouched.
+                    transcript_bytes = os.path.getsize(staged_path)
+                    if transcript_bytes > limits.max_file_bytes:
+                        raise storage_limits.file_too_large_error(limits)
+                    # A re-sync replaces the old size, which the quota already counts,
+                    # so only what the chat grows by needs room.
+                    reservation = storage_limits.reserve_workspace(
+                        workspace_id, limits,
+                        max(0, transcript_bytes - supabase_storage.get_chat_collection_size(collection_id)),
                     )
+                    try:
+                        collection = await ingest_chat_messages(
+                            collection_id,
+                            messages,
+                            file_name=file_name,
+                            platform=ChatPlatform.TELEGRAM,
+                            raw_file_path=staged_path,
+                            owner_id=user.user_id,
+                            size_bytes=transcript_bytes,
+                            replace_size=True,
+                        )
+                    finally:
+                        reservation.release()
                     upload_dir = os.path.join(config.chat_upload_folder, collection_id)
                     os.makedirs(upload_dir, exist_ok=True)
                     os.replace(staged_path, os.path.join(upload_dir, file_name))
@@ -710,7 +788,10 @@ async def sync_connection(connection_id: str, body: TelegramSyncRequest):
                 with processor._cache_lock:
                     processor.vector_store_cache.pop(f"chat_{collection_id}", None)
 
-                _upsert_selected_chat(connection_id, dialog_id_str, title, _dialog_type(entity), collection_id, collection.message_count)
+                _upsert_selected_chat(
+                    connection_id, dialog_id_str, title, _dialog_type(entity), collection_id,
+                    collection.message_count, history_range,
+                )
 
                 results.append(
                     TelegramSyncResult(
@@ -722,8 +803,10 @@ async def sync_connection(connection_id: str, body: TelegramSyncRequest):
                 logger.error("telegram: sync failed for dialog %s: %s", dialog_id_str, exc)
                 results.append(
                     TelegramSyncResult(
-                        dialog_id=dialog_id_str, title=dialog_id_str, chat_collection_id="",
-                        message_count=0, status="error", error=str(exc),
+                        dialog_id=dialog_id_str, title=title, chat_collection_id="",
+                        message_count=0, status="error",
+                        # A refusal (storage full, file too large) has a message made for the user.
+                        error=exc.detail if isinstance(exc, HTTPException) else str(exc),
                     )
                 )
     finally:
@@ -816,9 +899,90 @@ async def _log_out_saved_session(row: Dict[str, Any]) -> None:
             pass
 
 
+async def _delete_chat_data(collection_id: str) -> bool:
+    """Delete everything stored for one synced chat: the transcript and search
+    index in Storage, its collections row, the local copies and the in-memory
+    index. True once it is gone; one that was already gone (404) counts as
+    deleted. Removing a single chat and disconnecting both go through here."""
+    try:
+        await chat_service.delete_chat_collection(collection_id)
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            logger.error("telegram: deleting chat %s failed: %s", collection_id, exc.detail)
+            return False
+    except Exception as exc:
+        logger.error("telegram: deleting chat %s failed: %s", collection_id, exc)
+        return False
+    return True
+
+
+async def set_chat_range(connection_id: str, dialog_id: str, body: TelegramChatRangeRequest) -> TelegramSelectedChat:
+    """Change how far back a chat is kept. This only saves the setting: the stored
+    messages are rebuilt by the next sync, which is also what lets the user
+    choose when older messages are dropped."""
+    conn = db.get_conn("telegram")
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                f"""
+                UPDATE telegram_selected_chats SET history_range = %s
+                WHERE connection_id = %s AND dialog_id = %s
+                RETURNING {_SELECTED_CHAT_COLUMNS}
+                """,
+                (body.history_range, connection_id, dialog_id),
+            )
+            row = cur.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Telegram chat not found")
+        return _as_selected_chat(row)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("telegram: changing the range of chat %s failed: %s", dialog_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to change the history range")
+    finally:
+        conn.close()
+
+
+async def remove_chat(connection_id: str, dialog_id: str) -> TelegramChatRemovedResponse:
+    """Remove one chat from a connection, with all its stored data. The data goes
+    first and the row last: a chat whose data could not be deleted keeps its
+    row, so it is never left searchable without a way to try again. Nothing is
+    sent to Telegram, so the chat there is not affected."""
+    chat = _get_selected_chat(connection_id, dialog_id)
+    if not chat:
+        raise HTTPException(status_code=404, detail="Telegram chat not found")
+    collection_id = chat["chat_collection_id"]
+    if collection_id and not await _delete_chat_data(collection_id):
+        raise HTTPException(
+            status_code=500,
+            detail="Could not delete the chat's stored data, so the chat was kept. Try again.",
+        )
+
+    conn = db.get_conn("telegram")
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM telegram_selected_chats WHERE connection_id = %s AND dialog_id = %s",
+                (connection_id, dialog_id),
+            )
+        return TelegramChatRemovedResponse(
+            status="success", message="Telegram chat removed", connection_id=connection_id, dialog_id=dialog_id,
+        )
+    except Exception as exc:
+        logger.error("telegram: removing chat %s failed: %s", dialog_id, exc)
+        raise HTTPException(status_code=500, detail="Failed to remove Telegram chat")
+    finally:
+        conn.close()
+
+
 async def _delete_synced_chats(connection_id: str) -> int:
     """Delete every chat collection this connection synced; returns how many
-    could not be deleted. One already gone (404) counts as deleted."""
+    could not be deleted."""
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -837,13 +1001,6 @@ async def _delete_synced_chats(connection_id: str) -> int:
 
     failed = 0
     for collection_id in collection_ids:
-        try:
-            await chat_service.delete_chat_collection(collection_id)
-        except HTTPException as exc:
-            if exc.status_code != 404:
-                failed += 1
-                logger.error("telegram: deleting chat %s failed: %s", collection_id, exc.detail)
-        except Exception as exc:
+        if not await _delete_chat_data(collection_id):
             failed += 1
-            logger.error("telegram: deleting chat %s failed: %s", collection_id, exc)
     return failed

@@ -63,7 +63,7 @@ All routes live under `/api/v1`, one base path per domain. Interactive docs: `/d
 | `/sessions` | chat history |
 | `/pdf-collections` | document collections: list, upload (file, URL, Google Drive folder), activate, move, delete |
 | `/chat-collections` | chat log collections: upload, preview, messages, activate, delete |
-| `/telegram-connections` | live Telegram connection: connect, dialogs, sync |
+| `/telegram-connections` | live Telegram connection: connect, dialogs, sync, history range, remove a synced chat |
 | `/public-links` | web pages as a source |
 | `/database-connections` | user-connected PostgreSQL databases |
 | `/source-folders` | folders for organising sources |

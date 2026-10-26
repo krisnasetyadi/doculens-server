@@ -1,6 +1,6 @@
 # models.py
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Literal, Optional, Dict, Any, Union
 from enum import Enum
 from datetime import datetime
 
@@ -390,6 +390,10 @@ class SetChatCollectionActiveRequest(BaseModel):
 # connection can have multiple "selected chats", each of which becomes its
 # own searchable ChatCollection (platform=telegram) once synced.
 
+# How far back a synced chat is kept: the last month, 3 months, year, or everything.
+TelegramHistoryRange = Literal["1m", "3m", "1y", "all"]
+
+
 class TelegramDialog(BaseModel):
     dialog_id: str
     title: str
@@ -408,6 +412,7 @@ class TelegramSelectedChat(BaseModel):
     type: str
     chat_collection_id: Optional[str] = None
     message_count: Optional[int] = None
+    history_range: TelegramHistoryRange = "all"
     status: str = "active"
     last_synced_at: Optional[Union[str, datetime]] = None
 
@@ -427,6 +432,17 @@ class TelegramConnectionsResponse(BaseModel):
     # False until TELEGRAM_API_ID / TELEGRAM_API_HASH are set, so the client can
     # say "not configured" before a sign-in starts instead of failing midway.
     app_configured: bool = False
+
+
+class TelegramChatRangeRequest(BaseModel):
+    history_range: TelegramHistoryRange
+
+
+class TelegramChatRemovedResponse(BaseModel):
+    status: str
+    message: str
+    connection_id: str
+    dialog_id: str
 
 
 class TelegramConnectStartRequest(BaseModel):
@@ -478,7 +494,10 @@ class TelegramQrLoginState(BaseModel):
 
 class TelegramSyncRequest(BaseModel):
     dialog_ids: List[str]
-    # Kept for older clients; sync now reads the full available dialog history.
+    # dialog_id -> range, for the chats the user just picked. A chat left out
+    # keeps the range it was synced with, or "all" if it was never synced.
+    ranges: Dict[str, TelegramHistoryRange] = {}
+    # Kept for older clients; ignored. The history range decides how much is read.
     message_limit: Optional[int] = None
 
 

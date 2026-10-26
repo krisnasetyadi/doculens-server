@@ -55,6 +55,13 @@ def ensure(conn) -> None:
                 ALTER TABLE telegram_selected_chats
                     ADD COLUMN IF NOT EXISTS message_count INTEGER;
 
+                -- MS-912: how far back a chat is kept. Chats synced before it
+                -- stored their whole history, so existing rows read 'all'; the
+                -- 3 month default for a newly picked chat is chosen by the client.
+                ALTER TABLE telegram_selected_chats
+                    ADD COLUMN IF NOT EXISTS history_range TEXT NOT NULL DEFAULT 'all'
+                    CHECK (history_range IN ('1m', '3m', '1y', 'all'));
+
                 -- MS-911: a phone number is only kept masked, the way
                 -- services/telegram.py _mask_phone writes it; mask rows saved
                 -- before that. Masking an already masked number changes
