@@ -754,10 +754,13 @@ async def sync_connection(connection_id: str, body: TelegramSyncRequest, user: U
                     if transcript_bytes > limits.max_file_bytes:
                         raise storage_limits.file_too_large_error(limits)
                     # A re-sync replaces the old size, which the quota already counts,
-                    # so only what the chat grows by needs room.
-                    reservation = storage_limits.reserve_workspace(
-                        workspace_id, limits,
-                        max(0, transcript_bytes - supabase_storage.get_chat_collection_size(collection_id)),
+                    # so only what the chat grows by needs room. A sync that does not grow
+                    # it needs none, so a workspace over its limit can still shrink a chat.
+                    growth = max(0, transcript_bytes - supabase_storage.get_chat_collection_size(collection_id))
+                    reservation = (
+                        storage_limits.reserve_workspace(workspace_id, limits, growth)
+                        if growth
+                        else storage_limits.Reservation(workspace_id, None, 0)
                     )
                     try:
                         collection = await ingest_chat_messages(

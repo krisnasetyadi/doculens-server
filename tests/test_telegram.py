@@ -882,6 +882,17 @@ class QuotaTest(RangedChatCase):
         self.assertEqual(self.sync({"-20": "all"}).json()["results"][0]["status"], "success")
         self.assertEqual(self.used(), full)
 
+    def test_a_sync_that_does_not_grow_the_chat_goes_through_when_the_workspace_is_over_its_limit(self):
+        self.set_limits()
+        self.sync({"-20": "all"})
+        self.set_limits(storage=1)  # the workspace now holds more than its plan allows, e.g. after a downgrade
+
+        shorter = self.sync({"-20": "1m"}).json()["results"][0]
+        self.assertEqual(shorter["status"], "success")  # shrinking a chat is how the user gets back under the limit
+        self.assertEqual(self.sync().json()["results"][0]["status"], "success")  # so is syncing it again unchanged
+        longer = self.sync({"-20": "all"}).json()["results"][0]
+        self.assertEqual((longer["status"], longer["error"]), ("error", storage_limits.quota_exceeded_error().detail))
+
     def test_a_chat_synced_before_the_quota_counts_from_its_next_sync(self):
         self.set_limits()
         collection_id = self.sync({"-20": "all"}).json()["results"][0]["chat_collection_id"]
