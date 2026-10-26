@@ -131,6 +131,27 @@ class ActivateAndMoveTest(CollectionsTestCase):
         self.assertEqual(move(owner, None, "nope").status_code, 404)
         self.assertEqual(move(user("admin"), theirs).status_code, 200)  # admins may use any folder
 
+    def test_flag_as_reference_framework(self):
+        """MS-848: the flag is saved, listed, and only the owner (or an admin) can set it."""
+        owner = user()
+        cid = self.collection(owner)
+        flag = lambda who, value, target=cid: self.client(who).post(
+            "/api/v1/pdf-collections/reference-framework",
+            json={"collection_id": target, "is_reference_framework": value})
+        listed = lambda: next(c for c in self.client(owner).get("/api/v1/pdf-collections").json()
+                              if c["collection_id"] == cid)
+
+        self.assertFalse(listed()["is_reference_framework"])
+        self.assertEqual(flag(owner, True).json(),
+                         {"status": "success", "collection_id": cid, "is_reference_framework": True})
+        self.assertTrue(listed()["is_reference_framework"])
+        self.assertEqual(flag(user(), False).status_code, 403)
+        self.assertEqual(flag(owner, True, "nope").status_code, 404)
+        self.assertEqual(flag(user("admin"), False).status_code, 200)
+        self.assertFalse(listed()["is_reference_framework"])
+        with patch.object(storage, "has_database", lambda: False):
+            self.assertEqual(flag(owner, True).status_code, 503)
+
 
 class DeleteTest(CollectionsTestCase):
     def test_owner_deletes_row_files_and_cache(self):

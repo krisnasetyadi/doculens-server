@@ -1,7 +1,8 @@
 # services/collections.py
 """PDF collection management: listing (Supabase DB, then an S3 scan, then
-local disk), activating, moving to a folder, deleting, serving stored files,
-the paged text viewer and the file list. router/collections.py calls these."""
+local disk), activating, moving to a folder, flagging as a reference
+framework, deleting, serving stored files, the paged text viewer and the
+file list. router/collections.py calls these."""
 
 import logging
 import os
@@ -17,7 +18,13 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 from services.storage import supabase as supabase_storage
 from config import config
-from models import CollectionInfo, MoveToFolderRequest, SetPdfCollectionActiveRequest, UserRecord
+from models import (
+    CollectionInfo,
+    MoveToFolderRequest,
+    SetPdfCollectionActiveRequest,
+    SetReferenceFrameworkRequest,
+    UserRecord,
+)
 from services.rag.processor import processor
 from services.ingest.documents import (
     DOCUMENT_EXTRACTORS,
@@ -61,6 +68,7 @@ async def list_collections(user: UserRecord):
                         status=row.get("status") or "active",
                         owner_id=row.get("owner_id"),
                         folder_id=row.get("folder_id"),
+                        is_reference_framework=row.get("is_reference_framework", False),
                     )
                     for row in visible_rows
                 ]
@@ -161,6 +169,23 @@ async def move_to_folder(body: MoveToFolderRequest, user: UserRecord):
     if not ok:
         raise HTTPException(status_code=500, detail="Failed to move file")
     return {"status": "success", "collection_id": body.collection_id, "folder_id": body.folder_id}
+
+
+async def set_reference_framework(body: SetReferenceFrameworkRequest, user: UserRecord):
+    if not supabase_storage.has_database():
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    row = supabase_storage.get_collection(body.collection_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    if not _can_access(row, user):
+        raise HTTPException(status_code=403, detail="Not allowed to modify this collection")
+    if not supabase_storage.set_collection_reference_framework(body.collection_id, body.is_reference_framework):
+        raise HTTPException(status_code=500, detail="Failed to update reference framework")
+    return {
+        "status": "success",
+        "collection_id": body.collection_id,
+        "is_reference_framework": body.is_reference_framework,
+    }
 
 
 async def delete_collection(collection_id: str, user: UserRecord):

@@ -381,7 +381,7 @@ def download_chat_index(collection_id: str, dest_dir: str) -> bool:
 # dict shape (chunk_count vs message_count, file_names[] vs file_name, etc.).
 _COLLECTIONS_SELECT = (
     "collection_id, title, file_names, item_count, storage_paths, "
-    "status, owner_id, folder_id, metadata, created_at, updated_at"
+    "status, owner_id, folder_id, is_reference_framework, metadata, created_at, updated_at"
 )
 
 
@@ -395,6 +395,7 @@ def _pdf_row_from_unified(row: Dict[str, Any]) -> Dict[str, Any]:
         "status": row.get("status") or "active",
         "owner_id": row.get("owner_id"),
         "folder_id": row.get("folder_id"),
+        "is_reference_framework": bool(row.get("is_reference_framework")),
         "created_at": row.get("created_at"),
         "updated_at": row.get("updated_at"),
     }
@@ -614,6 +615,27 @@ def set_collection_status(collection_id: str, active: bool) -> bool:
         return updated
     except Exception as e:
         logger.warning("set_collection_status failed for %s: %s", collection_id, e)
+        return False
+    finally:
+        conn.close()
+
+
+def set_collection_reference_framework(collection_id: str, flagged: bool) -> bool:
+    """Flag (or unflag) a PDF collection as a reference framework (MS-848)."""
+    conn = db.get_conn("storage")
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE collections SET is_reference_framework = %s, updated_at = now() "
+                "WHERE collection_id = %s AND kind = 'pdf'",
+                (flagged, collection_id),
+            )
+            updated = cur.rowcount > 0
+        return updated
+    except Exception as e:
+        logger.warning("set_collection_reference_framework failed for %s: %s", collection_id, e)
         return False
     finally:
         conn.close()
