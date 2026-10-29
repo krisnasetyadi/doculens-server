@@ -154,8 +154,9 @@ class ExportTest(ComplianceTestCase):
         lines = md.text.splitlines()
         self.assertEqual(lines[0], "# Laporan Gap Analysis — ISO 27001")
         self.assertIn(f"- Reference collection: {self.reference}", lines)
-        self.assertIn("| A.5.1 Policies | policy.pdf | met | Policy / approved yearly |  |", lines)
-        self.assertIn("| A.8.2 Access | t | not_met |  | Add an access review |", lines)
+        self.assertIn("| A.5.1 Policies | policy.pdf | comply | Policy / approved yearly |  |", lines)
+        self.assertIn("| A.8.2 Access | t | not comply |  | Add an access review |", lines)
+        self.assertIn("| A.9 Backup | t | partial | Weekly only | Daily backups |", lines)
 
         pdf = self.client(self.owner).get(url, params={"format": "pdf"})
         self.assertEqual((pdf.headers["content-type"], pdf.content[:5]), ("application/pdf", b"%PDF-"))
