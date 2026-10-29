@@ -1,4 +1,5 @@
-"""MS-910: text extraction and picture OCR for PowerPoint decks.
+"""MS-910: PowerPoint decks: text extraction, picture OCR, the slide preview
+and decks inside public links.
 
 Decks are built with python-pptx inside each test, so no fixture files and no
 database are needed."""
@@ -14,7 +15,9 @@ from pptx.util import Inches
 
 from config import config
 from services.ingest import documents
-from services.ingest.documents import DOCUMENT_EXTRACTORS, _extract_pdf_with_progress, extract_text_from_pptx
+from services.ingest.documents import (
+    DOCUMENT_EXTRACTORS, _extract_pdf_with_progress, extract_text_from_pptx, pptx_preview_lines,
+)
 from services.ingest.ocr import SlideOcr, describe_ocr_outcome, new_ocr_stats
 
 LONG = "Kebijakan perjalanan dinas berlaku untuk seluruh karyawan tetap dan kontrak. " * 4
@@ -215,6 +218,95 @@ class PptxPictureOcrTests(unittest.TestCase):
         progress = [e[1] for e in events]
         self.assertEqual(progress, sorted(progress))
 
+
+
+class PptxPreviewTests(unittest.TestCase):
+    def setUp(self):
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        self.collection = os.path.join(self._dir.name, "c1")
+        os.makedirs(self.collection)
+        deck = Presentation()
+        for index in range(1, 5):
+            slide = deck.slides.add_slide(deck.slide_layouts[6])
+            box = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(1))
+            box.text_frame.text = f"Judul {index}"
+            box.text_frame.add_paragraph().text = f"Isi slide {index}"
+            if index == 2:
+                slide._element.set("show", "0")
+            if index == 3:
+                slide.notes_slide.notes_text_frame.text = "Sebut target Q3"
+        deck.save(os.path.join(self.collection, "deck.pptx"))
+        patcher = patch.object(config, "upload_folder", self._dir.name)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_preview_lists_visible_slides_with_a_header_each(self):
+        lines, offsets = pptx_preview_lines(os.path.join(self.collection, "deck.pptx"))
+        self.assertEqual(lines, [
+            "Slide 1", "Judul 1", "Isi slide 1",
+            "Slide 3", "Judul 3", "Isi slide 3", "Speaker notes: Sebut target Q3",
+            "Slide 4", "Judul 4", "Isi slide 4",
+        ])
+        self.assertEqual(offsets, {1: 0, 3: 3, 4: 7})
+
+    def content(self, **kwargs):
+        import asyncio
+        from models import UserRecord
+        from services import collections as collection_service
+        admin = UserRecord(user_id="u1", email="a@example.com", role="admin", is_active=True)
+        with patch.object(collection_service.supabase_storage, "get_collection", return_value={"owner_id": "u1"}):
+            return asyncio.run(collection_service.get_text_content("c1", "deck.pptx", user=admin, **kwargs))
+
+    def test_text_content_opens_at_the_cited_slide(self):
+        page = self.content(offset=0, limit=3, slide=3)
+        self.assertEqual(page["offset"], 3)
+        self.assertEqual([line["content"] for line in page["lines"]], ["Slide 3", "Judul 3", "Isi slide 3"])
+        self.assertEqual(page["lines"][0]["line_number"], 4)
+        self.assertTrue(page["has_more"])
+
+    def test_unknown_slide_falls_back_to_the_offset(self):
+        page = self.content(offset=0, limit=2, slide=2)
+        self.assertEqual(page["offset"], 0)
+        self.assertEqual(page["lines"][0]["content"], "Slide 1")
+
+
+class PptxPublicLinkTests(unittest.TestCase):
+    def test_drive_pptx_is_downloaded_and_read(self):
+        from services.rag.public_link_search import PublicLinkSearchMixin
+
+        deck = Presentation()
+        slide = deck.slides.add_slide(deck.slide_layouts[6])
+        slide.shapes.add_textbox(Inches(1), Inches(1), Inches(6), Inches(1)).text_frame.text = LONG
+        buffer = io.BytesIO()
+        deck.save(buffer)
+
+        class FakeResponse:
+            url = "https://drive.google.com/uc?export=download&id=abc"
+            headers = {
+                "content-type": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                "content-disposition": 'attachment; filename="training"',
+            }
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, chunk_size):
+                yield buffer.getvalue()
+
+            def close(self):
+                pass
+
+        with patch("requests.get", return_value=FakeResponse()), \
+                patch("services.security.ssrf_guard.assert_public_url_safe"):
+            documents = PublicLinkSearchMixin()._load_public_link_documents([{
+                "link_id": "l1", "title": "Deck",
+                "items": [{"url": "https://drive.google.com/file/d/abc/view", "name": "training", "item_type": "file"}],
+            }])
+
+        self.assertEqual(len(documents), 1)
+        self.assertEqual(documents[0].metadata["source"], "training.pptx")
+        self.assertIn("Kebijakan perjalanan dinas", documents[0].page_content)
 
 if __name__ == "__main__":
     unittest.main()

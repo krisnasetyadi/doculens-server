@@ -216,7 +216,8 @@ def _pptx_picture_text(ocr, slide_number, picture, total, on_ocr_page):
     return ocr.read_picture(slide_number, blob)
 
 
-def _pptx_slide_text(slide, ocr=None, slide_number=0, total=0, on_ocr_page=None):
+def _pptx_slide_parts(slide, ocr=None, slide_number=0, total=0, on_ocr_page=None):
+    """The text pieces of one slide in reading order, speaker notes last."""
     from pptx.shapes.picture import Picture
     parts = []
     for shape in _pptx_shapes(slide.shapes):
@@ -227,8 +228,35 @@ def _pptx_slide_text(slide, ocr=None, slide_number=0, total=0, on_ocr_page=None)
         elif ocr and isinstance(shape, Picture):
             parts.append(_pptx_picture_text(ocr, slide_number, shape, total, on_ocr_page))
     if slide.has_notes_slide and slide.notes_slide.notes_text_frame is not None:
-        parts.append(slide.notes_slide.notes_text_frame.text)
-    return re.sub(r'\s+', ' ', " ".join(parts)).strip()
+        notes = slide.notes_slide.notes_text_frame.text.strip()
+        if notes:
+            parts.append(f"Speaker notes: {notes}")
+    return parts
+
+
+def _pptx_slide_text(slide, *args):
+    return re.sub(r'\s+', ' ', " ".join(_pptx_slide_parts(slide, *args))).strip()
+
+
+def pptx_preview_lines(pptx_path):
+    """A deck as lines for the text viewer: a "Slide N" line, then that
+    slide's text, for every visible slide. Pictures are not OCR'd here, so
+    opening a preview stays instant. Also returns the index of each slide's
+    "Slide N" line, so a source card can open the viewer at its slide."""
+    from pptx import Presentation
+    lines, slide_offsets = [], {}
+    for slide_number, slide in enumerate(Presentation(pptx_path).slides, 1):
+        if slide._element.get("show") == "0":
+            continue
+        slide_offsets[slide_number] = len(lines)
+        lines.append(f"Slide {slide_number}")
+        try:
+            parts = _pptx_slide_parts(slide)
+        except Exception as e:
+            logger.warning(f"Preview skipped slide {slide_number} of {pptx_path}: {str(e)}")
+            parts = []
+        lines.extend(line.strip() for part in parts for line in part.splitlines() if line.strip())
+    return lines, slide_offsets
 
 
 def extract_text_from_pptx(pptx_path, on_page=None, on_ocr_page=None, ocr_stats=None):
