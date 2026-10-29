@@ -184,6 +184,14 @@ class PreparePageTests(unittest.TestCase):
         self.assertGreater(int(cleaned[100, 201]), 200)
         self.assertLess(int(cleaned[44, 40]), 50)
 
+    def test_letter_strokes_stay_on_a_single_line_crop(self):
+        import numpy as np
+        from PIL import Image
+        line = Image.new("L", (780, 75), 255)
+        line.paste(0, (40, 10, 46, 65))  # the stem of a "k", most of the crop's height
+        cleaned = np.asarray(remove_ruling_lines(line))
+        self.assertLess(int(cleaned[40, 43]), 50)
+
     def test_small_tilt_is_straightened(self):
         import numpy as np
         page = _text_like()

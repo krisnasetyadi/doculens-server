@@ -99,10 +99,13 @@ def remove_ruling_lines(gray, fraction: float = 0.3):
     pixels = np.asarray(gray).copy()
     dark = pixels < 150
     height, width = pixels.shape
-    for row in np.flatnonzero(_longest_runs(dark) > fraction * width):
+    # Measured against the long side: a page trimmed to one line of text is
+    # barely taller than its letters, and their strokes are not rules.
+    limit = fraction * max(height, width)
+    for row in np.flatnonzero(_longest_runs(dark) > limit):
         band = slice(max(0, row - 1), row + 2)
         pixels[band, :][dark[band, :]] = 255
-    for col in np.flatnonzero(_longest_runs(dark.T) > fraction * height):
+    for col in np.flatnonzero(_longest_runs(dark.T) > limit):
         band = slice(max(0, col - 1), col + 2)
         pixels[:, band][dark[:, band]] = 255
     return Image.fromarray(pixels)
