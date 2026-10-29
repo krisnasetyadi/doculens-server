@@ -8,7 +8,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_community.vectorstores import FAISS # type: ignore
 from langchain_core.documents import Document
 from config import config
-from services.ingest.ocr import PdfOcr
+from services.ingest.ocr import PdfOcr, SlideOcr
 from services.ingest.progress import ProgressCallback
 
 logger = logging.getLogger(__name__)
@@ -183,9 +183,11 @@ def extract_text_from_txt(txt_path):
     return [{"text": text, "page": 1}] if text else None
 
 
-# MS-910: a slide with less text than this is joined by the slides after it
-# (cited as its first slide), so title-only slides still give the AI context.
-PPTX_MIN_SLIDE_CHARS = 200
+# MS-910: a slide with less text than this (a title or section divider) is
+# carried into the next slide and cited as that slide, so it still gives the
+# AI context; a short last slide joins the one before it. Kept low so slides
+# with real content keep their own slide number, as uploaded PDFs keep each page.
+PPTX_MIN_SLIDE_CHARS = 80
 
 
 def _pptx_shapes(shapes):
@@ -198,44 +200,75 @@ def _pptx_shapes(shapes):
             yield shape
 
 
-def _pptx_slide_text(slide):
+def _pptx_picture_text(ocr, slide_number, picture, total, on_ocr_page):
+    """OCR'd text of one slide picture; icons, logos and pictures that cannot
+    be loaded (linked, not embedded) give ""."""
+    try:
+        width, height = picture.image.size
+        blob = picture.image.blob
+    except Exception as e:
+        logger.warning(f"Skipping a picture on slide {slide_number}: {str(e)}")
+        return ""
+    if width * height < config.ocr_min_picture_pixels:
+        return ""
+    if on_ocr_page:
+        on_ocr_page(slide_number, total)
+    return ocr.read_picture(slide_number, blob)
+
+
+def _pptx_slide_text(slide, ocr=None, slide_number=0, total=0, on_ocr_page=None):
+    from pptx.shapes.picture import Picture
     parts = []
     for shape in _pptx_shapes(slide.shapes):
         if shape.has_text_frame:
             parts.append(shape.text_frame.text)
         elif shape.has_table:
             parts.extend(" | ".join(cell.text for cell in row.cells) for row in shape.table.rows)
+        elif ocr and isinstance(shape, Picture):
+            parts.append(_pptx_picture_text(ocr, slide_number, shape, total, on_ocr_page))
     if slide.has_notes_slide and slide.notes_slide.notes_text_frame is not None:
         parts.append(slide.notes_slide.notes_text_frame.text)
     return re.sub(r'\s+', ' ', " ".join(parts)).strip()
 
 
-def extract_text_from_pptx(pptx_path):
+def extract_text_from_pptx(pptx_path, on_page=None, on_ocr_page=None, ocr_stats=None):
     """Extract the text of every visible slide of a PowerPoint deck: text
-    boxes, shapes, tables, grouped shapes and speaker notes. The slide number
-    is the page number. A slide that cannot be read is skipped and the rest
-    of the deck is kept; hidden slides are left out."""
+    boxes, shapes, tables, grouped shapes, speaker notes, and the text inside
+    slide pictures (OCR, as for scanned PDF pages). The slide number is the
+    page number. A slide that cannot be read is skipped and the rest of the
+    deck is kept; hidden slides are left out. The callbacks and ocr_stats
+    work as in extract_text_from_pdf."""
     try:
         from pptx import Presentation
         deck = Presentation(pptx_path)
     except Exception as e:
         logger.error(f"Failed to open presentation {pptx_path}: {str(e)}")
         return None
-    pages_data = []
+    ocr = SlideOcr(pptx_path, ocr_stats)
+    total = len(deck.slides)
+    pages_data, carried, carried_from = [], "", None
     for slide_number, slide in enumerate(deck.slides, 1):
         if slide._element.get("show") == "0":
             continue
         try:
-            text = _pptx_slide_text(slide)
+            text = _pptx_slide_text(slide, ocr, slide_number, total, on_ocr_page)
         except Exception as e:
             logger.warning(f"Skipping slide {slide_number} of {pptx_path}: {str(e)}")
-            continue
+            text = ""
+        if on_page:
+            on_page(slide_number, total)
         if not text:
             continue
-        if pages_data and len(pages_data[-1]["text"]) < PPTX_MIN_SLIDE_CHARS:
-            pages_data[-1]["text"] += " " + text
-        else:
-            pages_data.append({"text": text, "page": slide_number})
+        text = f"{carried} {text}" if carried else text
+        if len(text) < PPTX_MIN_SLIDE_CHARS:
+            carried, carried_from = text, carried_from or slide_number
+            continue
+        pages_data.append({"text": text, "page": slide_number})
+        carried, carried_from = "", None
+    if carried and pages_data:
+        pages_data[-1]["text"] += " " + carried
+    elif carried:
+        pages_data.append({"text": carried, "page": carried_from})
     return pages_data if pages_data else None
 
 
@@ -309,8 +342,9 @@ def build_source_index(documents, embeddings, on_progress: ProgressCallback | No
 
 
 def _extract_pdf_with_progress(extract_text, pdf_path, file_index, file_count, on_progress, ocr_stats):
-    """Read one PDF, reporting per-page progress inside this file's share of
-    the reading band, and switching the stage to "ocr" on scanned pages."""
+    """Read one PDF (or .pptx deck, slide by slide), reporting per-page
+    progress inside this file's share of the reading band, and switching the
+    stage to "ocr" on scanned pages (or slides whose pictures are OCR'd)."""
     if not on_progress:
         return extract_text(pdf_path, ocr_stats=ocr_stats)
     scanned_page = []  # filled while the page being read is OCR'd
@@ -343,7 +377,7 @@ def process_pdfs(pdf_paths, collection_id, on_progress: ProgressCallback | None 
     for file_index, pdf_path in enumerate(pdf_paths):
         ext = os.path.splitext(pdf_path)[1].lower()
         extract_text = DOCUMENT_EXTRACTORS.get(ext, extract_text_from_pdf)
-        if ext == ".pdf":
+        if ext in (".pdf", ".pptx"):
             pages_data = _extract_pdf_with_progress(
                 extract_text, pdf_path, file_index, len(pdf_paths), on_progress, ocr_stats,
             )

@@ -301,6 +301,9 @@ class Config(BaseSettings):
     ocr_max_pages_per_file: int = Field(default=40)
     ocr_time_limit_seconds: int = Field(default=120)
     ocr_page_timeout_seconds: int = Field(default=30)
+    # MS-910: slide pictures smaller than this (width x height in pixels,
+    # 128 x 128 here) are icons and logos, so they are not OCR'd.
+    ocr_min_picture_pixels: int = Field(default=128 * 128)
 
     # MS-657: memory budget for loaded search indexes (FAISS vectors, their
     # chunk text, and the BM25 index built from it). Least recently used
