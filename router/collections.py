@@ -11,8 +11,10 @@ from models import (
     CollectionFilesResponse,
     CollectionFolderResponse,
     CollectionInfo,
+    CollectionReferenceFrameworkResponse,
     MoveToFolderRequest,
     SetPdfCollectionActiveRequest,
+    SetReferenceFrameworkRequest,
     StatusMessageResponse,
     TextContentResponse,
     UserRecord,
@@ -52,6 +54,16 @@ async def move_pdf_collection_to_folder(
     """Assign (or unassign, when folder_id is null) a PDF collection to a
     folder (MS-274). Owner-gated like every other pdf-collections mutation."""
     return await collection_service.move_to_folder(body, user)
+
+
+@router.post("/pdf-collections/reference-framework", response_model=CollectionReferenceFrameworkResponse)
+async def set_pdf_collection_reference_framework(
+    body: SetReferenceFrameworkRequest,
+    user: UserRecord = Depends(get_current_user),
+):
+    """Flag or unflag a PDF collection as a reference framework, the documents
+    Gap Check offers as its reference (MS-848). Owner-gated."""
+    return await collection_service.set_reference_framework(body, user)
 
 
 @router.delete("/pdf-collections/{collection_id}", response_model=StatusMessageResponse)

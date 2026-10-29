@@ -150,6 +150,11 @@ def ensure():
                     ADD COLUMN IF NOT EXISTS folder_id TEXT
                         REFERENCES folders(folder_id) ON DELETE SET NULL;
                 CREATE INDEX IF NOT EXISTS idx_collections_folder ON collections (folder_id);
+                -- MS-848: a document the user flagged in Sources as a reference
+                -- framework (a standard to check against). Only flagged ones
+                -- are offered as the reference in Gap Check.
+                ALTER TABLE collections
+                    ADD COLUMN IF NOT EXISTS is_reference_framework BOOLEAN NOT NULL DEFAULT false;
 
                 CREATE TABLE IF NOT EXISTS chat_sessions (
                     id               BIGSERIAL PRIMARY KEY,

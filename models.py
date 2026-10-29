@@ -307,11 +307,18 @@ class CollectionInfo(BaseModel):
     status: str = "active"
     owner_id: Optional[str] = None
     folder_id: Optional[str] = None
+    is_reference_framework: bool = False
 
 
 class SetPdfCollectionActiveRequest(BaseModel):
     collection_id: str
     active: bool
+
+
+class SetReferenceFrameworkRequest(BaseModel):
+    """MS-848: flag a document in Sources as a reference framework for Gap Check."""
+    collection_id: str
+    is_reference_framework: bool
 
 
 # ===================== SOURCE FOLDERS (MS-274) =====================
@@ -1012,6 +1019,12 @@ class CollectionFolderResponse(BaseModel):
     status: str
     collection_id: str
     folder_id: Optional[str] = None
+
+
+class CollectionReferenceFrameworkResponse(BaseModel):
+    status: str
+    collection_id: str
+    is_reference_framework: bool
 
 
 class StatusMessageResponse(BaseModel):
