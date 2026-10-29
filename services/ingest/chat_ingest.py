@@ -34,12 +34,15 @@ async def ingest_chat_messages(
     on_progress: ProgressCallback | None = None,
     owner_id: Optional[str] = None,
     size_bytes: int = 0,
+    replace_size: bool = False,
 ) -> ChatCollection:
     """Chunk, embed, index, and register a set of parsed chat messages as a ChatCollection.
 
     `raw_file_path`, when given, is the original export file on disk (WhatsApp
     upload) and gets uploaded to Supabase Storage alongside the index. Telegram
     sync passes a generated text transcript so its messages can be previewed.
+    `replace_size` lets a collection rebuilt under the same id (a Telegram
+    re-sync) take a smaller size than before.
     """
     if not messages:
         raise ValueError("No messages to ingest")
@@ -108,6 +111,7 @@ async def ingest_chat_messages(
                 storage_paths=storage_paths,
                 owner_id=owner_id,
                 size_bytes=size_bytes,
+                replace_size=replace_size,
             )
             logger.info("Chat collection registered in the database: %s", collection_id)
         except Exception as exc:

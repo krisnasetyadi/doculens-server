@@ -27,6 +27,8 @@ from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError
 import db
 from schema import telegram as schema_telegram
 from services.storage import supabase as storage
+from services.storage import limits as storage_limits
+from services.storage.limits import StorageLimits
 from services.security import telegram_crypto
 from config import config
 from models import UserRecord
@@ -64,9 +66,9 @@ class MessageMediaPhoto:
     pass
 
 
-def message(msg_id, text, sender_id, minute, out=False, media=None):
+def message(msg_id, text, sender_id, minute, out=False, media=None, date=None):
     return SimpleNamespace(id=msg_id, text=text, message=text, sender_id=sender_id, out=out, media=media,
-                           date=datetime(2026, 1, 1, 9, minute))
+                           date=date or datetime(2026, 1, 1, 9, minute))
 
 
 class FakeTelegram:
@@ -85,6 +87,7 @@ class FakeTelegram:
         self.log_outs = 0
         self.log_out_error = None
         self.dialogs = []
+        self.dialogs_limit = "never asked"
         self.entities = {}
         self.participants = {}
         self.messages = {}
@@ -123,7 +126,8 @@ class FakeTelegram:
             async def is_user_authorized(self):
                 return account.authorized
 
-            async def get_dialogs(self, limit):
+            async def get_dialogs(self, limit=None):
+                account.dialogs_limit = limit
                 return account.dialogs
 
             async def get_entity(self, dialog_id):
@@ -202,6 +206,7 @@ class TelegramTestCase(IsolatedSchemaTestCase):
         self.chat_dir = directory / "chat_upload_folder"
         self.stack.enter_context(patch.object(telegram_service, "_pending_logins", {}))
         self.sql("DELETE FROM telegram_connections")
+        self.sql("DELETE FROM collections")  # the schema lives for the whole class; leftovers would count as used storage
         self.role = "admin"
 
     @property
@@ -438,6 +443,13 @@ class DialogsTest(TelegramTestCase):
         self.assertTrue(self.account.clients[-1].disconnected)
         self.assertEqual(self.account.clients[-1].saved_session, "SESSION-STRING")
 
+    def test_every_chat_is_listed_not_only_the_recent_ones(self):
+        connection_id = self.connect()["connection_id"]
+        self.account.dialogs = [SimpleNamespace(id=i, name=f"Chat {i}", entity=User(id=i)) for i in range(1, 451)]
+        body = self.http.get(f"/api/v1/telegram-connections/{connection_id}/dialogs").json()
+        self.assertEqual((body["count"], len(body["dialogs"])), (450, 450))
+        self.assertIsNone(self.account.dialogs_limit)  # Telegram was asked for all of them
+
     def test_unknown_expired_and_undecryptable_connections(self):
         self.assertEqual(self.http.get("/api/v1/telegram-connections/nope/dialogs").status_code, 404)
         connection_id = self.connect()["connection_id"]
@@ -551,6 +563,358 @@ class SyncTest(TelegramTestCase):
         self.assertEqual(self.chat_rows(collection_id), [])
 
 
+class FakeS3:
+    """Supabase Storage as the S3 client sees it: two buckets of keys."""
+
+    def __init__(self, **buckets):
+        self.objects = {name.replace("_", "-"): list(keys) for name, keys in buckets.items()}
+
+    def list_objects_v2(self, Bucket, Prefix):
+        return {"Contents": [{"Key": key} for key in self.objects[Bucket] if key.startswith(Prefix)]}
+
+    def delete_object(self, Bucket, Key):
+        self.objects[Bucket].remove(Key)
+
+
+class RemoveChatTest(TelegramTestCase):
+    """MS-912: removing one chat keeps the connection and every other chat."""
+
+    def setUp(self):
+        super().setUp()
+        self.connection_id = self.connect()["connection_id"]
+        for dialog_id, title in ((-20, "Ops"), (-21, "Sales")):
+            self.account.entities[dialog_id] = Chat(id=dialog_id, title=title)
+            self.account.messages[dialog_id] = [message(1, f"hello {title}", 2, 0), message(2, "second", 2, 1)]
+        self.collections = {d: self.sync(d) for d in ("-20", "-21")}
+
+    def sync(self, dialog_id):
+        resp = self.http.post(f"/api/v1/telegram-connections/{self.connection_id}/sync", json={"dialog_ids": [dialog_id]})
+        return resp.json()["results"][0]["chat_collection_id"]
+
+    def remove(self, dialog_id, connection_id=None):
+        return self.http.delete(f"/api/v1/telegram-connections/{connection_id or self.connection_id}/chats/{dialog_id}")
+
+    def chat_rows(self, collection_id):
+        return self.sql("SELECT collection_id FROM collections WHERE collection_id = %s AND kind = 'chat'", (collection_id,))
+
+    def test_one_chat_goes_with_its_data_and_the_rest_stays(self):
+        gone, kept = self.collections["-20"], self.collections["-21"]
+        processor.vector_store_cache[f"chat_{gone}"] = "cached"
+        resp = self.remove("-20")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(resp.json(), {"status": "success", "message": "Telegram chat removed",
+                                       "connection_id": self.connection_id, "dialog_id": "-20"})
+        self.assertEqual(self.chat_rows(gone), [])
+        self.assertFalse((self.chat_dir / gone).exists())
+        self.assertNotIn(f"chat_{gone}", processor.vector_store_cache)
+        self.assertEqual([r["dialog_id"] for r in self.sql("SELECT dialog_id FROM telegram_selected_chats")], ["-21"])
+        # the other chat and the connection are untouched
+        self.assertEqual(len(self.chat_rows(kept)), 1)
+        self.assertTrue((self.chat_dir / kept).exists())
+        self.assertEqual(len(self.sql("SELECT * FROM telegram_connections")), 1)
+        self.assertEqual(self.account.log_outs, 0)
+        listed = self.http.get("/api/v1/telegram-connections").json()["connections"][0]["selected_chats"]
+        self.assertEqual([c["dialog_id"] for c in listed], ["-21"])
+
+    def test_the_transcript_and_index_are_deleted_from_storage(self):
+        gone, kept = self.collections["-20"], self.collections["-21"]
+        s3 = FakeS3(
+            chat_uploads=[f"{gone}/telegram-Ops.txt", f"{kept}/telegram-Sales.txt"],
+            chat_indices=[f"{gone}/index.faiss", f"{gone}/index.pkl", f"{kept}/index.faiss"],
+        )
+        with patch.object(storage, "_s3_client", lambda: s3):
+            self.assertEqual(self.remove("-20").status_code, 200)
+        self.assertEqual(s3.objects, {"chat-uploads": [f"{kept}/telegram-Sales.txt"],
+                                      "chat-indices": [f"{kept}/index.faiss"]})
+
+    def test_an_unknown_chat_or_connection_is_not_found(self):
+        self.assertEqual(self.remove("-99").status_code, 404)
+        self.assertEqual(self.remove("-20", connection_id="nope").status_code, 404)
+        self.assertEqual(self.remove("-20").status_code, 200)
+        self.assertEqual(self.remove("-20").status_code, 404)  # already removed
+
+    def test_a_chat_that_cannot_be_deleted_is_kept_and_can_be_retried(self):
+        collection_id = self.collections["-20"]
+        with patch.object(telegram_service.chat_service, "delete_chat_collection", side_effect=RuntimeError("storage down")):
+            resp = self.remove("-20")
+        self.assertEqual(resp.status_code, 500)
+        self.assertIn("chat was kept", resp.json()["detail"])
+        self.assertEqual(len(self.sql("SELECT * FROM telegram_selected_chats")), 2)
+        self.assertEqual(len(self.chat_rows(collection_id)), 1)
+        self.assertEqual(self.remove("-20").status_code, 200)
+        self.assertEqual(self.chat_rows(collection_id), [])
+
+    def test_data_that_is_already_gone_does_not_block_the_removal(self):
+        collection_id = self.collections["-20"]
+        asyncio.run(telegram_service.chat_service.delete_chat_collection(collection_id))
+        self.assertEqual(self.remove("-20").status_code, 200)
+        self.assertEqual([r["dialog_id"] for r in self.sql("SELECT dialog_id FROM telegram_selected_chats")], ["-21"])
+
+    def test_a_chat_with_no_collection_is_just_a_row(self):
+        self.sql("""INSERT INTO telegram_selected_chats (connection_id, dialog_id, dialog_title, dialog_type)
+                    VALUES (%s, '-30', 'Picked', 'group')""", (self.connection_id,))
+        self.assertEqual(self.remove("-30").status_code, 200)
+        self.assertEqual(len(self.sql("SELECT * FROM telegram_selected_chats")), 2)
+
+    def test_admin_only(self):
+        self.role = "user"
+        self.assertEqual(self.remove("-20").status_code, 403)
+        self.assertEqual(len(self.sql("SELECT * FROM telegram_selected_chats")), 2)
+
+    def test_deleting_the_connection_removes_the_rest(self):
+        self.assertEqual(self.remove("-20").status_code, 200)
+        self.assertEqual(self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}").status_code, 200)
+        for collection_id in self.collections.values():
+            self.assertEqual(self.chat_rows(collection_id), [])
+            self.assertFalse((self.chat_dir / collection_id).exists())
+
+
+class RangedChatCase(TelegramTestCase):
+    """One group chat whose messages are 7 days, 52 days, 120 days and 2 years old."""
+
+    NOW = datetime(2026, 6, 1, 12, 0)
+
+    def setUp(self):
+        super().setUp()
+        self.stack.enter_context(patch.object(telegram_service, "_utcnow", lambda: self.NOW))
+        self.connection_id = self.connect()["connection_id"]
+        self.account.entities[-20] = Chat(id=-20, title="Ops")
+        self.account.participants[-20] = [User(id=2, first_name="Budi", last_name=None, username=None)]
+        self.account.messages[-20] = [  # newest first, 7 days, 52 days, 120 days and 2 years old
+            message(4, "this week", 2, 0, date=datetime(2026, 5, 25, 10, 0)),
+            message(3, "in april", 2, 0, date=datetime(2026, 4, 10, 10, 0)),
+            message(2, "in february", 2, 0, date=datetime(2026, 2, 1, 10, 0)),
+            message(1, "long ago", 2, 0, date=datetime(2024, 6, 1, 10, 0)),
+        ]
+
+    def sync(self, ranges=None):
+        body = {"dialog_ids": ["-20"], **({"ranges": ranges} if ranges is not None else {})}
+        return self.http.post(f"/api/v1/telegram-connections/{self.connection_id}/sync", json=body)
+
+    def stored(self):
+        return self.sql("SELECT * FROM telegram_selected_chats")[0]
+
+    def transcript(self, collection_id):
+        return (self.chat_dir / collection_id / "telegram-Ops.txt").read_text(encoding="utf-8").splitlines()
+
+
+class HistoryRangeTest(RangedChatCase):
+    """MS-912: how far back a chat is kept."""
+
+    def test_each_range_keeps_only_messages_inside_it(self):
+        for history_range, kept in (("1m", 1), ("3m", 2), ("1y", 3), ("all", 4)):
+            result = self.sync({"-20": history_range}).json()["results"][0]
+            self.assertEqual((history_range, result["status"], result["message_count"]), (history_range, "success", kept))
+            self.assertEqual(self.stored()["history_range"], history_range)
+            self.assertEqual(len(self.transcript(result["chat_collection_id"])), kept)
+
+    def test_a_chat_without_a_range_keeps_everything(self):
+        result = self.sync().json()["results"][0]
+        self.assertEqual(result["message_count"], 4)
+        self.assertEqual(self.stored()["history_range"], "all")
+
+    def test_later_syncs_keep_the_range_and_drop_older_messages(self):
+        first = self.sync({"-20": "all"}).json()["results"][0]
+        collection_id = first["chat_collection_id"]
+        self.assertEqual(first["message_count"], 4)
+
+        self.assertEqual(self.sync({"-20": "3m"}).json()["results"][0]["message_count"], 2)
+        # the next sync names no range: the saved one applies
+        again = self.sync().json()["results"][0]
+        self.assertEqual((again["chat_collection_id"], again["message_count"]), (collection_id, 2))
+        self.assertEqual(self.stored()["history_range"], "3m")
+        self.assertEqual([line.split(": ", 1)[1] for line in self.transcript(collection_id)], ["in april", "this week"])
+        self.assertEqual(self.stored()["message_count"], 2)
+
+        # a longer range brings the older messages back
+        self.assertEqual(self.sync({"-20": "1y"}).json()["results"][0]["message_count"], 3)
+
+    def test_a_range_with_no_messages_leaves_the_chat_as_it_was(self):
+        self.account.messages[-20] = [message(1, "long ago", 2, 0, date=datetime(2024, 6, 1, 10, 0))]
+        collection_id = self.sync({"-20": "all"}).json()["results"][0]["chat_collection_id"]
+
+        result = self.sync({"-20": "1m"}).json()["results"][0]
+        self.assertEqual((result["status"], result["error"]), ("error", "No messages with text or media in the last month"))
+        self.assertEqual((self.stored()["history_range"], self.stored()["message_count"]), ("all", 1))
+        self.assertEqual(len(self.transcript(collection_id)), 1)
+
+    def test_an_unknown_range_is_refused(self):
+        self.assertEqual(self.sync({"-20": "2w"}).status_code, 422)
+
+    def change_range(self, history_range, dialog_id="-20", connection_id=None):
+        return self.http.patch(
+            f"/api/v1/telegram-connections/{connection_id or self.connection_id}/chats/{dialog_id}",
+            json={"history_range": history_range},
+        )
+
+    def test_changing_the_range_saves_it_and_the_next_sync_applies_it(self):
+        collection_id = self.sync({"-20": "all"}).json()["results"][0]["chat_collection_id"]
+        resp = self.change_range("1m")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        saved = resp.json()
+        self.assertEqual((saved["dialog_id"], saved["history_range"], saved["message_count"]), ("-20", "1m", 4))
+        # nothing stored is touched until the chat is synced again
+        self.assertEqual((self.stored()["history_range"], self.stored()["message_count"]), ("1m", 4))
+        self.assertEqual(len(self.transcript(collection_id)), 4)
+
+        result = self.sync().json()["results"][0]
+        self.assertEqual((result["status"], result["message_count"]), ("success", 1))
+        self.assertEqual(len(self.transcript(collection_id)), 1)
+
+    def test_changing_the_range_of_an_unknown_chat_or_with_a_bad_value_fails(self):
+        self.sync({"-20": "all"})
+        self.assertEqual(self.change_range("1m", dialog_id="-99").status_code, 404)
+        self.assertEqual(self.change_range("1m", connection_id="nope").status_code, 404)
+        self.assertEqual(self.change_range("2w").status_code, 422)
+        self.assertEqual(self.change_range("").status_code, 422)
+        self.assertEqual(self.stored()["history_range"], "all")
+
+    def test_changing_the_range_is_admin_only(self):
+        self.sync({"-20": "all"})
+        self.role = "user"
+        self.assertEqual(self.change_range("1m").status_code, 403)
+        self.assertEqual(self.stored()["history_range"], "all")
+
+    def test_the_range_is_listed_with_each_chat(self):
+        self.sync({"-20": "3m"})
+        chat = self.http.get("/api/v1/telegram-connections").json()["connections"][0]["selected_chats"][0]
+        self.assertEqual((chat["history_range"], chat["message_count"]), ("3m", 2))
+
+    def test_chats_saved_before_ranges_existed_keep_everything(self):
+        self.sync({"-20": "all"})
+        self.sql("ALTER TABLE telegram_selected_chats DROP COLUMN history_range")
+        for _ in range(2):  # every startup runs it; the second run must change nothing
+            conn = db.get_conn("test")
+            try:
+                with patch.object(schema_telegram, "_tables_ensured", False):
+                    schema_telegram.ensure(conn)
+            finally:
+                conn.close()
+            self.assertEqual(self.stored()["history_range"], "all")
+        self.assertEqual(
+            self.http.get("/api/v1/telegram-connections").json()["connections"][0]["selected_chats"][0]["history_range"],
+            "all",
+        )
+
+
+class QuotaTest(RangedChatCase):
+    """MS-912: synced Telegram messages count toward the workspace storage quota."""
+
+    def set_limits(self, storage=10 ** 9, max_file=10 ** 9):
+        limits = StorageLimits(plan_name="Test", storage_limit_bytes=storage, max_file_bytes=max_file, max_batch_files=3)
+        self.stack.enter_context(patch.object(telegram_service, "resolve_storage_limits", lambda user: (limits, "admin-1")))
+        return limits
+
+    def used(self):
+        conn = db.get_conn("test")
+        try:
+            return storage_limits.get_used_bytes(conn, "admin-1")
+        finally:
+            conn.close()
+
+    def collection(self, collection_id):
+        return self.sql("SELECT owner_id, size_bytes FROM collections WHERE collection_id = %s", (collection_id,))[0]
+
+    def transcript_size(self, collection_id):
+        return (self.chat_dir / collection_id / "telegram-Ops.txt").stat().st_size
+
+    def test_a_synced_chat_is_owned_by_the_admin_and_counted_by_size(self):
+        self.set_limits()
+        collection_id = self.sync({"-20": "all"}).json()["results"][0]["chat_collection_id"]
+        row = self.collection(collection_id)
+        self.assertEqual(row["owner_id"], "admin-1")
+        self.assertGreater(row["size_bytes"], 0)
+        self.assertEqual(row["size_bytes"], self.transcript_size(collection_id))
+        self.assertEqual(self.used(), row["size_bytes"])
+
+    def test_a_sync_that_does_not_fit_is_refused_with_the_upload_message(self):
+        self.set_limits()
+        size = self.collection(self.sync({"-20": "all"}).json()["results"][0]["chat_collection_id"])["size_bytes"]
+        self.sql("DELETE FROM telegram_selected_chats")
+        self.sql("DELETE FROM collections")
+
+        self.set_limits(storage=size - 1)
+        result = self.sync({"-20": "all"}).json()["results"][0]
+        self.assertEqual((result["status"], result["error"]), ("error", storage_limits.quota_exceeded_error().detail))
+        self.assertEqual(result["title"], "Ops")  # the chat's name, not its id, so the refusal says which chat
+        self.assertEqual(self.sql("SELECT * FROM collections"), [])
+        self.assertEqual(self.sql("SELECT * FROM telegram_selected_chats"), [])
+        self.assertEqual([p.name for p in self.chat_dir.iterdir() if p.name.startswith(".")], [])  # no staged file left
+
+    def test_one_chat_over_the_quota_does_not_stop_the_others(self):
+        self.account.entities[-21] = Chat(id=-21, title="Hr")
+        self.account.participants[-21] = self.account.participants[-20]
+        self.account.messages[-21] = self.account.messages[-20]
+        self.set_limits()
+        size = self.collection(self.sync({"-20": "all"}).json()["results"][0]["chat_collection_id"])["size_bytes"]
+        self.sql("DELETE FROM telegram_selected_chats")
+        self.sql("DELETE FROM collections")
+
+        self.set_limits(storage=size + size // 2)  # room for one of the two
+        resp = self.http.post(f"/api/v1/telegram-connections/{self.connection_id}/sync",
+                              json={"dialog_ids": ["-20", "-21"], "ranges": {"-20": "all", "-21": "all"}})
+        results = resp.json()["results"]
+        self.assertEqual([(r["dialog_id"], r["status"]) for r in results], [("-20", "success"), ("-21", "error")])
+        self.assertEqual(results[1]["error"], storage_limits.quota_exceeded_error().detail)
+        self.assertEqual(self.used(), size)
+
+    def test_a_transcript_over_the_file_limit_gets_the_upload_message(self):
+        limits = self.set_limits(max_file=10)
+        result = self.sync({"-20": "all"}).json()["results"][0]
+        self.assertEqual((result["status"], result["error"]), ("error", storage_limits.file_too_large_error(limits).detail))
+        self.assertEqual(self.sql("SELECT * FROM collections"), [])
+
+    def test_a_resync_is_not_counted_twice_and_a_shorter_range_frees_space(self):
+        self.set_limits()
+        collection_id = self.sync({"-20": "all"}).json()["results"][0]["chat_collection_id"]
+        full = self.collection(collection_id)["size_bytes"]
+
+        self.set_limits(storage=full)  # exactly what the chat already uses
+        self.assertEqual(self.sync().json()["results"][0]["status"], "success")
+        self.assertEqual(self.used(), full)
+
+        self.assertEqual(self.sync({"-20": "1m"}).json()["results"][0]["status"], "success")
+        shorter = self.collection(collection_id)["size_bytes"]
+        self.assertLess(shorter, full)
+        self.assertEqual(self.used(), shorter)  # the smaller size replaced the old one
+
+        # the space it freed is real: the whole history fits again, nothing more does
+        self.assertEqual(self.sync({"-20": "all"}).json()["results"][0]["status"], "success")
+        self.assertEqual(self.used(), full)
+
+    def test_a_sync_that_does_not_grow_the_chat_goes_through_when_the_workspace_is_over_its_limit(self):
+        self.set_limits()
+        self.sync({"-20": "all"})
+        self.set_limits(storage=1)  # the workspace now holds more than its plan allows, e.g. after a downgrade
+
+        shorter = self.sync({"-20": "1m"}).json()["results"][0]
+        self.assertEqual(shorter["status"], "success")  # shrinking a chat is how the user gets back under the limit
+        self.assertEqual(self.sync().json()["results"][0]["status"], "success")  # so is syncing it again unchanged
+        longer = self.sync({"-20": "all"}).json()["results"][0]
+        self.assertEqual((longer["status"], longer["error"]), ("error", storage_limits.quota_exceeded_error().detail))
+
+    def test_a_chat_synced_before_the_quota_counts_from_its_next_sync(self):
+        self.set_limits()
+        collection_id = self.sync({"-20": "all"}).json()["results"][0]["chat_collection_id"]
+        self.sql("UPDATE collections SET owner_id = NULL, size_bytes = 0")  # how such a chat was stored
+        self.assertEqual(self.used(), 0)
+        self.sync()
+        self.assertEqual(self.collection(collection_id)["owner_id"], "admin-1")
+        self.assertEqual(self.used(), self.transcript_size(collection_id))
+
+    def test_an_uploaded_chat_keeps_the_larger_size_when_registered_again(self):
+        # Uploads never replace a size; only the Telegram sync asks for that.
+        conn_args = dict(collection_id="up-1", file_name="chat.txt", platform="whatsapp", message_count=3,
+                         participants=[], date_range=None, owner_id="admin-1")
+        storage.register_chat_collection(size_bytes=500, **conn_args)
+        storage.register_chat_collection(size_bytes=200, **conn_args)
+        self.assertEqual(self.collection("up-1")["size_bytes"], 500)
+        storage.register_chat_collection(size_bytes=200, replace_size=True, **conn_args)
+        self.assertEqual(self.collection("up-1")["size_bytes"], 200)
+        self.assertEqual(storage.get_chat_collection_size("up-1"), 200)
+        self.assertEqual(storage.get_chat_collection_size("missing"), 0)
+
+
 class PhoneMigrationTest(TelegramTestCase):
     def test_numbers_saved_before_masking_are_masked_once(self):
         phones = [PHONE, " +62 812 ", "12345", "+1234567", "5", ""]
@@ -585,6 +949,13 @@ class HelperTest(unittest.TestCase):
         for phone in ("12345", "1234567", PHONE):
             masked = telegram_service._mask_phone(phone)
             self.assertEqual(telegram_service._mask_phone(masked), masked)
+
+    def test_range_cutoffs(self):
+        now = datetime(2026, 6, 1, 12, 0)
+        self.assertEqual(telegram_service._range_cutoff("1m", now), now - timedelta(days=30))
+        self.assertEqual(telegram_service._range_cutoff("3m", now), now - timedelta(days=90))
+        self.assertEqual(telegram_service._range_cutoff("1y", now), now - timedelta(days=365))
+        self.assertIsNone(telegram_service._range_cutoff("all", now))
 
     def test_transcript_names(self):
         self.assertEqual(telegram_service._telegram_transcript_name("  ...  ", 42), "telegram-42.txt")

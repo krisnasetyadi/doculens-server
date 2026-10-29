@@ -46,7 +46,9 @@ Every domain gets exactly ONE base path — list/create/delete/activate/upload/e
 
 /api/v1/telegram-connections        GET (list) + connect/start, connect/verify,
                                      connect/qr/start, connect/qr/status, connect/qr/cancel,
-                                     {id}/dialogs, {id}/sync, activate, {id} DELETE
+                                     {id}/dialogs, {id}/sync, activate, {id} DELETE,
+                                     {id}/chats/{dialog_id} DELETE (remove one synced chat)
+                                     + PATCH (history range)
                                      — router/telegram.py
 
 /api/v1/public-links                GET/POST (list/create) + activate, {id} DELETE

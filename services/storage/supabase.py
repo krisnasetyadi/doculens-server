@@ -974,7 +974,11 @@ def register_chat_collection(
     storage_paths: Optional[List[str]] = None,
     owner_id: Optional[str] = None,
     size_bytes: int = 0,
+    replace_size: bool = False,
 ) -> bool:
+    """`replace_size`: a collection rebuilt under the same id (a Telegram re-sync
+    with a shorter range) takes the new size, which may be smaller. Otherwise the
+    larger of the old and new size stays."""
     conn = db.get_conn("storage")
     if not conn:
         return False
@@ -984,9 +988,10 @@ def register_chat_collection(
         "date_range": date_range,
         "keywords": keywords or [],
     }
+    size_on_conflict = "EXCLUDED.size_bytes" if replace_size else "GREATEST(EXCLUDED.size_bytes, collections.size_bytes)"
     try:
         with conn.cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 INSERT INTO collections
                     (collection_id, kind, file_names, item_count, storage_paths, metadata, owner_id, size_bytes)
                 VALUES (%s, 'chat', %s, %s, %s, %s, %s, %s)
@@ -996,7 +1001,7 @@ def register_chat_collection(
                     storage_paths = EXCLUDED.storage_paths,
                     metadata      = EXCLUDED.metadata,
                     owner_id      = COALESCE(EXCLUDED.owner_id, collections.owner_id),
-                    size_bytes    = GREATEST(EXCLUDED.size_bytes, collections.size_bytes),
+                    size_bytes    = {size_on_conflict},
                     updated_at    = now()
             """, (
                 collection_id, [file_name], message_count,
@@ -1009,6 +1014,27 @@ def register_chat_collection(
     except Exception as e:
         logger.warning("register_chat_collection failed: %s", e)
         return False
+    finally:
+        conn.close()
+
+
+def get_chat_collection_size(collection_id: str) -> int:
+    """Bytes a chat collection counts for in the storage quota; 0 when it has no
+    row yet or the database is unreachable."""
+    conn = db.get_conn("storage")
+    if not conn:
+        return 0
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT size_bytes FROM collections WHERE collection_id = %s AND kind = 'chat'",
+                (collection_id,),
+            )
+            row = cur.fetchone()
+        return int(row["size_bytes"] or 0) if row else 0
+    except Exception as e:
+        logger.warning("get_chat_collection_size failed: %s", e)
+        return 0
     finally:
         conn.close()
 

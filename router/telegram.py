@@ -9,6 +9,8 @@ from fastapi import APIRouter, Depends
 
 from models import (
     ConnectionActiveResponse,
+    TelegramChatRangeRequest,
+    TelegramChatRemovedResponse,
     ConnectionDeletedResponse,
     SetTelegramConnectionActiveRequest,
     TelegramConnectStartRequest,
@@ -20,6 +22,7 @@ from models import (
     TelegramQrCancelRequest,
     TelegramQrLoginState,
     TelegramQrStartRequest,
+    TelegramSelectedChat,
     TelegramSyncRequest,
     TelegramSyncResponse,
     UserRecord,
@@ -87,9 +90,9 @@ async def list_telegram_dialogs(
 async def sync_telegram_connection(
     connection_id: str,
     body: TelegramSyncRequest,
-    _: UserRecord = Depends(require_role("admin")),
+    user: UserRecord = Depends(require_role("admin")),
 ):
-    return await telegram_service.sync_connection(connection_id, body)
+    return await telegram_service.sync_connection(connection_id, body, user)
 
 
 @router.post("/telegram-connections/activate", response_model=ConnectionActiveResponse)
@@ -98,6 +101,34 @@ async def set_telegram_connection_active(
     _: UserRecord = Depends(require_role("admin")),
 ):
     return await telegram_service.set_connection_active(body)
+
+
+@router.patch(
+    "/telegram-connections/{connection_id}/chats/{dialog_id}",
+    response_model=TelegramSelectedChat,
+)
+async def set_telegram_chat_range(
+    connection_id: str,
+    dialog_id: str,
+    body: TelegramChatRangeRequest,
+    _: UserRecord = Depends(require_role("admin")),
+):
+    """Save how far back one synced chat is kept (MS-912). The next sync applies it."""
+    return await telegram_service.set_chat_range(connection_id, dialog_id, body)
+
+
+@router.delete(
+    "/telegram-connections/{connection_id}/chats/{dialog_id}",
+    response_model=TelegramChatRemovedResponse,
+)
+async def remove_telegram_chat(
+    connection_id: str,
+    dialog_id: str,
+    _: UserRecord = Depends(require_role("admin")),
+):
+    """Remove one synced chat and everything stored for it (MS-912), keeping the
+    connection. The chat in Telegram is not touched."""
+    return await telegram_service.remove_chat(connection_id, dialog_id)
 
 
 @router.delete("/telegram-connections/{connection_id}", response_model=ConnectionDeletedResponse)
