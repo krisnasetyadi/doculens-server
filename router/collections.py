@@ -2,7 +2,7 @@
 """PDF collection endpoints. Each route reads the request and calls
 services/collections.py, where the storage lookups and file handling live."""
 
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 
@@ -97,13 +97,16 @@ async def get_pdf_text_content(
     file_name: str,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=500),
+    slide: Optional[int] = Query(default=None, ge=1),
     user: UserRecord = Depends(get_current_user),
 ):
-    """Paginated plain-text content for a .txt document source (kind='pdf'),
-    read line by line, for the formatted text viewer (MS-415). Read-only —
-    never writes to the stored file.
+    """Paginated plain-text content for a .txt or .pptx document source
+    (kind='pdf'), read line by line, for the formatted text viewer (MS-415).
+    A .pptx is shown slide by slide, each slide opening with a "Slide N"
+    line; `slide` starts the page at that line instead of `offset` (MS-910).
+    Read-only — never writes to the stored file.
     """
-    return await collection_service.get_text_content(collection_id, file_name, offset, limit, user)
+    return await collection_service.get_text_content(collection_id, file_name, offset, limit, user, slide)
 
 
 @router.get("/collection/{collection_id}/files", response_model=CollectionFilesResponse, response_model_exclude_unset=True)

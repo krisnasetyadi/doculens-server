@@ -1,8 +1,9 @@
 # Golden question set
 
-A fixed set of 31 questions, each with its expected answer and the file (and
+A fixed set of 34 questions, each with its expected answer and the file (and
 page) it is on, used to measure retrieval before and after a change. Added
-for MS-908 (OCR for scanned PDFs); meant to be reused for later retrieval
+for MS-908 (OCR for scanned PDFs), with PowerPoint questions added for MS-910;
+meant to be reused for later retrieval
 work such as a reranker.
 
 ## Run it
@@ -25,8 +26,9 @@ A run takes about a minute, most of it loading the embedding model.
 1. `fixtures.py` generates the sources, so the text of every page is known:
    digital PDFs, scanned PDFs (image-only pages with shadow, a 90 degree
    rotation, tilt plus stamp, noise, low contrast, a small photo on an empty
-   page), a mixed PDF, DOCX, XLSX (two sheets), CSV and a WhatsApp export,
-   in Bahasa Indonesia and English.
+   page), a mixed PDF, DOCX, XLSX (two sheets), CSV, a WhatsApp export and a
+   PowerPoint deck (a title slide, slide text, speaker notes, and a slide whose
+   answer is only inside a picture), in Bahasa Indonesia and English.
 2. Each source is indexed with the app's own ingestion (`process_pdfs`, the
    chat ingest) into temporary folders.
 3. Each question in `questions.json` is searched with the app's own retrieval
@@ -62,10 +64,23 @@ Scanned-PDF questions went from unanswerable (the file is rejected, or the
 scanned page is missing from a mixed PDF) to ranked first; no other question
 changed. OCR read 100% of the words on all 7 scanned pages.
 
+## Results for MS-910
+
+Added 3 questions on `pelatihan-k3-gudang.pptx`. The other 31 rows did not change.
+
+| type | n | hit@1 OCR off | hit@1 OCR on | context OCR off | context OCR on |
+|---|---|---|---|---|---|
+| pptx (slide text, speaker notes) | 2 | 2/2 | 2/2 | 2/2 | 2/2 |
+| pptx picture | 1 | 0/1 | 1/1 | 0/1 | 1/1 |
+| total | 34 | 24/34 | 34/34 | 24/34 | 34/34 |
+
+The picture question is only answerable once slide pictures are OCR'd; OCR
+read 100% of the words on that slide.
+
 ## Limits
 
 - The set is small and every source is synthetic, so retrieval is easy:
-  questions reuse words from their page and there are only 10 sources. It
+  questions reuse words from their page and there are only 11 sources. It
   shows whether text reaches the index, not how good ranking is on a large
   workspace.
 - It checks retrieval only. Whether the LLM then answers correctly is not

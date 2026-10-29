@@ -307,7 +307,7 @@ async def _resolve_runtime_items(
             name = entry.get("name", "")
             item_url = entry.get("url", "")
             lowered = name.lower()
-            if _is_probably_pdf(item_url, name) or lowered.endswith((".txt", ".md", ".log")):
+            if _is_probably_pdf(item_url, name) or lowered.endswith((".txt", ".md", ".log", ".pptx")):
                 resolved.append(
                     {
                         "name": name or _name_from_url(item_url),

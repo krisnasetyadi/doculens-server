@@ -32,6 +32,7 @@ from services.ingest.documents import (
     INLINE_VIEWABLE_EXTS,
     content_disposition,
     extract_text_from_txt,
+    pptx_preview_lines,
 )
 
 logger = logging.getLogger(__name__)
@@ -317,7 +318,17 @@ async def serve_file(collection_id: str, file_name: str, user: UserRecord):
         raise HTTPException(status_code=500, detail="Failed to serve file") from e
 
 
-async def get_text_content(collection_id: str, file_name: str, offset: int, limit: int, user: UserRecord):
+def _read_preview_lines(path: str, ext: str):
+    """(lines, slide number -> index of its "Slide N" line) for the viewer;
+    a .pptx deck is shown slide by slide (MS-910)."""
+    if ext == ".pptx":
+        return pptx_preview_lines(path)
+    extracted = extract_text_from_txt(path)
+    return (extracted[0]["text"] if extracted else "").splitlines(), {}
+
+
+async def get_text_content(collection_id: str, file_name: str, offset: int, limit: int, user: UserRecord,
+                           slide: Optional[int] = None):
     row = supabase_storage.get_collection(collection_id)
     if not _can_access(row, user):
         raise HTTPException(status_code=403, detail="Not allowed to access this collection")
@@ -325,16 +336,17 @@ async def get_text_content(collection_id: str, file_name: str, offset: int, limi
     decoded_file_name = urllib.parse.unquote(file_name)
     if ".." in decoded_file_name or decoded_file_name.startswith("/"):
         raise HTTPException(status_code=400, detail="Invalid file name")
-    if os.path.splitext(decoded_file_name)[1].lower() != ".txt":
+    ext = os.path.splitext(decoded_file_name)[1].lower()
+    if ext not in (".txt", ".pptx"):
         raise HTTPException(status_code=400, detail="Not a text file")
 
     upload_folder_abs = os.path.abspath(config.upload_folder)
     file_path = os.path.join(upload_folder_abs, collection_id, decoded_file_name)
 
-    full_text: Optional[str] = None
+    lines: Optional[list] = None
+    slide_offsets: dict = {}
     if os.path.exists(file_path):
-        extracted = extract_text_from_txt(file_path)
-        full_text = extracted[0]["text"] if extracted else ""
+        lines, slide_offsets = _read_preview_lines(file_path, ext)
     elif supabase_storage.is_enabled():
         # Ephemeral disk (e.g. HF Space restart): no pdf-side equivalent of
         # download_chat_file exists to restore the file locally, so pull the
@@ -347,21 +359,21 @@ async def get_text_content(collection_id: str, file_name: str, offset: int, limi
                 async with httpx.AsyncClient(timeout=30.0) as client:
                     resp = await client.get(signed_url)
                     resp.raise_for_status()
-                with tempfile.NamedTemporaryFile(suffix=".txt", delete=False) as tmp:
+                with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
                     tmp.write(resp.content)
                     tmp_path = tmp.name
                 try:
-                    extracted = extract_text_from_txt(tmp_path)
-                    full_text = extracted[0]["text"] if extracted else ""
+                    lines, slide_offsets = _read_preview_lines(tmp_path, ext)
                 finally:
                     os.remove(tmp_path)
             except Exception as exc:
                 logger.warning(f"Text content fetch from bucket failed for {collection_id}: {exc}")
 
-    if full_text is None:
+    if lines is None:
         raise HTTPException(status_code=404, detail="Text file not found")
 
-    lines = full_text.splitlines()
+    if slide is not None and slide in slide_offsets:
+        offset = slide_offsets[slide]
     total = len(lines)
     page = lines[offset: offset + limit]
 

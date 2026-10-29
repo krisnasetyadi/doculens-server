@@ -41,12 +41,14 @@ def normalize(text):
 
 
 def category(question):
-    from scripts.golden_set.fixtures import SCANNED_PAGES
+    from scripts.golden_set.fixtures import PICTURE_SLIDES, SCANNED_PAGES
 
     source = question["source"]
     if question["page"] in SCANNED_PAGES.get(source, ()):
         return "pdf scan"
-    return {".pdf": "pdf digital", ".docx": "docx", ".xlsx": "xlsx", ".csv": "csv", ".txt": "chat"}[
+    if question["page"] in PICTURE_SLIDES.get(source, ()):
+        return "pptx picture"
+    return {".pdf": "pdf digital", ".docx": "docx", ".xlsx": "xlsx", ".csv": "csv", ".txt": "chat", ".pptx": "pptx"}[
         os.path.splitext(source)[1]
     ]
 
@@ -62,13 +64,14 @@ def first_rank(results, source, page):
 
 
 def ocr_word_recall(truth, fixtures_dir):
-    """Share of each scanned page's words that the extraction read back."""
-    from scripts.golden_set.fixtures import SCANNED_PAGES
-    from services.ingest.documents import extract_text_from_pdf
+    """Share of each scanned page's (or picture slide's) words that the extraction read back."""
+    from scripts.golden_set.fixtures import PICTURE_SLIDES, SCANNED_PAGES
+    from services.ingest.documents import extract_text_from_pdf, extract_text_from_pptx
 
     recall = {}
-    for source, pages in SCANNED_PAGES.items():
-        read = {p["page"]: p["text"] for p in extract_text_from_pdf(os.path.join(fixtures_dir, source)) or []}
+    for source, pages in {**SCANNED_PAGES, **PICTURE_SLIDES}.items():
+        extract = extract_text_from_pptx if source.endswith(".pptx") else extract_text_from_pdf
+        read = {p["page"]: p["text"] for p in extract(os.path.join(fixtures_dir, source)) or []}
         for page in sorted(pages):
             expected = set(re.findall(r"[\w.,-]+", normalize(truth[source][page])))
             got = set(re.findall(r"[\w.,-]+", normalize(read.get(page, ""))))
@@ -173,7 +176,7 @@ def render(questions, results):
     lines += ["", "## Per source type", "",
               "| type | n | " + " | ".join(f"hit@1 {m} | hit@3 {m} | context {m}" for m in modes) + " |",
               "|" + "---|" * (2 + 3 * len(modes))]
-    order = ["pdf digital", "pdf scan", "docx", "xlsx", "csv", "chat", "TOTAL"]
+    order = ["pdf digital", "pdf scan", "docx", "xlsx", "csv", "chat", "pptx", "pptx picture", "TOTAL"]
     for name in [n for n in order if n in results[modes[0]]["summary"]]:
         cells = []
         for mode in modes:
@@ -182,7 +185,7 @@ def render(questions, results):
         lines.append(f"| {name} | {results[modes[0]]['summary'][name]['n']} | " + " | ".join(cells) + " |")
     recall = next((r["recall"] for r in results.values() if r["recall"]), None)
     if recall:
-        lines += ["", "## OCR word recall per scanned page (ocr-on)", "", "| file | page | words read |", "|---|---|---|"]
+        lines += ["", "## OCR word recall per scanned page or picture slide (ocr-on)", "", "| file | page | words read |", "|---|---|---|"]
         lines += [f"| {source} | {page} | {value:.0%} |" for (source, page), value in recall.items()]
     return "\n".join(lines)
 

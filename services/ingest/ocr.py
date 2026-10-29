@@ -7,6 +7,7 @@ time), and everything that was not read is counted so the upload can tell
 the user instead of silently dropping pages.
 """
 
+import io
 import logging
 import re
 from time import monotonic
@@ -196,25 +197,58 @@ class PdfOcr:
 
     def _ocr(self, page_index: int) -> str:
         import pypdfium2 as pdfium
-        import pytesseract
 
         if self._pdf is None:
             self._pdf = pdfium.PdfDocument(self.pdf_path)
-        image = prepare_page_image(
+        return read_image_text(
             self._pdf[page_index].render(scale=config.ocr_dpi / 72).to_pil().convert("RGB")
         )
-        try:
-            raw = pytesseract.image_to_string(
-                image, lang=config.ocr_languages, timeout=config.ocr_page_timeout_seconds,
-            )
-        finally:
-            image.close()
-        return re.sub(r"\s+", " ", raw).strip()
 
     def close(self) -> None:
         if self._pdf is not None:
             self._pdf.close()
             self._pdf = None
+
+
+class SlideOcr(PdfOcr):
+    """OCR for the pictures in one PowerPoint deck (MS-910), under the same
+    per-file page and time budget as a PDF, one picture counting as a page."""
+
+    def __init__(self, pptx_path: str, stats: Optional[dict] = None):
+        super().__init__(pptx_path, stats)
+        self._picture = None
+
+    def read_picture(self, slide_number: int, blob: bytes) -> str:
+        """Text in one slide picture, or "" when it holds none. Photos and
+        logos without text are normal on slides, so they are not counted as
+        pages with no readable text."""
+        if not config.ocr_enabled:
+            return ""
+        self._picture = blob
+        empty = self.stats["empty"]
+        try:
+            return self.read_page(slide_number - 1)
+        finally:
+            self.stats["empty"] = empty
+            self._picture = None
+
+    def _ocr(self, page_index: int) -> str:
+        with Image.open(io.BytesIO(self._picture)) as picture:
+            return read_image_text(picture.convert("RGB"))
+
+
+def read_image_text(rgb) -> str:
+    """Tesseract's text for one image, cleaned up by prepare_page_image."""
+    import pytesseract
+
+    image = prepare_page_image(rgb)
+    try:
+        raw = pytesseract.image_to_string(
+            image, lang=config.ocr_languages, timeout=config.ocr_page_timeout_seconds,
+        )
+    finally:
+        image.close()
+    return re.sub(r"\s+", " ", raw).strip()
 
 
 def describe_ocr_outcome(stats: dict) -> Optional[str]:

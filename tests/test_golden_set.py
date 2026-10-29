@@ -40,7 +40,7 @@ class GoldenSetConsistencyTests(unittest.TestCase):
         ids = [q["id"] for q in self.questions]
         self.assertEqual(len(ids), len(set(ids)))
         self.assertEqual({run.category(q) for q in self.questions},
-                         {"pdf digital", "pdf scan", "docx", "xlsx", "csv", "chat"})
+                         {"pdf digital", "pdf scan", "docx", "xlsx", "csv", "chat", "pptx", "pptx picture"})
         self.assertEqual({q["lang"] for q in self.questions}, {"id", "en"})
 
     def test_scanned_pages_have_no_embedded_text(self):

@@ -29,5 +29,8 @@
   {"id": "chat-1", "lang": "id", "question": "Kapan kickoff proyek ERP dipindah?", "source": "chat-tim-proyek.txt", "page": null, "answer": "13 November"},
   {"id": "chat-2", "lang": "id", "question": "Vendor server mana yang dipilih untuk proyek ERP?", "source": "chat-tim-proyek.txt", "page": null, "answer": "Lintas Data"},
   {"id": "chat-3", "lang": "en", "question": "What is the go-live target date of the ERP project?", "source": "chat-tim-proyek.txt", "page": null, "answer": "2 February 2027"},
-  {"id": "chat-4", "lang": "id", "question": "Berapa anggaran proyek ERP yang disetujui direksi?", "source": "chat-tim-proyek.txt", "page": null, "answer": "Rp 275 juta"}
+  {"id": "chat-4", "lang": "id", "question": "Berapa anggaran proyek ERP yang disetujui direksi?", "source": "chat-tim-proyek.txt", "page": null, "answer": "Rp 275 juta"},
+  {"id": "ppt-1", "lang": "id", "question": "Siapa yang boleh mengemudikan forklift di gudang?", "source": "pelatihan-k3-gudang.pptx", "page": 2, "answer": "operator bersertifikat SIO"},
+  {"id": "ppt-2", "lang": "en", "question": "Where is the emergency assembly point?", "source": "pelatihan-k3-gudang.pptx", "page": 3, "answer": "east parking lot"},
+  {"id": "ppt-3", "lang": "id", "question": "Berapa kapasitas maksimum rak palet per level?", "source": "pelatihan-k3-gudang.pptx", "page": 4, "answer": "1.200 kg per level"}
 ]

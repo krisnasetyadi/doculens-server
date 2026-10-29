@@ -26,7 +26,7 @@ chat-ui (Next.js) ──HTTP──▶ FastAPI  /api/v1/*
       PostgreSQL (users, sessions, collections, billing)   Supabase Storage (files + FAISS indexes)
 ```
 
-- **Upload**: a file is parsed (PDF, DOCX, XLSX, CSV, TXT, legacy .doc via antiword), chunked, embedded with `paraphrase-multilingual-MiniLM-L12-v2` and saved as a FAISS index. Files and indexes go to Supabase Storage; `data/` on disk is only a local cache.
+- **Upload**: a file is parsed (PDF, DOCX, XLSX, CSV, TXT, PPTX, legacy .doc via antiword), chunked, embedded with `paraphrase-multilingual-MiniLM-L12-v2` and saved as a FAISS index. Files and indexes go to Supabase Storage; `data/` on disk is only a local cache.
 - **Ask**: `POST /api/v1/agnostic/query` decides what the question needs (small talk, help, retrieval), searches the selected sources with BM25 and FAISS, merges the results and asks the LLM for an answer with citations.
 - **Accounts and billing**: JWT auth with roles, per-plan token quotas and storage limits, Stripe test-mode checkout.
 

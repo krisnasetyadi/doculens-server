@@ -8,6 +8,7 @@ import re
 import tempfile
 import uuid
 from config import config
+from services.ingest.documents import extract_text_from_pptx
 from services.ingest.ocr import PdfOcr
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -102,6 +103,8 @@ class PublicLinkSearchMixin:
 
         if "pdf" in content_type or suffix == ".pdf":
             final_name = resolved_name if resolved_name.lower().endswith(".pdf") else f"{resolved_name}.pdf"
+        elif "presentationml.presentation" in content_type or suffix == ".pptx":
+            final_name = resolved_name if suffix == ".pptx" else f"{resolved_name}.pptx"
         elif content_type.startswith("text/") or suffix in {".txt", ".md", ".log"}:
             final_name = resolved_name if suffix in {".txt", ".md", ".log"} else f"{resolved_name}.txt"
         else:
@@ -151,6 +154,11 @@ class PublicLinkSearchMixin:
                             pdf_loader = PyPDFLoader(file_path)
                             loaded_docs = pdf_loader.load()
                             self._ocr_scanned_pages(file_path, loaded_docs)
+                        elif extension == ".pptx":
+                            loaded_docs = [
+                                Document(page_content=page["text"])
+                                for page in extract_text_from_pptx(file_path) or []
+                            ]
                         elif extension in {".txt", ".md", ".log"}:
                             try:
                                 text_loader = TextLoader(file_path, encoding="utf-8")
