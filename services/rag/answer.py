@@ -4,6 +4,7 @@ Mixin of services.rag.processor.PDFQAProcessor; the methods were moved
 verbatim from that class by MS-657."""
 import logging
 import re
+from dataclasses import dataclass, field
 from services.rag.conversation.language import ReplyLanguage, answer_language_instruction, detect_reply_language
 from services.rag.conversation.messages import fallback_text
 from services.rag.efficient_mode.compressor import ContextPart, compress_context, compress_memory
@@ -12,6 +13,41 @@ from typing import Any, Dict, List, Optional, Tuple
 from services.rag.shared import _extract_total_tokens, _off_topic_instruction
 
 logger = logging.getLogger(__name__)
+
+# (answer, model id, metadata): what generate_hybrid_answer returns.
+GeneratedAnswer = Tuple[str, str, Dict[str, Any]]
+
+
+@dataclass
+class AnswerPlan:
+    """Everything worked out before the model is called (MS-906).
+
+    `generate_hybrid_answer` calls the model in one piece; the streaming
+    endpoint calls it chunk by chunk. Both build the prompt with
+    `plan_hybrid_answer` and complete the text with `finish_hybrid_answer`,
+    so a streamed answer ends up identical to a non-streamed one.
+
+    `ready` is set when no model call is needed (a low-confidence match is
+    answered by direct extraction); everything else is then unused."""
+    llm: Any
+    model_id: str
+    prompt: str = ""
+    question: str = ""
+    language: ReplyLanguage = "id"
+    is_summary: bool = False
+    hybrid_results: Dict[str, Any] = field(default_factory=dict)
+    merged_results: List[Dict[str, Any]] = field(default_factory=list)
+    # The metadata that does not depend on the model's reply; the reply adds
+    # `processing_steps` and `total_tokens`.
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    processing_steps: List[str] = field(default_factory=list)
+    ready: Optional[GeneratedAnswer] = None
+
+
+def text_of(model_output: Any) -> str:
+    """The text of a model reply or chunk: an AIMessage(Chunk) has `.content`,
+    a plain LLM (HuggingFace) returns the string itself."""
+    return model_output.content if hasattr(model_output, "content") else str(model_output)
 
 
 class AnswerMixin:
@@ -26,7 +62,7 @@ class AnswerMixin:
         efficient_mode: bool = False,
         language: Optional[ReplyLanguage] = None,
         task: str = "answer",
-    ) -> Tuple[str, str, Dict[str, Any]]:
+    ) -> GeneratedAnswer:
         """Enhanced hybrid answer generation dengan conflict resolution and comprehensive metadata.
 
         `language` is the reply language (en/id); detected from the question
@@ -34,6 +70,38 @@ class AnswerMixin:
         `task="summarize"`: `hybrid_results` came from build_summary_results
         (chunks spread over whole documents) — every chunk goes into the
         context and the summary prompt is used."""
+        plan = self.plan_hybrid_answer(
+            hybrid_results, question, llm_provider, llm_model, memory,
+            skill_instruction, efficient_mode, language, task,
+        )
+        if plan.ready is not None:
+            return plan.ready
+        try:
+            result = plan.llm.invoke(plan.prompt)
+            # Raw shape straight off the LLM response: proof this number comes
+            # from Gemini's own usage_metadata (langchain_google_genai just
+            # relays prompt_token_count/candidates_token_count/total_token_count
+            # into this dict), not something we or LangChain compute ourselves.
+            logger.info("LLM usage_metadata: %s", getattr(result, 'usage_metadata', None))
+            return self.finish_hybrid_answer(plan, text_of(result), _extract_total_tokens(result))
+        except Exception as e:
+            return self.fallback_hybrid_answer(plan, e)
+
+    def plan_hybrid_answer(
+        self,
+        hybrid_results: Dict[str, Any],
+        question: str,
+        llm_provider: Optional[str] = None,
+        llm_model: Optional[str] = None,
+        memory: Optional[List[Dict[str, str]]] = None,
+        skill_instruction: Optional[str] = None,
+        efficient_mode: bool = False,
+        language: Optional[ReplyLanguage] = None,
+        task: str = "answer",
+    ) -> AnswerPlan:
+        """Everything generate_hybrid_answer does before it calls the model
+        (same arguments): pick the model, rank and trim the sources, build the
+        prompt. See AnswerPlan."""
         is_summary = task == "summarize"
 
         language = language or detect_reply_language(question, memory)
@@ -91,13 +159,15 @@ class AnswerMixin:
         if not is_summary and merged_results and merged_results[0]['confidence'] < threshold:
             if merged_results[0]['type'] == 'pdf' and not any(r['type'] in ['chat', 'database'] for r in merged_results[:3]):
                 logger.warning(f"Low confidence ({merged_results[0]['confidence']:.2%}), using direct extraction")
-                return self._extract_direct_answer(merged_results[0], question, language), model_id, {
-                    "intent": "direct_extraction",
-                    "sources_used": {"pdf": 1, "database": 0, "chat": 0},
-                    "top_confidence": merged_results[0]['confidence'],
-                    "conflicts_detected": False,
-                    "extraction_method": "direct"
-                }
+                return AnswerPlan(llm=llm, model_id=model_id, ready=(
+                    self._extract_direct_answer(merged_results[0], question, language), model_id, {
+                        "intent": "direct_extraction",
+                        "sources_used": {"pdf": 1, "database": 0, "chat": 0},
+                        "top_confidence": merged_results[0]['confidence'],
+                        "conflicts_detected": False,
+                        "extraction_method": "direct"
+                    },
+                ))
         
         # Prepare context dengan prioritization - SHORTER for small models
         context_parts = []
@@ -302,55 +372,58 @@ class AnswerMixin:
                 len(prompt), prompt,
             )
 
-        try:
-            result = llm.invoke(prompt)
-            answer = result.content.strip() if hasattr(result, 'content') else str(result).strip()
-            total_tokens = _extract_total_tokens(result)
-            # Raw shape straight off the LLM response — proof this number comes
-            # from Gemini's own usage_metadata (langchain_google_genai just
-            # relays prompt_token_count/candidates_token_count/total_token_count
-            # into this dict), not something we or LangChain compute ourselves.
-            logger.info("LLM usage_metadata: %s", getattr(result, 'usage_metadata', None))
+        # Generate comprehensive metadata untuk response
+        metadata = {
+            "confidence_score": merged_results[0]['confidence'] if merged_results else 0,
+            "primary_intent": intent_analysis.get('primary_intent', 'data_retrieval'),
+            "sources_used": source_breakdown,
+            "search_strategy": "hybrid_multi_source",
+            "conflicts_detected": len(conflicts) > 0,
+            "exact_matches": exact_matches[:10],  # Top 10 exact matches
+            "boost_applied": boost_applied,
+            "ranking_algorithm": "weighted_scoring_with_intent",
+            "total_results_processed": len(merged_results),
+            "conflict_details": conflicts if conflicts else [],
+            "model_used": model_id,
+            "is_person_query": is_person_query,
+        }
+        if efficiency_meta:
+            metadata["efficiency"] = efficiency_meta
 
-            # Validasi dan post-processing
-            if not is_summary:
-                # (A summary that opens with "Sorry," or is short is still the
-                # summary — swapping in one raw chunk would be strictly worse.)
-                answer = self._validate_and_clean_answer(answer, question, merged_results, language)
-            processing_steps.append("Answer validated and cleaned")
+        return AnswerPlan(
+            llm=llm, model_id=model_id, prompt=prompt, question=question, language=language,
+            is_summary=is_summary, hybrid_results=hybrid_results, merged_results=merged_results,
+            metadata=metadata, processing_steps=processing_steps,
+        )
 
-            # Generate comprehensive metadata untuk response
-            answer_metadata = {
-                "confidence_score": merged_results[0]['confidence'] if merged_results else 0,
-                "primary_intent": intent_analysis.get('primary_intent', 'data_retrieval'),
-                "sources_used": source_breakdown,
-                "search_strategy": "hybrid_multi_source",
-                "conflicts_detected": len(conflicts) > 0,
-                "exact_matches": exact_matches[:10],  # Top 10 exact matches
-                "boost_applied": boost_applied,
-                "ranking_algorithm": "weighted_scoring_with_intent",
-                "processing_steps": processing_steps,
-                "total_results_processed": len(merged_results),
-                "conflict_details": conflicts if conflicts else [],
-                "model_used": model_id,
-                "is_person_query": is_person_query,
-                "total_tokens": total_tokens,
-            }
-            if efficiency_meta:
-                answer_metadata["efficiency"] = efficiency_meta
+    def finish_hybrid_answer(self, plan: AnswerPlan, raw_answer: str, total_tokens: int) -> GeneratedAnswer:
+        """The model's whole reply in, the finished answer out: validated,
+        cleaned and wrapped with its metadata. `total_tokens` is what the
+        model call cost."""
+        answer = raw_answer.strip()
+        # Validasi dan post-processing
+        if not plan.is_summary:
+            # (A summary that opens with "Sorry," or is short is still the
+            # summary, and swapping in one raw chunk would be strictly worse.)
+            answer = self._validate_and_clean_answer(answer, plan.question, plan.merged_results, plan.language)
+        plan.processing_steps.append("Answer validated and cleaned")
+        return answer, plan.model_id, {
+            **plan.metadata,
+            "processing_steps": plan.processing_steps,
+            "total_tokens": total_tokens,
+        }
 
-            return answer, model_id, answer_metadata
-            
-        except Exception as e:
-            logger.error(f"LLM generation failed: {e}")
-            processing_steps.append(f"LLM generation failed: {str(e)[:100]}")
-            return self._generate_fallback_answer(hybrid_results, question, language), model_id, {
-                "error": str(e),
-                "processing_steps": processing_steps,
-                "sources_used": {"pdf": 0, "database": 0, "chat": 0},
-                "confidence_score": 0,
-                "conflicts_detected": False
-            }
+    def fallback_hybrid_answer(self, plan: AnswerPlan, error: Exception) -> GeneratedAnswer:
+        """The answer when the model call failed: the best retrieved passage."""
+        logger.error(f"LLM generation failed: {error}")
+        plan.processing_steps.append(f"LLM generation failed: {str(error)[:100]}")
+        return self._generate_fallback_answer(plan.hybrid_results, plan.question, plan.language), plan.model_id, {
+            "error": str(error),
+            "processing_steps": plan.processing_steps,
+            "sources_used": {"pdf": 0, "database": 0, "chat": 0},
+            "confidence_score": 0,
+            "conflicts_detected": False
+        }
 
     # English "not found" replies, quoted verbatim by the model when the reply
     # language is English. Must not contain any failure_patterns substring

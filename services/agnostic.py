@@ -4,16 +4,24 @@ services/agnostic.py
 The question-answering path behind POST /api/v1/agnostic/query: picks the
 sources this user may search, routes the message (canned reply, conversation
 router or RAG), meters tokens and maps retrieved documents to the response.
-router/agnostic.py calls answer_query.
+router/agnostic.py calls answer_query. With ?stream=true the same answer goes
+out as NDJSON events while the model writes it (MS-906, docs/answer-streaming.md).
 """
 
 import asyncio
+import json
 import logging
 import re
+import weakref
+from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Iterator, List, Optional, Tuple, Union
 
+import anyio
 from fastapi import HTTPException, Response
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
 
 from config import config
 from services.rag.conversation.guard import is_internal_question
@@ -27,7 +35,9 @@ from services.rag.conversation.intent import (
     small_talk_kind,
 )
 from services.rag.conversation.language import ReplyLanguage, detect_reply_language
+from services.rag.answer import AnswerPlan
 from services.rag.conversation.messages import internal_refusal, no_source_selected
+from services.rag.model_stream import ModelStream
 from services.rag.processor import processor
 from services.storage import supabase as supabase_storage
 from models import AgnosticQueryRequest, AgnosticQueryResponse, MemoryTurn, PdfSourceDetail, UserRecord
@@ -35,7 +45,9 @@ from services.public_links import resolve_active_public_link_sources
 from services.database_connections import resolve_active_database_connections
 from services.billing.allocation import get_usage_snapshot
 from services.billing.enforcement import enforce_member_allocation, enforce_plan_limit
-from services.billing.inflight import begin_in_flight, end_in_flight, get_workspace_lock, in_flight_tokens, resolve_workspace_id
+from services.billing.inflight import (
+    InFlightReservation, begin_in_flight, end_in_flight, get_workspace_lock, in_flight_tokens, resolve_workspace_id,
+)
 from services.billing.ledger import enforce_rate_limit, log_token_usage
 
 logger = logging.getLogger(__name__)
@@ -113,7 +125,7 @@ def _system_response(
 
 async def _log_tokens(user_id: str, tokens: int) -> None:
     """Best-effort token metering (MS-248) for the conversation router's
-    LLM call — same never-break-the-reply rule as _run_metered_query."""
+    LLM call: same never-break-the-reply rule as _log_answer_tokens."""
     if not tokens:
         return
     try:
@@ -163,21 +175,100 @@ class StopCheck:
         return self._stopped
 
 
+class _Reservation:
+    """The in-flight token reservation of one question. `end_in_flight`
+    subtracts, so ending one twice would free tokens that another question
+    reserved: this ends it once, whoever asks and however often."""
+
+    def __init__(self, reservation: InFlightReservation):
+        self._reservation = reservation
+        self._released = False
+        self._handed_over = False
+
+    def hand_over(self) -> None:
+        """The answer now owns the reservation and releases it itself."""
+        self._handed_over = True
+
+    def release(self) -> None:
+        if not self._released:
+            self._released = True
+            end_in_flight(self._reservation)
+
+    def release_unless_handed_over(self) -> None:
+        if not self._handed_over:
+            self.release()
+
+
+@dataclass
+class PendingAnswer:
+    """A question that passed every check and has its sources: only the model
+    call is left. Owns the question's in-flight reservation, so whoever
+    answers it must release it, after the answer's cost is on the ledger.
+
+    `question` is what gets answered: req.question, or the router's search
+    query. `routing_tokens` is the router call that sent the message here."""
+    req: AgnosticQueryRequest
+    user: UserRecord
+    base_url: str
+    start_time: datetime
+    hybrid_results: Dict[str, Any]
+    question: str
+    language: Optional[ReplyLanguage]
+    memory: Optional[List[Dict[str, str]]]
+    skill_instruction: Optional[str]
+    task: str
+    routing_tokens: int
+    source_type: str
+    stop: StopCheck
+    reservation: _Reservation
+
+    def __post_init__(self) -> None:
+        self.reservation.hand_over()
+
+    def generate_args(self) -> tuple:
+        """The arguments of processor.generate_hybrid_answer / plan_hybrid_answer."""
+        return (
+            self.hybrid_results, self.question, self.req.llm_provider, self.req.llm_model, self.memory,
+            self.skill_instruction, bool(self.req.efficient_mode), self.language, self.task,
+        )
+
+
+@contextmanager
+def _failures_as_500() -> Iterator[None]:
+    """Whatever goes wrong unexpectedly is logged and answered as a plain 500
+    (the detail never carries the cause)."""
+    try:
+        yield
+    except (HTTPException, QueryStopped):
+        raise
+    except Exception as e:
+        logger.exception("agnostic_query failed")
+        raise HTTPException(status_code=500, detail="Failed to answer the question") from e
+
 
 async def answer_query(
     req: AgnosticQueryRequest,
     base_url: str,
     user: UserRecord,
     is_disconnected: Optional[Callable[[], Awaitable[bool]]] = None,
-) -> Union[AgnosticQueryResponse, Response]:
+    stream: bool = False,
+) -> Union[AgnosticQueryResponse, StreamingResponse, Response]:
     """Everything behind POST /agnostic/query; `base_url` builds the file links in the sources.
 
     `is_disconnected` (the request's) is polled while the question runs. Once
     the user has stopped it, the model is not called any more; a model call
     already running is left to finish so its tokens are counted, then no
-    answer is sent (MS-667)."""
+    answer is sent (MS-667).
+
+    With `stream` the answer is NDJSON events written as the model writes it
+    (MS-906); see docs/answer-streaming.md. Every check, and the search for
+    sources, still runs before the first byte, so a refusal (401, 403, 422,
+    429) is an ordinary HTTP error and not an event."""
     try:
-        return await _answer_query(req, base_url, user, StopCheck(is_disconnected))
+        outcome = await _answer_query(req, base_url, user, StopCheck(is_disconnected))
+        if stream:
+            return _stream_response(outcome)
+        return await _answer_in_full(outcome)
     except QueryStopped:
         logger.info("agnostic_query: stopped by the user (user=%s)", user.user_id)
         return Response(status_code=STOPPED_STATUS)
@@ -185,11 +276,14 @@ async def answer_query(
 
 async def _answer_query(
     req: AgnosticQueryRequest, base_url: str, user: UserRecord, stop: StopCheck,
-) -> AgnosticQueryResponse:
+) -> Union[AgnosticQueryResponse, PendingAnswer]:
+    """Run every check and the search for sources. The result is the finished
+    response when no model call is needed (canned replies, router replies), or
+    a PendingAnswer when one is."""
     start_time = datetime.now()
     logger.info("agnostic_query: question=%r user=%s", req.question, user.user_id)
     is_admin = user.role == "admin"
-    try:
+    with _failures_as_500():
         # Resolve collections — scoped to what this user is allowed to see.
         # Admins can reach every PDF collection; everyone else only their own.
         # Deactivated collections are left out entirely: not searched, not
@@ -304,20 +398,21 @@ async def _answer_query(
                     processor.build_conversation_fallback(req.question, language, len(allowed_pdf_ids), titles),
                     "system/conversation", req.question, start_time, source_type="Conversation",
                 )
-            reservation = begin_in_flight(
+            reservation = _Reservation(begin_in_flight(
                 workspace_id, user.user_id, config.query_in_flight_estimate, workspace_cap, user_cap
-            )
+            ))
 
         try:
             if intent == "retrieval":
                 scoped_titles = scope_titles_for(req.question, titles)
-                return await _run_metered_query(
+                return await _retrieve(
                     req, user, is_admin, allowed_pdf_ids, pdf_collection_ids, base_url, start_time,
                     memory_payload, language,
                     question=req.question,
                     scope_collection_ids=_collection_ids_for(scoped_titles, collections),
                     task="summarize" if scoped_titles and is_whole_document_summary(req.question, scoped_titles) else "answer",
                     stop=stop,
+                    reservation=reservation,
                 )
 
             usage = await asyncio.to_thread(get_usage_snapshot, user)
@@ -356,7 +451,7 @@ async def _answer_query(
                 _strip_titles(decision.search_query, titles), include_topics=False
             ):
                 task = "answer"
-            return await _run_metered_query(
+            return await _retrieve(
                 req, user, is_admin, allowed_pdf_ids, pdf_collection_ids, base_url, start_time,
                 memory_payload, language,
                 routing_tokens=decision.total_tokens,
@@ -364,20 +459,17 @@ async def _answer_query(
                 scope_collection_ids=_collection_ids_for(scoped_titles, collections),
                 task=task,
                 stop=stop,
+                reservation=reservation,
             )
         finally:
-            # Every path above logs usage before returning, so the
-            # reservation only drops once the real cost is on the ledger.
-            end_in_flight(reservation)
-
-    except (HTTPException, QueryStopped):
-        raise
-    except Exception as e:
-        logger.exception("agnostic_query failed")
-        raise HTTPException(status_code=500, detail="Failed to answer the question") from e
+            # A reply that needed no model call has logged its usage before
+            # returning, so the reservation only drops once the real cost is on
+            # the ledger. A PendingAnswer keeps it: its answer releases it
+            # after logging what the model call cost.
+            reservation.release_unless_handed_over()
 
 
-async def _run_metered_query(
+async def _retrieve(
     req: AgnosticQueryRequest,
     user: UserRecord,
     is_admin: bool,
@@ -385,19 +477,20 @@ async def _run_metered_query(
     pdf_collection_ids: List[str],
     base_url: str,
     start_time: datetime,
-    memory_payload: Optional[List[Dict[str, str]]] = None,
-    language: Optional[ReplyLanguage] = None,
+    memory_payload: Optional[List[Dict[str, str]]],
+    language: Optional[ReplyLanguage],
+    stop: StopCheck,
+    reservation: _Reservation,
     routing_tokens: int = 0,
     question: Optional[str] = None,
     scope_collection_ids: Optional[List[str]] = None,
     task: str = "answer",
-    stop: Optional[StopCheck] = None,
-) -> "AgnosticQueryResponse":
-    """The token-costing half of agnostic_query — everything from source
-    resolution through the LLM call and usage logging, run while the
-    caller holds that user's rate-limit lock. Split out from
-    agnostic_query so that lock's scope is a plain, visible function call
-    rather than a large indented block sharing the outer try/except.
+) -> PendingAnswer:
+    """The token-costing half of agnostic_query up to the model call:
+    source resolution and the search, run while the question holds its
+    in-flight reservation. Split out from agnostic_query so that
+    reservation's scope is a plain, visible function call rather than a large
+    indented block sharing the outer try/except.
 
     `question` is what gets searched/answered — req.question, or the
     router's search_documents query. `scope_collection_ids` narrows the PDF
@@ -406,7 +499,7 @@ async def _run_metered_query(
     spread across those collections instead of the top similarity hits.
     `routing_tokens` is the router call that sent the message here.
     `stop` (MS-667): a question stopped before the model call goes no
-    further; stopped during it, its tokens are logged and no response is built."""
+    further. The PendingAnswer that comes back takes over the reservation."""
     question = question or req.question
     scoped_ids = [cid for cid in (scope_collection_ids or []) if cid in allowed_pdf_ids]
     if scoped_ids and req.include_pdf_results:
@@ -469,25 +562,38 @@ async def _run_metered_query(
                 req.skill_id, user.user_id,
             )
 
-    if stop is not None and await stop.stopped():
+    if await stop.stopped():
         # Stopped while the sources were being retrieved: the model is never
         # called, so only a router call that brought the message here costs.
         await _log_tokens(user.user_id, routing_tokens)
         raise QueryStopped
 
-    # Generate answer
-    answer_result = await asyncio.to_thread(
-        processor.generate_hybrid_answer,
-        hybrid_results,
-        question,
-        req.llm_provider,
-        req.llm_model,
-        memory_payload,
-        skill_instruction,
-        bool(req.efficient_mode),
-        language,
-        task,
+    return PendingAnswer(
+        req=req, user=user, base_url=base_url, start_time=start_time,
+        hybrid_results=hybrid_results, question=question, language=language,
+        memory=memory_payload, skill_instruction=skill_instruction, task=task,
+        routing_tokens=routing_tokens,
+        source_type=_describe_source_type(should_search_public_links, should_search_external_db),
+        stop=stop, reservation=reservation,
     )
+
+
+async def _answer_in_full(outcome: Union[AgnosticQueryResponse, PendingAnswer]) -> AgnosticQueryResponse:
+    """The whole answer as one JSON response (no `stream`)."""
+    if isinstance(outcome, AgnosticQueryResponse):
+        return outcome
+    with _failures_as_500():
+        try:
+            return await _generate_in_full(outcome)
+        finally:
+            outcome.reservation.release()
+
+
+async def _generate_in_full(pending: PendingAnswer) -> AgnosticQueryResponse:
+    """The model call in one piece, usage logging and the response.
+    A question stopped during the model call has its tokens logged and no
+    response built (MS-667)."""
+    answer_result = await asyncio.to_thread(processor.generate_hybrid_answer, *pending.generate_args())
 
     if isinstance(answer_result, tuple) and len(answer_result) >= 2:
         answer, model_used = answer_result[0], answer_result[1]
@@ -496,31 +602,41 @@ async def _run_metered_query(
         )
     else:
         answer     = str(answer_result)
-        model_used = req.llm_model or config.default_llm_model
+        model_used = pending.req.llm_model or config.default_llm_model
         answer_metadata = {}
 
-    # Best-effort token metering (MS-248) — never let a logging hiccup
-    # break a chat response that already succeeded. Run in a thread: this
-    # does blocking DB I/O and we're holding the caller's rate-limit lock,
-    # so a blocking call here would stall every other coroutine waiting on
-    # that same lock (including this same user's next request), not just
-    # this one.
     efficiency = answer_metadata.get("efficiency")
+    # routing_tokens: the router call that sent this message here (0 when
+    # the rules decided), metered on the same row.
+    await _log_answer_tokens(
+        pending.user.user_id, answer_metadata.get("total_tokens", 0) + pending.routing_tokens, efficiency,
+    )
+
+    # Stopped while the model was answering: its tokens are on the ledger
+    # above; the answer itself goes nowhere.
+    if await pending.stop.stopped():
+        raise QueryStopped
+
+    return _build_response(pending, answer, model_used, efficiency)
+
+
+async def _log_answer_tokens(user_id: str, tokens: int, efficiency: Optional[Dict[str, Any]]) -> None:
+    """Best-effort token metering (MS-248). Never let a logging hiccup
+    break a chat response that already succeeded. Run in a thread: this
+    does blocking DB I/O, and a blocking call here would stall every other
+    coroutine on the event loop."""
     efficient_mode_on = bool(efficiency and efficiency.get("enabled"))
     try:
-        # routing_tokens: the router call that sent this message here (0 when
-        # the rules decided) — metered on the same row.
-        tokens_consumed = answer_metadata.get("total_tokens", 0) + routing_tokens
         # Local/free models (e.g. HuggingFace) always report 0 tokens —
         # still worth a row when Efficient Mode was on, so the dashboard
         # (GET /payments/efficient-mode/stats) isn't silently blind to
         # that whole usage class. log_token_usage's own tokens<=0 guard
         # is relaxed the same way for this same reason.
-        if tokens_consumed or efficient_mode_on:
+        if tokens or efficient_mode_on:
             await asyncio.to_thread(
                 log_token_usage,
-                user.user_id,
-                tokens_consumed,
+                user_id,
+                tokens,
                 efficient_mode_on,
                 efficiency.get("raw_tokens_est") if efficiency else None,
                 efficiency.get("final_tokens_est") if efficiency else None,
@@ -528,11 +644,35 @@ async def _run_metered_query(
     except Exception:
         logger.warning("agnostic_query: failed to log token usage", exc_info=True)
 
-    # Stopped while the model was answering: its tokens are on the ledger
-    # above; the answer itself goes nowhere.
-    if stop is not None and await stop.stopped():
-        raise QueryStopped
 
+def _build_response(
+    pending: PendingAnswer, answer: str, model_used: str, efficiency: Optional[Dict[str, Any]],
+    mapped_sources: Optional[Tuple[List[str], List[PdfSourceDetail], List[Dict[str, Any]]]] = None,
+) -> AgnosticQueryResponse:
+    """`mapped_sources` is `_map_sources` of this answer when the caller already has it."""
+    pdf_sources, pdf_sources_detailed, chat_results = mapped_sources or _map_sources(
+        pending.hybrid_results, pending.base_url, pending.language,
+    )
+    return AgnosticQueryResponse(
+        answer=answer,
+        model_used=model_used,
+        pdf_sources=pdf_sources,
+        pdf_sources_detailed=pdf_sources_detailed,
+        db_results=pending.hybrid_results.get("database_results", {}),
+        chat_results=chat_results,
+        processing_time=(datetime.now() - pending.start_time).total_seconds(),
+        search_terms=pending.hybrid_results.get("search_terms", [pending.question]),
+        target_tables=pending.hybrid_results.get("target_tables", []),
+        source_type=pending.source_type,
+        retrieved_count=len(pdf_sources) + len(chat_results),
+        efficiency=efficiency,
+    )
+
+
+def _map_sources(
+    hybrid_results: Dict[str, Any], base_url: str, language: Optional[ReplyLanguage],
+) -> Tuple[List[str], List[PdfSourceDetail], List[Dict[str, Any]]]:
+    """The retrieved documents as the response's source fields."""
     # Map PDF docs -> response fields
     pdf_sources: List[str] = []
     pdf_sources_detailed: List[PdfSourceDetail] = []
@@ -607,19 +747,182 @@ async def _run_metered_query(
                                 if hasattr(doc, "page_content") else ""),
         })
 
-    elapsed = (datetime.now() - start_time).total_seconds()
+    return pdf_sources, pdf_sources_detailed, chat_results
 
-    return AgnosticQueryResponse(
-        answer=answer,
-        model_used=model_used,
-        pdf_sources=pdf_sources,
-        pdf_sources_detailed=pdf_sources_detailed,
-        db_results=hybrid_results.get("database_results", {}),
-        chat_results=chat_results,
-        processing_time=elapsed,
-        search_terms=hybrid_results.get("search_terms", [question]),
-        target_tables=hybrid_results.get("target_tables", []),
-        source_type=_describe_source_type(should_search_public_links, should_search_external_db),
-        retrieved_count=len(pdf_sources) + len(chat_results),
-        efficiency=efficiency,
-    )
+
+# ---------------------------------------------------------------------------
+# Streaming (MS-906)
+# ---------------------------------------------------------------------------
+
+# Without these a proxy (the HF Space's) may hold the response back until it
+# ends, and the answer would arrive in one lump after all.
+STREAM_MEDIA_TYPE = "application/x-ndjson"
+STREAM_HEADERS = {"Cache-Control": "no-cache", "X-Accel-Buffering": "no"}
+
+# A model call that did not stop in time keeps its question's reservation until
+# it ends, so it stays counted while it runs. This is the most it waits.
+LATE_SETTLE_SECONDS = 120.0
+_late_settlements: set = set()  # strong references: a task nobody holds can be collected mid-run
+
+
+def _event(kind: str, **fields: Any) -> str:
+    """One NDJSON line: {"type": kind, ...fields}."""
+    return json.dumps(jsonable_encoder({"type": kind, **fields}), ensure_ascii=False) + "\n"
+
+
+def _stream_response(outcome: Union[AgnosticQueryResponse, PendingAnswer]) -> StreamingResponse:
+    """The NDJSON response for an outcome of _answer_query. An answer that
+    needs no model call (canned or router reply) is a single `done` event."""
+    if isinstance(outcome, AgnosticQueryResponse):
+        return StreamingResponse(_finished_events(outcome), media_type=STREAM_MEDIA_TYPE, headers=STREAM_HEADERS)
+    return _StreamedAnswer(_AnswerStream(outcome))
+
+
+async def _finished_events(response: AgnosticQueryResponse) -> AsyncIterator[str]:
+    yield _event("done", result=response)
+
+
+class _AnswerStream:
+    """The events of one streamed answer: `sources` as soon as the search is
+    done, a `delta` per piece of text the model writes, then `done` with the
+    same body the non-streamed endpoint returns (the text is validated once it
+    is complete, so `done` can replace what was streamed). If the model fails
+    after text went out: `error`.
+
+    However the stream ends (done, error, or the client leaving) `settle` runs
+    exactly once: the tokens used so far are logged and the reservation freed."""
+
+    def __init__(self, pending: PendingAnswer):
+        self._pending = pending
+        self._plan: Optional[AnswerPlan] = None
+        self._model: Optional[ModelStream] = None
+        self._settled = False
+        # Backstop for an answer that is dropped without ever being run (the
+        # response is returned but the server fails before calling it): the
+        # reservation would otherwise stay counted until restart. Releasing is
+        # idempotent, so this is harmless after a normal end.
+        weakref.finalize(self, pending.reservation.release)
+
+    async def events(self) -> AsyncIterator[str]:
+        pending = self._pending
+        try:
+            mapped_sources = _map_sources(pending.hybrid_results, pending.base_url, pending.language)
+            pdf_sources, pdf_sources_detailed, chat_results = mapped_sources
+            yield _event(
+                "sources",
+                pdf_sources=pdf_sources,
+                pdf_sources_detailed=pdf_sources_detailed,
+                chat_results=chat_results,
+                source_type=pending.source_type,
+                retrieved_count=len(pdf_sources) + len(chat_results),
+            )
+
+            plan = self._plan = await asyncio.to_thread(processor.plan_hybrid_answer, *pending.generate_args())
+            if plan.ready is not None:
+                answer, model_used, metadata = plan.ready
+            else:
+                model = self._model = ModelStream(plan.llm, plan.prompt)
+                written: List[str] = []
+                try:
+                    async for text in model.chunks():
+                        written.append(text)
+                        yield _event("delta", text=text)
+                except Exception as error:
+                    if written:
+                        raise  # the user has already read part of it: no quiet replacement
+                    # Same as the non-streamed endpoint: nothing sent yet, so
+                    # the best retrieved passage stands in for the answer.
+                    answer, model_used, metadata = await asyncio.to_thread(
+                        processor.fallback_hybrid_answer, plan, error,
+                    )
+                else:
+                    # The model finished. A failure in validating its text takes
+                    # the same fallback as the non-streamed endpoint (done.result
+                    # must match it), and `done` replaces the text already shown.
+                    try:
+                        answer, model_used, metadata = await asyncio.to_thread(
+                            processor.finish_hybrid_answer, plan, "".join(written), model.total_tokens,
+                        )
+                    except Exception as error:
+                        answer, model_used, metadata = await asyncio.to_thread(
+                            processor.fallback_hybrid_answer, plan, error,
+                        )
+
+            # Before `done`, so a client that asks for its usage the moment the
+            # answer ends already sees this one counted.
+            await self.settle()
+            yield _event(
+                "done",
+                result=_build_response(pending, answer, model_used, metadata.get("efficiency"), mapped_sources),
+            )
+        except Exception:
+            logger.exception("agnostic_query: streamed answer failed")
+            yield _event("error", detail="Failed to answer the question")
+        finally:
+            await self.settle()
+
+    async def settle(self) -> None:
+        """Stop the model call if it is still running, log what it cost and
+        free the reservation. Does nothing after the first call. Shielded: when
+        the client leaves, the server cancels the stream, and the tokens
+        already used must still be counted.
+
+        A model call that is still waiting for the network when it is stopped
+        cannot end before its next chunk. It is then not forgotten: the
+        reservation stays until it does end, and what it cost after this point
+        is logged then (`_settle_late`)."""
+        if self._settled:
+            return
+        self._settled = True
+        with anyio.CancelScope(shield=True):
+            logged = 0
+            still_running = False
+            try:
+                tokens = self._pending.routing_tokens
+                if self._model is not None:
+                    still_running = not await self._model.stop()
+                    logged = self._model.total_tokens
+                    tokens += logged
+                efficiency = self._plan.metadata.get("efficiency") if self._plan is not None else None
+                await _log_answer_tokens(self._pending.user.user_id, tokens, efficiency)
+            finally:
+                if still_running:
+                    self._hold_until_model_ends(logged)
+                else:
+                    self._pending.reservation.release()
+
+    def _hold_until_model_ends(self, logged_tokens: int) -> None:
+        try:
+            task = asyncio.get_running_loop().create_task(self._settle_late(logged_tokens))
+        except RuntimeError:  # no loop to run it on (shutting down): nothing can wait
+            self._pending.reservation.release()
+            return
+        _late_settlements.add(task)
+        task.add_done_callback(_late_settlements.discard)
+
+    async def _settle_late(self, logged_tokens: int) -> None:
+        """Wait for the model call that was stopped too late to end, log the
+        tokens it used after `settle` logged its share, and free the reservation."""
+        try:
+            await self._model.wait_finished(LATE_SETTLE_SECONDS)
+            extra = self._model.total_tokens - logged_tokens
+            if extra > 0:
+                await _log_answer_tokens(self._pending.user.user_id, extra, None)
+        finally:
+            self._pending.reservation.release()
+
+
+class _StreamedAnswer(StreamingResponse):
+    """The NDJSON response of an _AnswerStream. It settles the answer on every
+    way out, because when the client leaves before the first byte the event
+    generator never starts and so never reaches its own `finally`."""
+
+    def __init__(self, answer: _AnswerStream):
+        super().__init__(answer.events(), media_type=STREAM_MEDIA_TYPE, headers=STREAM_HEADERS)
+        self._answer = answer
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        try:
+            await super().__call__(scope, receive, send)
+        finally:
+            await self._answer.settle()
