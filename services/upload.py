@@ -35,6 +35,7 @@ from services.billing.plans import resolve_storage_limits
 from services.security.ssrf_guard import assert_public_url_safe
 from services.ingest.progress import ProgressCallback, progress_response, upload_progress_store
 from services.ingest.documents import DOCUMENT_EXTRACTORS, process_pdfs
+from services.ingest.ocr import describe_ocr_outcome, new_ocr_stats
 
 logger = logging.getLogger(__name__)
 
@@ -482,9 +483,10 @@ async def upload_files(
         raise
 
     def prepare(report: ProgressCallback) -> dict:
+        ocr_stats = new_ocr_stats()
         try:
             try:
-                chunk_count = process_pdfs(saved_files, collection_id, on_progress=report)
+                chunk_count = process_pdfs(saved_files, collection_id, on_progress=report, ocr_stats=ocr_stats)
             except Exception as e:
                 logger.error(f"Upload failed: {str(e)}")
                 raise HTTPException(status_code=500, detail="Failed to process PDFs")
@@ -515,6 +517,7 @@ async def upload_files(
                 "file_count": len(saved_files),
                 "status": "success",
                 "file_names": file_names,
+                "notice": describe_ocr_outcome(ocr_stats),
             }
         except BaseException:
             _cleanup_local_artifacts(collection_id, collection_path)
@@ -528,7 +531,7 @@ async def upload_files(
         upload_progress_store.start(collection_id, owner_id=user.user_id)
         return progress_response(prepare, upload_id=collection_id)
 
-    return UploadResponse(**await asyncio.to_thread(prepare, lambda stage, progress: None))
+    return UploadResponse(**await asyncio.to_thread(prepare, lambda stage, progress, pages=None: None))
 
 
 async def upload_from_url(
@@ -560,7 +563,8 @@ async def upload_from_url(
         file_size = os.path.getsize(final_path)
         reservation = storage_limits.reserve_workspace(workspace_id, limits, file_size)
 
-        chunk_count = await asyncio.to_thread(process_pdfs, [final_path], collection_id)
+        ocr_stats = new_ocr_stats()
+        chunk_count = await asyncio.to_thread(process_pdfs, [final_path], collection_id, ocr_stats=ocr_stats)
         if chunk_count <= 0:
             raise HTTPException(status_code=400, detail="No readable text was found in the PDF")
 
@@ -584,6 +588,7 @@ async def upload_from_url(
             status="success",
             file_names=[file_name],
             title=collection_title,
+            notice=describe_ocr_outcome(ocr_stats),
         )
     except HTTPException:
         _cleanup_local_artifacts(collection_id, collection_path)
@@ -651,7 +656,8 @@ async def upload_from_urls(
         total_size = sum(os.path.getsize(path) for path in saved_files)
         reservation = storage_limits.reserve_workspace(workspace_id, limits, total_size)
 
-        chunk_count = await asyncio.to_thread(process_pdfs, saved_files, collection_id)
+        ocr_stats = new_ocr_stats()
+        chunk_count = await asyncio.to_thread(process_pdfs, saved_files, collection_id, ocr_stats=ocr_stats)
         if chunk_count <= 0:
             raise HTTPException(status_code=400, detail="No readable text was found in the selected PDFs")
 
@@ -675,6 +681,7 @@ async def upload_from_urls(
             status="success",
             file_names=file_names,
             title=collection_title,
+            notice=describe_ocr_outcome(ocr_stats),
         )
     except HTTPException:
         _cleanup_local_artifacts(collection_id, collection_path)

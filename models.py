@@ -17,6 +17,9 @@ class UploadResponse(BaseModel):
     status: str
     file_names: Optional[List[str]] = None
     title: Optional[str] = None
+    # Set when part of a file could not be indexed (e.g. scanned pages OCR
+    # skipped), so the upload does not look fully read when it was not.
+    notice: Optional[str] = None
 
 
 class UploadFromUrlRequest(BaseModel):

@@ -8,6 +8,7 @@ import re
 import tempfile
 import uuid
 from config import config
+from services.ingest.ocr import PdfOcr
 from langchain.schema import Document
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
@@ -20,6 +21,16 @@ logger = logging.getLogger(__name__)
 
 
 class PublicLinkSearchMixin:
+    def _ocr_scanned_pages(self, pdf_path: str, pages: List[Document]) -> None:
+        """Fill in pages that PyPDFLoader found no text on (scans) with OCR."""
+        ocr = PdfOcr(pdf_path)
+        try:
+            for index, page in enumerate(pages):
+                if ocr.needs_ocr(page.page_content):
+                    page.page_content = ocr.read_page(index, page.page_content)
+        finally:
+            ocr.close()
+
     def _extract_google_drive_file_id(self, raw_url: str) -> Optional[str]:
         parsed = urlparse(raw_url)
         host = (parsed.netloc or "").lower()
@@ -139,6 +150,7 @@ class PublicLinkSearchMixin:
                         if extension == ".pdf":
                             pdf_loader = PyPDFLoader(file_path)
                             loaded_docs = pdf_loader.load()
+                            self._ocr_scanned_pages(file_path, loaded_docs)
                         elif extension in {".txt", ".md", ".log"}:
                             try:
                                 text_loader = TextLoader(file_path, encoding="utf-8")
