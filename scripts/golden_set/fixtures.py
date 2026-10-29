@@ -1,4 +1,4 @@
-"""Source files for the golden question set (MS-908).
+"""Source files for the golden question set (MS-908, the .pptx deck MS-910).
 
 Every file is generated here, so the text on each page is known exactly and
 the expected answers in questions.json can be checked against it. Scanned
@@ -93,6 +93,18 @@ CHAT_LINES = [
     "[2026-10-04 16:45:00] Andi: Go-live target is 2 February 2027, user training starts mid January",
     "[2026-10-04 16:50:10] Rina: Oke, Andi jadi penanggung jawab migrasi data dari sistem lama",
 ]
+
+# MS-910: a training deck. Slide 1 is a title slide (carried into slide 2),
+# slide 3's fact is only in the speaker notes and slide 4's only in a picture.
+DECK_TITLE = "Pelatihan Keselamatan Kerja Gudang 2026"
+DECK_SLIDES = {
+    2: "Alat pelindung diri wajib dipakai di area gudang: helm, sepatu safety dan rompi reflektif. "
+       "Forklift hanya boleh dikemudikan oleh operator bersertifikat SIO.",
+    3: "Prosedur evakuasi: hentikan pekerjaan, matikan mesin, lalu ikuti jalur hijau menuju pintu keluar terdekat.",
+    4: "Batas beban rak palet, lihat tabel dari tim fasilitas di bawah ini.",
+}
+DECK_NOTES = {3: "The emergency assembly point is the east parking lot; team leaders take a roll call within 10 minutes."}
+DECK_PICTURE = "Kapasitas maksimum rak palet adalah 1.200 kg per level. Rak yang penyok wajib dilaporkan ke tim fasilitas."
 
 PAGE_PX = (1240, 1754)
 
@@ -209,6 +221,36 @@ def _write_xlsx(path, sheets):
     workbook.save(path)
 
 
+def _write_pptx(path):
+    from pptx import Presentation
+    from pptx.util import Inches
+
+    deck = Presentation()
+    title = deck.slides.add_slide(deck.slide_layouts[0])
+    title.shapes.title.text = DECK_TITLE
+    for number, text in DECK_SLIDES.items():
+        slide = deck.slides.add_slide(deck.slide_layouts[6])
+        slide.shapes.add_textbox(Inches(0.5), Inches(0.4), Inches(9), Inches(1.5)).text_frame.text = text
+        if number in DECK_NOTES:
+            slide.notes_slide.notes_text_frame.text = DECK_NOTES[number]
+        if number == 4:
+            slide.shapes.add_picture(_deck_picture(), Inches(0.5), Inches(2.5), width=Inches(9))
+    deck.save(path)
+
+
+def _deck_picture():
+    """A screenshot-like picture: light background, a border, two lines of text."""
+    picture = Image.new("RGB", (1400, 360), (246, 246, 242))
+    draw = ImageDraw.Draw(picture)
+    draw.rectangle([4, 4, 1395, 355], outline=(120, 120, 120), width=3)
+    for row, line in enumerate(textwrap.wrap(DECK_PICTURE, 56)):
+        draw.text((50, 70 + row * 90), line, font=_font(42), fill=(25, 25, 25))
+    buffer = io.BytesIO()
+    picture.save(buffer, "PNG")
+    buffer.seek(0)
+    return buffer
+
+
 def build_fixtures(folder):
     """Write every golden source into `folder`. Returns {file: {page: text}}."""
     os.makedirs(folder, exist_ok=True)
@@ -239,6 +281,13 @@ def build_fixtures(folder):
     header, *rows = INVENTARIS
     truth["inventaris.csv"] = {1: " ".join(", ".join(f"{h}: {v}" for h, v in zip(header, row)) for row in rows)}
 
+    _write_pptx(os.path.join(folder, "pelatihan-k3-gudang.pptx"))
+    truth["pelatihan-k3-gudang.pptx"] = {
+        2: f"{DECK_TITLE} {DECK_SLIDES[2]}",
+        3: f"{DECK_SLIDES[3]} Speaker notes: {DECK_NOTES[3]}",
+        4: f"{DECK_SLIDES[4]} {DECK_PICTURE}",
+    }
+
     with open(os.path.join(folder, "chat-tim-proyek.txt"), "w", encoding="utf-8") as handle:
         handle.write("\n".join(CHAT_LINES) + "\n")
     truth["chat-tim-proyek.txt"] = {None: " ".join(line.split("] ", 1)[1] for line in CHAT_LINES)}
@@ -251,3 +300,6 @@ SCANNED_PAGES = {
     "laporan-audit-campuran.pdf": {2},
     "scanned-invoice.pdf": {1, 2},
 }
+
+# Slides whose answer is only inside a picture, i.e. only readable with OCR.
+PICTURE_SLIDES = {"pelatihan-k3-gudang.pptx": {4}}
