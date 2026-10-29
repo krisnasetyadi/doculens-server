@@ -213,19 +213,34 @@ class Config(BaseSettings):
     # Supported chat platforms
     supported_chat_platforms: List[str] = Field(default=["whatsapp", "telegram"])
 
-    # Telegram (Telethon / MTProto) — live connection, not a file upload.
-    # Unlike Supabase/Gemini credentials, api_id/api_hash are NOT set here —
-    # each connection brings its own (entered per-connection in the "Connect
-    # Telegram" form, from https://my.telegram.org/apps), so different admins
-    # can each use their own app registration. Only the at-rest encryption key
-    # is server config, since it protects EVERY connection's secrets alike.
-    # Generate one with:
+    # Telegram (Telethon / MTProto): a live connection, not a file upload.
+    # telegram_api_id / telegram_api_hash are DocuLens's own app registration
+    # (https://my.telegram.org/apps), made once by the team and used for every
+    # new connection, so admins never register an app themselves (MS-911).
+    # Connections saved before that keep the api_id/api_hash they were made
+    # with, because a session only works with the app that created it.
+    # The encryption key protects every saved session at rest. Generate one with:
     #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     telegram_session_encryption_key: Optional[str] = Field(default=None)
+    telegram_api_id: Optional[int] = Field(default=None)
+    telegram_api_hash: Optional[str] = Field(default=None)
+
+    @field_validator("telegram_api_id", mode="before")
+    @classmethod
+    def _empty_telegram_api_id_is_unset(cls, value):
+        # `TELEGRAM_API_ID=` (empty, as in .env.example) means "not configured",
+        # not an int-parsing crash at startup.
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @property
     def telegram_enabled(self) -> bool:
         return bool(self.telegram_session_encryption_key)
+
+    @property
+    def telegram_app_configured(self) -> bool:
+        return bool(self.telegram_api_id and self.telegram_api_hash)
 
     # Stripe (dummy/test-mode payment flow — MS-90). Test-mode keys only;
     # see services/billing/payments.py.

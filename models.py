@@ -424,15 +424,17 @@ class TelegramConnectionSource(BaseModel):
 class TelegramConnectionsResponse(BaseModel):
     connections: List[TelegramConnectionSource]
     count: int
+    # False until TELEGRAM_API_ID / TELEGRAM_API_HASH are set, so the client can
+    # say "not configured" before a sign-in starts instead of failing midway.
+    app_configured: bool = False
 
 
 class TelegramConnectStartRequest(BaseModel):
-    # api_id/api_hash identify the Telegram *application* making the request
-    # (from https://my.telegram.org/apps) — entered here per-connection rather
-    # than shared via server config, so different admins can each bring their
-    # own app registration.
-    api_id: int
-    api_hash: str
+    # api_id/api_hash identify the Telegram *application* making the request.
+    # Leave both out to use DocuLens's own registration (TELEGRAM_API_ID /
+    # TELEGRAM_API_HASH); sending them still works for clients older than MS-911.
+    api_id: Optional[int] = None
+    api_hash: Optional[str] = None
     phone: str
     label: Optional[str] = None
 
@@ -451,6 +453,27 @@ class TelegramConnectVerifyRequest(BaseModel):
 class TelegramConnectVerifyResponse(BaseModel):
     status: str  # "connected" | "password_required"
     connection: Optional[TelegramConnectionSource] = None
+
+
+class TelegramQrStartRequest(BaseModel):
+    label: Optional[str] = None
+
+
+class TelegramQrCancelRequest(BaseModel):
+    flow_id: str
+
+
+class TelegramQrLoginState(BaseModel):
+    """Where a QR sign-in stands. The client polls it and draws `qr_url` (a
+    tg://login link Telegram issued) as the QR code; it changes whenever the
+    token is renewed. "password_required" continues on connect/verify with the
+    same flow_id, like the code flow."""
+    flow_id: str
+    status: str  # "waiting" | "password_required" | "connected" | "expired" | "error"
+    qr_url: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    connection: Optional[TelegramConnectionSource] = None
+    error: Optional[str] = None
 
 
 class TelegramSyncRequest(BaseModel):

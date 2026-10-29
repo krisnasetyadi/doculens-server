@@ -1,15 +1,17 @@
 """MS-657: behaviour of Telegram connections (router/ + services/telegram.py) against real
 SQL, recorded before it is moved: the connect flow (code, 2FA), listing and
 managing connections, listing dialogs and syncing chats into chat collections.
-Telethon is replaced by a fake client, embeddings are faked and Supabase
-Storage is off, so nothing leaves the machine. Runs in a throwaway schema
-(testing_db); skipped when no database is reachable."""
+MS-911 adds the QR sign-in. Telethon is replaced by a fake client, embeddings are
+faked and Supabase Storage is off, so nothing leaves the machine. Runs in a
+throwaway schema (testing_db); skipped when no database is reachable."""
 
+import asyncio
 import os
 import tempfile
+import time
 import unittest
 from contextlib import ExitStack
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -22,6 +24,8 @@ from fastapi.testclient import TestClient
 from langchain_core.embeddings import Embeddings
 from telethon.errors import PhoneCodeInvalidError, SessionPasswordNeededError
 
+import db
+from schema import telegram as schema_telegram
 from services.storage import supabase as storage
 from services.security import telegram_crypto
 from config import config
@@ -73,7 +77,13 @@ class FakeTelegram:
         self.send_code_error = None
         self.sign_in_error = None
         self.authorized = True
-        self.me = User(id=1, first_name="Admin", last_name=None, username="admin")
+        self.me = User(id=1, first_name="Admin", last_name=None, username="admin", phone=PHONE.lstrip("+"))
+        # What each QR wait does, in order: "scan", "timeout" (token expired),
+        # "password" (2FA account) or "hang" (nobody scans until the timeout).
+        self.qr_script = []
+        self.qr_tokens = 0
+        self.log_outs = 0
+        self.log_out_error = None
         self.dialogs = []
         self.entities = {}
         self.participants = {}
@@ -83,8 +93,9 @@ class FakeTelegram:
         account = self
 
         class FakeClient:
-            def __init__(self, session, api_id, api_hash):
+            def __init__(self, session, api_id, api_hash, device_model=None):
                 self.saved_session, self.api_id, self.api_hash = session, api_id, api_hash
+                self.device_model = device_model
                 self.session = SimpleNamespace(save=lambda: "SESSION-STRING")
                 self.disconnected = False
                 account.clients.append(self)
@@ -123,6 +134,15 @@ class FakeTelegram:
             async def get_me(self):
                 return account.me
 
+            async def qr_login(self):
+                return account.FakeQR(account)
+
+            async def log_out(self):
+                if account.log_out_error:
+                    raise account.log_out_error
+                account.log_outs += 1
+                return True
+
             async def get_participants(self, entity, limit):
                 if entity.id not in account.participants:
                     raise RuntimeError("cannot list participants of a channel")
@@ -134,6 +154,31 @@ class FakeTelegram:
 
         return FakeClient
 
+    class FakeQR:
+        """Telethon's QRLogin: a token with an expiry, renewable, and a wait for the scan."""
+
+        def __init__(self, account):
+            self.account = account
+            self._issue()
+
+        def _issue(self):
+            self.account.qr_tokens += 1
+            self.url = f"tg://login?token=T{self.account.qr_tokens}"
+            self.expires = datetime.now(timezone.utc) + timedelta(seconds=30)
+
+        async def recreate(self):
+            self._issue()
+
+        async def wait(self, timeout=None):
+            step = self.account.qr_script.pop(0) if self.account.qr_script else "hang"
+            if step == "scan":
+                return self.account.me
+            if step == "password":
+                raise SessionPasswordNeededError(request=None)
+            if step == "hang":
+                await asyncio.sleep(timeout)
+            raise asyncio.TimeoutError()
+
 
 class TelegramTestCase(IsolatedSchemaTestCase):
     def setUp(self):
@@ -143,6 +188,9 @@ class TelegramTestCase(IsolatedSchemaTestCase):
         self.stack.enter_context(patch("telethon.TelegramClient", self.account.client_class()))
         self.stack.enter_context(patch("telethon.sessions.StringSession", lambda session=None: session))
         self.stack.enter_context(patch.object(config, "telegram_session_encryption_key", Fernet.generate_key().decode()))
+        # No DocuLens app registration unless a test sets one, whatever the local .env holds.
+        self.stack.enter_context(patch.object(config, "telegram_api_id", None))
+        self.stack.enter_context(patch.object(config, "telegram_api_hash", None))
         telegram_crypto._fernet.cache_clear()
         self.addCleanup(telegram_crypto._fernet.cache_clear)
         self.stack.enter_context(patch.object(processor, "embeddings", FakeEmbeddings()))
@@ -191,7 +239,7 @@ class ConnectFlowTest(TelegramTestCase):
         self.assertTrue(self.account.clients[0].disconnected)
 
         row = self.sql("SELECT * FROM telegram_connections")[0]
-        self.assertEqual((row["api_id"], row["phone"]), (12345, PHONE))
+        self.assertEqual((row["api_id"], row["phone"]), (12345, "+628*******890"))  # only kept masked
         self.assertEqual(telegram_crypto.decrypt_secret(row["api_hash_enc"]), "app-hash")
         self.assertEqual(telegram_crypto.decrypt_secret(row["session_enc"]), "SESSION-STRING")
         # the flow is used up
@@ -225,12 +273,133 @@ class ConnectFlowTest(TelegramTestCase):
                                         json={"flow_id": "nope", "code": "1"}).status_code, 400)
         self.assertEqual(self.sql("SELECT * FROM telegram_connections"), [])
 
+    def test_phone_login_without_api_fields_uses_the_doculens_app(self):
+        self.assertFalse(self.http.get("/api/v1/telegram-connections").json()["app_configured"])
+        resp = self.http.post("/api/v1/telegram-connections/connect/start", json={"phone": PHONE})
+        self.assertEqual(resp.status_code, 503)
+        self.assertIn("not configured", resp.json()["detail"])
+        self.assertEqual(self.account.clients, [])  # nothing was sent to Telegram
+
+        with patch.object(config, "telegram_api_id", 777), patch.object(config, "telegram_api_hash", "  doculens-hash  "):
+            self.assertTrue(self.http.get("/api/v1/telegram-connections").json()["app_configured"])
+            flow_id = self.http.post("/api/v1/telegram-connections/connect/start", json={"phone": PHONE}).json()["flow_id"]
+            resp = self.http.post("/api/v1/telegram-connections/connect/verify", json={"flow_id": flow_id, "code": "11111"})
+        self.assertEqual(resp.json()["status"], "connected")
+        client = self.account.clients[0]
+        self.assertEqual((client.api_id, client.api_hash, client.device_model), (777, "doculens-hash", "DocuLens"))
+        row = self.sql("SELECT * FROM telegram_connections")[0]
+        self.assertEqual(row["api_id"], 777)
+        self.assertEqual(telegram_crypto.decrypt_secret(row["api_hash_enc"]), "doculens-hash")
+
+    def test_a_start_that_names_its_own_app_must_name_it_fully(self):
+        with patch.object(config, "telegram_api_id", 777), patch.object(config, "telegram_api_hash", "doculens-hash"):
+            no_id = self.http.post("/api/v1/telegram-connections/connect/start", json={"phone": PHONE, "api_hash": "x"})
+            self.assertEqual((no_id.status_code, no_id.json()["detail"]), (400, "API ID is required"))
+            own = self.start()  # a client older than MS-911 still brings its own app
+            self.assertEqual(own.status_code, 200)
+        self.assertEqual((self.account.clients[-1].api_id, self.account.clients[-1].api_hash), (12345, "app-hash"))
+
     def test_disabled_without_an_encryption_key_and_admin_only(self):
         with patch.object(config, "telegram_session_encryption_key", None):
             self.assertEqual(self.start().status_code, 503)
         self.role = "user"
         self.assertEqual(self.start().status_code, 403)
         self.assertEqual(self.http.get("/api/v1/telegram-connections").status_code, 403)
+
+
+class QrFlowTest(TelegramTestCase):
+    def setUp(self):
+        super().setUp()
+        self.stack.enter_context(patch.object(config, "telegram_api_id", 777))
+        self.stack.enter_context(patch.object(config, "telegram_api_hash", "doculens-hash"))
+        # One client for the whole test: the scan is awaited by a background task
+        # on this client's event loop, which a client per request would close.
+        self.client = self.stack.enter_context(self.http)
+
+    def qr_start(self):
+        resp = self.client.post("/api/v1/telegram-connections/connect/qr/start", json={})
+        self.assertEqual(resp.status_code, 200, resp.text)
+        return resp.json()
+
+    def qr_status(self, flow_id):
+        return self.client.get("/api/v1/telegram-connections/connect/qr/status", params={"flow_id": flow_id})
+
+    def wait_for(self, flow_id, status, seconds=5):
+        deadline = time.time() + seconds
+        state = None
+        while time.time() < deadline:
+            state = self.qr_status(flow_id).json()
+            if state.get("status") == status:
+                return state
+            time.sleep(0.05)
+        self.fail(f"QR sign-in never reached {status!r}, last state: {state}")
+
+    def test_a_scan_saves_the_connection_through_the_doculens_app(self):
+        self.account.qr_script = ["scan"]
+        started = self.qr_start()
+        self.assertEqual((started["status"], started["qr_url"]), ("waiting", "tg://login?token=T1"))
+        self.assertIsNotNone(started["expires_at"])
+
+        done = self.wait_for(started["flow_id"], "connected")
+        self.assertIsNone(done["qr_url"])
+        self.assertEqual((done["connection"]["label"], done["connection"]["phone_masked"]),
+                         ("Telegram (+628*******890)", "+628*******890"))
+        client = self.account.clients[0]
+        self.assertEqual((client.api_id, client.api_hash, client.device_model), (777, "doculens-hash", "DocuLens"))
+        self.assertTrue(client.disconnected)
+        row = self.sql("SELECT * FROM telegram_connections")[0]
+        self.assertEqual((row["api_id"], row["phone"]), (777, "+628*******890"))
+        self.assertEqual(telegram_crypto.decrypt_secret(row["session_enc"]), "SESSION-STRING")
+
+    def test_an_expired_token_is_renewed_until_the_scan(self):
+        self.account.qr_script = ["timeout", "timeout", "scan"]
+        started = self.qr_start()
+        self.wait_for(started["flow_id"], "connected")
+        self.assertEqual(self.account.qr_tokens, 3)  # the first token and two renewals
+
+    def test_two_step_verification_finishes_on_verify(self):
+        self.account.qr_script = ["password"]
+        flow_id = self.qr_start()["flow_id"]
+        self.wait_for(flow_id, "password_required")
+        resp = self.client.post("/api/v1/telegram-connections/connect/verify",
+                                json={"flow_id": flow_id, "code": "", "password": "pw"})
+        self.assertEqual(resp.json()["status"], "connected")
+        self.assertEqual(self.account.clients[0].signed_in["password"], "pw")
+        self.assertEqual(self.qr_status(flow_id).status_code, 404)  # the flow is used up
+
+    def test_it_gives_up_after_the_time_limit(self):
+        self.stack.enter_context(patch.object(telegram_service, "QR_LOGIN_LIMIT_SECONDS", 0.3))
+        started = self.qr_start()  # nobody scans
+        expired = self.wait_for(started["flow_id"], "expired")
+        self.assertIsNone(expired["qr_url"])
+        self.assertTrue(self.account.clients[0].disconnected)
+        self.assertEqual(self.sql("SELECT * FROM telegram_connections"), [])
+
+    def test_cancel_stops_waiting_and_lets_the_client_go(self):
+        flow_id = self.qr_start()["flow_id"]  # nobody scans
+        resp = self.client.post("/api/v1/telegram-connections/connect/qr/cancel", json={"flow_id": flow_id})
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(self.account.clients[0].disconnected)
+        self.assertEqual(self.qr_status(flow_id).status_code, 404)
+        # cancelling twice, or a flow that never existed, is harmless
+        self.assertEqual(self.client.post("/api/v1/telegram-connections/connect/qr/cancel",
+                                          json={"flow_id": flow_id}).status_code, 200)
+
+    def test_verify_refuses_a_qr_sign_in_that_is_not_asking_for_a_password(self):
+        flow_id = self.qr_start()["flow_id"]  # still waiting for the scan
+        resp = self.client.post("/api/v1/telegram-connections/connect/verify", json={"flow_id": flow_id, "code": "1"})
+        self.assertEqual((resp.status_code, resp.json()["detail"]), (400, "This QR sign-in is not waiting for a password"))
+
+    def test_not_configured_and_admin_only(self):
+        with patch.object(config, "telegram_api_id", None):
+            resp = self.client.post("/api/v1/telegram-connections/connect/qr/start", json={})
+            self.assertEqual(resp.status_code, 503)
+        self.assertEqual(self.account.clients, [])
+        self.role = "user"
+        self.assertEqual(self.client.post("/api/v1/telegram-connections/connect/qr/start", json={}).status_code, 403)
+        self.assertEqual(self.qr_status("x").status_code, 403)
+        self.assertEqual(self.client.post("/api/v1/telegram-connections/connect/qr/cancel",
+                                          json={"flow_id": "x"}).status_code, 403)
 
 
 class ManageTest(TelegramTestCase):
@@ -339,6 +508,70 @@ class SyncTest(TelegramTestCase):
         self.assertEqual(self.sync().status_code, 400)
         self.assertEqual(self.http.post("/api/v1/telegram-connections/nope/sync", json={"dialog_ids": ["1"]}).status_code, 404)
 
+    def synced_chat(self):
+        collection_id = self.sync("-20").json()["results"][0]["chat_collection_id"]
+        self.assertEqual(len(self.chat_rows(collection_id)), 1)
+        self.assertTrue((self.chat_dir / collection_id).exists())
+        return collection_id
+
+    def chat_rows(self, collection_id):
+        return self.sql("SELECT collection_id FROM collections WHERE collection_id = %s AND kind = 'chat'", (collection_id,))
+
+    def test_deleting_the_connection_logs_out_and_deletes_its_chats(self):
+        collection_id = self.synced_chat()
+        resp = self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        self.assertEqual(self.account.log_outs, 1)
+        self.assertEqual(self.chat_rows(collection_id), [])
+        self.assertFalse((self.chat_dir / collection_id).exists())
+        self.assertEqual(self.sql("SELECT * FROM telegram_selected_chats"), [])
+        self.assertEqual(self.sql("SELECT * FROM telegram_connections"), [])
+
+    def test_an_unreachable_telegram_does_not_stop_the_delete(self):
+        collection_id = self.synced_chat()
+        self.account.log_out_error = ConnectionError("Telegram unreachable")
+        self.assertEqual(self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}").status_code, 200)
+        self.assertEqual(self.chat_rows(collection_id), [])
+        self.assertEqual(self.sql("SELECT * FROM telegram_connections"), [])
+
+        self.connection_id = self.connect()["connection_id"]
+        self.account.authorized = False  # a session the user already revoked in Telegram
+        self.assertEqual(self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}").status_code, 200)
+
+    def test_a_chat_that_cannot_be_deleted_keeps_the_connection(self):
+        collection_id = self.synced_chat()
+        with patch.object(telegram_service.chat_service, "delete_chat_collection", side_effect=RuntimeError("storage down")):
+            resp = self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}")
+        self.assertEqual(resp.status_code, 500)
+        self.assertIn("connection was kept", resp.json()["detail"])
+        self.assertEqual(len(self.sql("SELECT * FROM telegram_connections")), 1)
+        self.assertEqual(len(self.chat_rows(collection_id)), 1)
+        # trying again once storage is back finishes the job
+        self.assertEqual(self.http.delete(f"/api/v1/telegram-connections/{self.connection_id}").status_code, 200)
+        self.assertEqual(self.chat_rows(collection_id), [])
+
+
+class PhoneMigrationTest(TelegramTestCase):
+    def test_numbers_saved_before_masking_are_masked_once(self):
+        phones = [PHONE, " +62 812 ", "12345", "+1234567", "5", ""]
+        for i, phone in enumerate(phones):
+            self.sql(
+                """INSERT INTO telegram_connections (connection_id, user_id, api_id, api_hash_enc, phone, label, session_enc)
+                   VALUES (%s, 'u', 1, 'h', %s, 'l', 's')""",
+                (f"old-{i}", phone),
+            )
+        for _ in range(2):  # every startup runs it; the second run must change nothing
+            conn = db.get_conn("test")
+            try:
+                with patch.object(schema_telegram, "_tables_ensured", False):
+                    schema_telegram.ensure(conn)
+            finally:
+                conn.close()
+            stored = {r["connection_id"]: r["phone"] for r in self.sql("SELECT connection_id, phone FROM telegram_connections")}
+            # the SQL masking must match the Python one new rows use
+            self.assertEqual([stored[f"old-{i}"] for i in range(len(phones))],
+                             [telegram_service._mask_phone(p) for p in phones])
+
 
 class HelperTest(unittest.TestCase):
     """Pure helpers; no database needed."""
@@ -347,6 +580,11 @@ class HelperTest(unittest.TestCase):
         self.assertEqual(telegram_service._mask_phone("12345"), "1****")
         self.assertEqual(telegram_service._mask_phone("1234567"), "1234*567")
         self.assertEqual(telegram_service._mask_phone(PHONE), "+628*******890")
+        self.assertEqual(telegram_service._mask_phone(""), "")
+        # masking a masked number changes nothing, so stored rows can be re-masked safely
+        for phone in ("12345", "1234567", PHONE):
+            masked = telegram_service._mask_phone(phone)
+            self.assertEqual(telegram_service._mask_phone(masked), masked)
 
     def test_transcript_names(self):
         self.assertEqual(telegram_service._telegram_transcript_name("  ...  ", 42), "telegram-42.txt")

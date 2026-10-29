@@ -2,15 +2,17 @@
 """
 Telegram as a live chat source (Telethon/MTProto), not a file upload.
 
-Flow: connect (api_id + api_hash + phone -> OTP -> optional 2FA) -> pick
+Flow: connect (phone -> OTP -> optional 2FA) -> pick
 which chats/groups to bring in -> sync (repeatable) -> each selected chat
 becomes a searchable ChatCollection via the same pipeline WhatsApp uploads
 use (services/ingest/chat_ingest.py).
 
-api_id/api_hash (from https://my.telegram.org/apps) are entered per-connection
-in the connect form rather than via server config, so different admins can
-each bring their own Telegram app registration — see
-models.TelegramConnectStartRequest.
+The Telegram *application* every new connection signs in through is
+DocuLens's own registration from server config (TELEGRAM_API_ID /
+TELEGRAM_API_HASH, MS-911), so admins never register one. A start request may
+still carry its own api_id/api_hash (clients older than MS-911), and every
+saved connection keeps the pair it was made with, because a session only
+works with the app that created it.
 
 Mirrors services/database_connections.py's structure (its own small schema in
 the app's own database, admin-only, connect/list/activate/delete) since a
@@ -20,9 +22,17 @@ user-managed source rather than a one-time file.
 SECURITY: a saved Telethon session is equivalent to full access to the
 Telegram account that logged in — read every chat, send messages as that
 user. Both the session and the connection's api_hash are encrypted at rest
-(services/security/telegram_crypto.py) and never returned to the client. Losing
+(services/security/telegram_crypto.py) and never returned to the client; the
+phone number is only stored masked (schema/telegram.py masks older rows). Losing
 TELEGRAM_SESSION_ENCRYPTION_KEY makes stored secrets permanently
 undecryptable (by design — there is no server-side escape hatch).
+
+QR sign-in (the default since MS-911): /connect/qr/start asks Telegram for a
+login token and returns it as a tg://login link the client draws as a QR code.
+A background task per flow waits for the scan, renews the token whenever it
+expires and gives up after QR_LOGIN_LIMIT_SECONDS. The client polls
+/connect/qr/status; an account with two-step verification finishes on
+/connect/verify with the same flow_id.
 
 KNOWN LIMITATION: the connect flow's in-progress Telethon client lives in an
 in-memory dict between /connect/start and /connect/verify. It does not
@@ -33,13 +43,14 @@ vector_store_cache already makes.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
 import tempfile
 import time
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
@@ -59,20 +70,28 @@ from models import (
     TelegramConnectVerifyResponse,
     TelegramDialog,
     TelegramDialogsResponse,
+    TelegramQrCancelRequest,
+    TelegramQrLoginState,
+    TelegramQrStartRequest,
     TelegramSelectedChat,
     TelegramSyncRequest,
     TelegramSyncResponse,
     TelegramSyncResult,
 )
+from services import chat as chat_service
 from services.ingest.chat_ingest import ingest_chat_messages
 from services.security.telegram_crypto import encrypt_secret, decrypt_secret
 
 logger = logging.getLogger(__name__)
 
 PENDING_LOGIN_TTL_SECONDS = 10 * 60
+QR_LOGIN_LIMIT_SECONDS = 3 * 60
 
-# flow_id -> {"client": TelegramClient, "phone": str, "phone_code_hash": str,
-#             "label": Optional[str], "created_at": float}
+# flow_id -> {"client": TelegramClient, "api_id": int, "api_hash": str,
+#             "phone": Optional[str], "phone_code_hash": str, "label": Optional[str],
+#             "created_at": float}
+# A QR flow has no phone/phone_code_hash and adds "qr", "task", "status",
+# "connection" and "error" (see start_qr_connect).
 _pending_logins: Dict[str, Dict[str, Any]] = {}
 
 
@@ -84,20 +103,61 @@ def _require_telegram_enabled() -> None:
         )
 
 
+def _app_credentials(api_id: Optional[int], api_hash: Optional[str]) -> tuple[int, str]:
+    """The Telegram app a new sign-in goes through: the one the request names
+    (clients older than MS-911), otherwise DocuLens's own registration."""
+    if api_id is not None or api_hash is not None:
+        if not api_id:
+            raise HTTPException(status_code=400, detail="API ID is required")
+        if not (api_hash or "").strip():
+            raise HTTPException(status_code=400, detail="API hash is required")
+        return api_id, api_hash.strip()
+    if not config.telegram_app_configured:
+        raise HTTPException(
+            status_code=503,
+            detail="Telegram is not configured on this server: set TELEGRAM_API_ID and TELEGRAM_API_HASH in the backend .env",
+        )
+    return config.telegram_api_id, config.telegram_api_hash.strip()
+
+
 def _cleanup_pending_logins() -> None:
     now = time.time()
     expired = [fid for fid, entry in _pending_logins.items() if now - entry["created_at"] > PENDING_LOGIN_TTL_SECONDS]
     for fid in expired:
-        entry = _pending_logins.pop(fid, None)
-        if entry and entry.get("client"):
-            try:
-                entry["client"].disconnect()
-            except Exception:
-                pass
+        _drop_pending_login(fid)
+
+
+def _drop_pending_login(flow_id: str) -> None:
+    """Forget a sign-in: stop its QR wait (if any) and let its client go."""
+    entry = _pending_logins.pop(flow_id, None)
+    if not entry:
+        return
+    task = entry.get("task")
+    if task and not task.done():
+        task.cancel()
+    _release_client(entry)
+
+
+def _release_client(entry: Dict[str, Any]) -> None:
+    """Disconnect a pending sign-in's client, without waiting for it."""
+    client, entry["client"] = entry.get("client"), None
+    if not client:
+        return
+    try:
+        # Telethon's disconnect() hands back a coroutine while the event loop
+        # runs (every caller here is a request handler), and it does nothing
+        # until that coroutine is scheduled.
+        result = client.disconnect()
+        if asyncio.iscoroutine(result):
+            asyncio.ensure_future(result)
+    except Exception:
+        pass
 
 
 def _mask_phone(phone: str) -> str:
     digits = phone.strip()
+    if not digits:
+        return ""
     if len(digits) <= 6:
         return digits[0] + "*" * max(len(digits) - 1, 0)
     # Always mask at least one character between the kept head/tail — at
@@ -252,7 +312,9 @@ def _new_client(api_id: int, api_hash: str, session_string: Optional[str] = None
     from telethon import TelegramClient
     from telethon.sessions import StringSession
 
-    return TelegramClient(StringSession(session_string), api_id, api_hash)
+    # device_model is the name the account owner sees in Telegram's
+    # Settings > Devices, where they can also revoke this session.
+    return TelegramClient(StringSession(session_string), api_id, api_hash, device_model="DocuLens")
 
 
 async def _connect_with_saved_session(row: Dict[str, Any]):
@@ -278,10 +340,9 @@ async def start_connect(body: TelegramConnectStartRequest):
     phone = body.phone.strip()
     if not phone:
         raise HTTPException(status_code=400, detail="Phone number is required")
-    if not body.api_hash.strip():
-        raise HTTPException(status_code=400, detail="API hash is required")
+    api_id, api_hash = _app_credentials(body.api_id, body.api_hash)
 
-    client = _new_client(body.api_id, body.api_hash.strip())
+    client = _new_client(api_id, api_hash)
     try:
         await client.connect()
         sent = await client.send_code_request(phone)
@@ -296,8 +357,8 @@ async def start_connect(body: TelegramConnectStartRequest):
     flow_id = str(uuid.uuid4())
     _pending_logins[flow_id] = {
         "client": client,
-        "api_id": body.api_id,
-        "api_hash": body.api_hash.strip(),
+        "api_id": api_id,
+        "api_hash": api_hash,
         "phone": phone,
         "phone_code_hash": sent.phone_code_hash,
         "label": (body.label or "").strip() or None,
@@ -312,6 +373,9 @@ async def verify_connect(body: TelegramConnectVerifyRequest):
     entry = _pending_logins.get(body.flow_id)
     if not entry:
         raise HTTPException(status_code=400, detail="Login session expired or not found — start over.")
+
+    if "qr" in entry and entry["status"] != "password_required":
+        raise HTTPException(status_code=400, detail="This QR sign-in is not waiting for a password")
 
     client = entry["client"]
     from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError, PhoneCodeExpiredError
@@ -333,15 +397,29 @@ async def verify_connect(body: TelegramConnectVerifyRequest):
         logger.error("telegram: sign_in failed: %s", exc)
         raise HTTPException(status_code=400, detail=f"Sign-in failed: {exc}")
 
+    _pending_logins.pop(body.flow_id, None)
+    source = await _save_signed_in_connection(entry)
+    return TelegramConnectVerifyResponse(status="connected", connection=source)
+
+
+async def _save_signed_in_connection(entry: Dict[str, Any]) -> TelegramConnectionSource:
+    """Store the account entry["client"] has just signed in to, then let the
+    client go. Shared by the code flow and the QR flow."""
+    client = entry["client"]
+    phone = entry.get("phone")
+    if not phone:
+        # A QR sign-in never typed a number: take it from the account itself.
+        me = await client.get_me()
+        raw = (getattr(me, "phone", None) or "").strip()
+        phone = raw if not raw or raw.startswith("+") else f"+{raw}"
     session_string = client.session.save()
     await client.disconnect()
-    _pending_logins.pop(body.flow_id, None)
 
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     connection_id = str(uuid.uuid4())
-    label = entry["label"] or f"Telegram ({_mask_phone(entry['phone'])})"
+    label = entry["label"] or (f"Telegram ({_mask_phone(phone)})" if phone else "Telegram")
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -356,20 +434,122 @@ async def verify_connect(body: TelegramConnectVerifyRequest):
                     _telegram_user_id(),
                     entry["api_id"],
                     encrypt_secret(entry["api_hash"]),
-                    entry["phone"],
+                    # Only the masked number is kept: nothing needs the full
+                    # one after sign-in, and the list shows it masked anyway.
+                    _mask_phone(phone),
                     label,
                     encrypt_secret(session_string),
                 ),
             )
             row = cur.fetchone()
-            source = _as_connection_source(cur, row)
+            return _as_connection_source(cur, row)
     except Exception as exc:
         logger.error("telegram: failed to persist connection: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to save Telegram connection")
     finally:
         conn.close()
 
-    return TelegramConnectVerifyResponse(status="connected", connection=source)
+
+async def start_qr_connect(body: TelegramQrStartRequest) -> TelegramQrLoginState:
+    _require_telegram_enabled()
+    _cleanup_pending_logins()
+    api_id, api_hash = _app_credentials(None, None)
+
+    client = _new_client(api_id, api_hash)
+    try:
+        await client.connect()
+        qr = await client.qr_login()
+    except Exception as exc:
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+        logger.error("telegram: qr_login failed: %s", exc)
+        raise HTTPException(status_code=400, detail=f"Could not start the QR sign-in: {exc}")
+
+    flow_id = str(uuid.uuid4())
+    entry = {
+        "client": client,
+        "api_id": api_id,
+        "api_hash": api_hash,
+        "phone": None,
+        "label": (body.label or "").strip() or None,
+        "created_at": time.time(),
+        "qr": qr,
+        "status": "waiting",
+        "connection": None,
+        "error": None,
+    }
+    _pending_logins[flow_id] = entry
+    # Kept on the entry so the task is not garbage-collected and can be cancelled.
+    entry["task"] = asyncio.ensure_future(_wait_for_qr_scan(flow_id, entry))
+    return _qr_state(flow_id, entry)
+
+
+async def _wait_for_qr_scan(flow_id: str, entry: Dict[str, Any]) -> None:
+    """Wait for the phone to scan, renewing the token as it expires, until
+    QR_LOGIN_LIMIT_SECONDS. Telegram only reports the scan to a client that is
+    already waiting, which is why this runs in the background, not per poll."""
+    from telethon.errors import SessionPasswordNeededError
+
+    qr = entry["qr"]
+    deadline = entry["created_at"] + QR_LOGIN_LIMIT_SECONDS
+    try:
+        while True:
+            left = deadline - time.time()
+            if left <= 0:
+                entry["status"] = "expired"
+                _release_client(entry)
+                return
+            token_left = (qr.expires - datetime.now(timezone.utc)).total_seconds()
+            try:
+                await qr.wait(timeout=max(1.0, min(token_left, left)))
+                break
+            except asyncio.TimeoutError:
+                if time.time() < deadline:
+                    await qr.recreate()
+            except SessionPasswordNeededError:
+                # Scanned; the client stays signed in halfway for connect/verify.
+                entry["status"] = "password_required"
+                return
+        entry["connection"] = await _save_signed_in_connection(entry)
+        entry["client"] = None
+        entry["status"] = "connected"
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        logger.error("telegram: qr sign-in %s failed: %s", flow_id, exc)
+        entry["status"] = "error"
+        entry["error"] = exc.detail if isinstance(exc, HTTPException) else "Telegram sign-in failed"
+        _release_client(entry)
+
+
+def _qr_state(flow_id: str, entry: Dict[str, Any]) -> TelegramQrLoginState:
+    waiting = entry["status"] == "waiting"
+    qr = entry["qr"]
+    return TelegramQrLoginState(
+        flow_id=flow_id,
+        status=entry["status"],
+        qr_url=qr.url if waiting else None,
+        expires_at=qr.expires if waiting else None,
+        connection=entry["connection"],
+        error=entry["error"],
+    )
+
+
+async def qr_connect_status(flow_id: str) -> TelegramQrLoginState:
+    _require_telegram_enabled()
+    entry = _pending_logins.get(flow_id)
+    if not entry or "qr" not in entry:
+        raise HTTPException(status_code=404, detail="QR sign-in not found or expired, start again")
+    return _qr_state(flow_id, entry)
+
+
+async def cancel_qr_connect(body: TelegramQrCancelRequest) -> dict:
+    """Closing the dialog: stop waiting for a scan and let the client go. A
+    flow that already finished or was never there is fine to cancel."""
+    _drop_pending_login(body.flow_id)
+    return {"status": "cancelled", "flow_id": body.flow_id}
 
 
 async def list_connections():
@@ -383,7 +563,9 @@ async def list_connections():
             )
             rows = cur.fetchall() or []
             connections = [_as_connection_source(cur, r) for r in rows]
-        return TelegramConnectionsResponse(connections=connections, count=len(connections))
+        return TelegramConnectionsResponse(
+            connections=connections, count=len(connections), app_configured=config.telegram_app_configured,
+        )
     except Exception as exc:
         logger.error("telegram: list connections failed: %s", exc)
         raise HTTPException(status_code=500, detail="Failed to list Telegram connections")
@@ -575,6 +757,24 @@ async def set_connection_active(body: SetTelegramConnectionActiveRequest):
 
 
 async def delete_connection(connection_id: str):
+    """Disconnecting leaves nothing DocuLens took from the account behind: the
+    session is logged out of Telegram, every chat it synced is deleted, then
+    the connection (its selected chats go with it, ON DELETE CASCADE).
+    Telegram being unreachable does not stop the rest; a synced chat that
+    cannot be deleted does, so it is never left searchable without a way to
+    retry."""
+    row = _get_connection_row(connection_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Telegram connection not found")
+
+    await _log_out_saved_session(row)
+    failed = await _delete_synced_chats(connection_id)
+    if failed:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not delete {failed} synced chat(s), so the connection was kept. Try again.",
+        )
+
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -595,3 +795,55 @@ async def delete_connection(connection_id: str):
         raise HTTPException(status_code=500, detail="Failed to delete Telegram connection")
     finally:
         conn.close()
+
+
+async def _log_out_saved_session(row: Dict[str, Any]) -> None:
+    """Remove DocuLens from the account's Telegram > Settings > Devices. Best
+    effort: an unreachable Telegram or an already revoked session is logged."""
+    connection_id = row["connection_id"]
+    try:
+        client = await _connect_with_saved_session(row)
+    except Exception as exc:
+        logger.warning("telegram: could not reach %s to log it out: %s", connection_id, getattr(exc, "detail", exc))
+        return
+    try:
+        await client.log_out()
+    except Exception as exc:
+        logger.warning("telegram: log out of %s failed: %s", connection_id, exc)
+        try:
+            await client.disconnect()
+        except Exception:
+            pass
+
+
+async def _delete_synced_chats(connection_id: str) -> int:
+    """Delete every chat collection this connection synced; returns how many
+    could not be deleted. One already gone (404) counts as deleted."""
+    conn = db.get_conn("telegram")
+    if not conn:
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                SELECT chat_collection_id FROM telegram_selected_chats
+                WHERE connection_id = %s AND chat_collection_id IS NOT NULL AND chat_collection_id <> ''
+                """,
+                (connection_id,),
+            )
+            collection_ids = [r["chat_collection_id"] for r in cur.fetchall() or []]
+    finally:
+        conn.close()
+
+    failed = 0
+    for collection_id in collection_ids:
+        try:
+            await chat_service.delete_chat_collection(collection_id)
+        except HTTPException as exc:
+            if exc.status_code != 404:
+                failed += 1
+                logger.error("telegram: deleting chat %s failed: %s", collection_id, exc.detail)
+        except Exception as exc:
+            failed += 1
+            logger.error("telegram: deleting chat %s failed: %s", collection_id, exc)
+    return failed
