@@ -183,6 +183,62 @@ def extract_text_from_txt(txt_path):
     return [{"text": text, "page": 1}] if text else None
 
 
+# MS-910: a slide with less text than this is joined by the slides after it
+# (cited as its first slide), so title-only slides still give the AI context.
+PPTX_MIN_SLIDE_CHARS = 200
+
+
+def _pptx_shapes(shapes):
+    """Every shape on a slide, with grouped shapes flattened."""
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    for shape in shapes:
+        if shape.shape_type == MSO_SHAPE_TYPE.GROUP:
+            yield from _pptx_shapes(shape.shapes)
+        else:
+            yield shape
+
+
+def _pptx_slide_text(slide):
+    parts = []
+    for shape in _pptx_shapes(slide.shapes):
+        if shape.has_text_frame:
+            parts.append(shape.text_frame.text)
+        elif shape.has_table:
+            parts.extend(" | ".join(cell.text for cell in row.cells) for row in shape.table.rows)
+    if slide.has_notes_slide and slide.notes_slide.notes_text_frame is not None:
+        parts.append(slide.notes_slide.notes_text_frame.text)
+    return re.sub(r'\s+', ' ', " ".join(parts)).strip()
+
+
+def extract_text_from_pptx(pptx_path):
+    """Extract the text of every visible slide of a PowerPoint deck: text
+    boxes, shapes, tables, grouped shapes and speaker notes. The slide number
+    is the page number. A slide that cannot be read is skipped and the rest
+    of the deck is kept; hidden slides are left out."""
+    try:
+        from pptx import Presentation
+        deck = Presentation(pptx_path)
+    except Exception as e:
+        logger.error(f"Failed to open presentation {pptx_path}: {str(e)}")
+        return None
+    pages_data = []
+    for slide_number, slide in enumerate(deck.slides, 1):
+        if slide._element.get("show") == "0":
+            continue
+        try:
+            text = _pptx_slide_text(slide)
+        except Exception as e:
+            logger.warning(f"Skipping slide {slide_number} of {pptx_path}: {str(e)}")
+            continue
+        if not text:
+            continue
+        if pages_data and len(pages_data[-1]["text"]) < PPTX_MIN_SLIDE_CHARS:
+            pages_data[-1]["text"] += " " + text
+        else:
+            pages_data.append({"text": text, "page": slide_number})
+    return pages_data if pages_data else None
+
+
 # Dispatch table for process_pdfs — keyed by lowercase file extension. PDF
 # stays the default fallback so any caller relying on the old PDF-only
 # behavior (e.g. a file with no/unknown extension) sees no change.
@@ -193,6 +249,7 @@ DOCUMENT_EXTRACTORS = {
     ".csv": extract_text_from_csv,
     ".xlsx": extract_text_from_xlsx,
     ".txt": extract_text_from_txt,
+    ".pptx": extract_text_from_pptx,
 }
 
 # Mirrors DOCUMENT_EXTRACTORS' key set — keyed by lowercase file extension,
@@ -205,6 +262,7 @@ CONTENT_TYPE_BY_EXT = {
     ".doc": "application/msword",
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
 }
 
 # MS-414: extensions a browser actually renders on its own in a tab or iframe.
@@ -275,7 +333,7 @@ def _extract_pdf_with_progress(extract_text, pdf_path, file_index, file_count, o
 
 
 def process_pdfs(pdf_paths, collection_id, on_progress: ProgressCallback | None = None, ocr_stats: dict | None = None):
-    """Process uploaded documents (PDF, DOCX, CSV, XLSX, TXT — despite the
+    """Process uploaded documents (PDF, DOCX, CSV, XLSX, TXT, PPTX — despite the
     name, kept for backward compatibility with existing callers) with
     improved page-level text splitting."""
     documents = []

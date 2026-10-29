@@ -451,7 +451,12 @@ async def upload_files(
     accepted: List[UploadFile] = []
     total_size = 0
     for file in files:
-        if Path(file.filename or "").suffix.lower() not in DOCUMENT_EXTRACTORS:
+        suffix = Path(file.filename or "").suffix.lower()
+        if suffix == ".ppt":
+            raise HTTPException(
+                status_code=400,
+                detail="PowerPoint 97-2003 (.ppt) files are not supported. Save the file as .pptx and upload it again.")
+        if suffix not in DOCUMENT_EXTRACTORS:
             continue
         size = storage_limits.measure(file.file)
         if size > limits.max_file_bytes:
@@ -461,7 +466,7 @@ async def upload_files(
 
     if not accepted:
         raise HTTPException(
-            status_code=400, detail="No valid files uploaded (supported: PDF, DOC, DOCX, CSV, XLSX, TXT)")
+            status_code=400, detail="No valid files uploaded (supported: PDF, DOC, DOCX, CSV, XLSX, TXT, PPTX)")
 
     reservation = storage_limits.reserve_workspace(workspace_id, limits, total_size)
 
