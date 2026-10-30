@@ -714,26 +714,60 @@ def save_gap_analysis_items(run_id: str, items: List[Dict[str, Any]]) -> bool:
         conn.close()
 
 
+# A run's collections by name ({collection_id: title}), for LEFT JOIN LATERAL
+# against gap_analysis_runs r: whoever reads a run may not own its collections
+# (an admin opening a member's run), so their own collection list can't name them.
+_RUN_COLLECTION_LABELS = """
+                    SELECT jsonb_object_agg(
+                               c.collection_id,
+                               COALESCE(NULLIF(c.title, ''), c.file_names[1], c.collection_id)
+                           ) AS labels
+                    FROM collections c
+                    WHERE c.collection_id = ANY(r.reference_collection_ids || r.target_collection_ids)
+"""
+
+
 def list_gap_analysis_runs(owner_id: Optional[str] = None, is_admin: bool = False) -> List[Dict[str, Any]]:
+    """Runs newest first (all of them for an admin, else the owner's), each with
+    its result counts per status and, for runs from the caller's own workspace
+    (theirs, or a member they added), its owner's email, in one query: the
+    history page shows both without opening every run (MS-916). An admin sees
+    other workspaces' runs but not who in them ran one. Each run also names its
+    collections (_RUN_COLLECTION_LABELS)."""
     conn = db.get_conn("storage")
     if not conn:
         return []
     try:
         with conn.cursor() as cur:
-            if is_admin:
-                cur.execute("""
-                    SELECT run_id, skill_id, framework_name, reference_collection_ids,
-                           target_collection_ids, scenario_input, owner_id, status, created_at
-                    FROM gap_analysis_runs ORDER BY created_at DESC
-                """)
-            else:
-                cur.execute("""
-                    SELECT run_id, skill_id, framework_name, reference_collection_ids,
-                           target_collection_ids, scenario_input, owner_id, status, created_at
-                    FROM gap_analysis_runs WHERE owner_id = %s ORDER BY created_at DESC
-                """, (owner_id,))
+            cur.execute("""
+                SELECT r.run_id, r.skill_id, r.framework_name, r.reference_collection_ids,
+                       r.target_collection_ids, r.scenario_input, r.owner_id, r.status, r.created_at,
+                       CASE WHEN r.owner_id = %(owner_id)s OR u.created_by = %(owner_id)s
+                            THEN u.email END AS owner_email,
+                       s.met, s.partial, s.not_met, s.unknown,
+                       COALESCE(l.labels, '{}'::jsonb) AS collection_labels
+                FROM gap_analysis_runs r
+                LEFT JOIN users u ON u.user_id = r.owner_id
+                -- Counted per listed run (LATERAL, on idx_gap_analysis_items_run), not
+                -- for the whole items table before the owner filter applies.
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) FILTER (WHERE i.status = 'met')     AS met,
+                           COUNT(*) FILTER (WHERE i.status = 'partial') AS partial,
+                           COUNT(*) FILTER (WHERE i.status = 'not_met') AS not_met,
+                           COUNT(*) FILTER (WHERE i.status = 'unknown') AS unknown
+                    FROM gap_analysis_items i WHERE i.run_id = r.run_id
+                ) s ON true
+                LEFT JOIN LATERAL (""" + _RUN_COLLECTION_LABELS + """) l ON true
+                WHERE %(is_admin)s OR r.owner_id = %(owner_id)s
+                ORDER BY r.created_at DESC
+            """, {"is_admin": is_admin, "owner_id": owner_id})
             rows = cur.fetchall()
-        return [dict(r) for r in rows]
+        runs = []
+        for r in rows:
+            run = dict(r)
+            run["summary"] = {key: int(run.pop(key)) for key in ("met", "partial", "not_met", "unknown")}
+            runs.append(run)
+        return runs
     except Exception as e:
         logger.warning("list_gap_analysis_runs failed: %s", e)
         return []
@@ -748,9 +782,12 @@ def get_gap_analysis_run(run_id: str) -> Optional[Dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT run_id, skill_id, framework_name, reference_collection_ids,
-                       target_collection_ids, scenario_input, owner_id, status, created_at
-                FROM gap_analysis_runs WHERE run_id = %s
+                SELECT r.run_id, r.skill_id, r.framework_name, r.reference_collection_ids,
+                       r.target_collection_ids, r.scenario_input, r.owner_id, r.status, r.created_at,
+                       COALESCE(l.labels, '{}'::jsonb) AS collection_labels
+                FROM gap_analysis_runs r
+                LEFT JOIN LATERAL (""" + _RUN_COLLECTION_LABELS + """) l ON true
+                WHERE r.run_id = %s
             """, (run_id,))
             row = cur.fetchone()
         return dict(row) if row else None

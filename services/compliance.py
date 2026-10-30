@@ -19,7 +19,14 @@ from fastapi.responses import Response
 
 from services.storage import supabase as supabase_storage
 from config import config
-from models import GapAnalysisItem, GapAnalysisRequest, GapAnalysisResponse, GapAnalysisRun, UserRecord
+from models import (
+    GapAnalysisItem,
+    GapAnalysisRequest,
+    GapAnalysisResponse,
+    GapAnalysisRun,
+    GapAnalysisRunListItem,
+    UserRecord,
+)
 from services.rag.processor import processor
 from services.billing.enforcement import enforce_gap_check_plan, enforce_member_allocation, enforce_plan_limit
 from services.billing.inflight import begin_in_flight, end_in_flight, get_workspace_lock, in_flight_tokens, resolve_workspace_id
@@ -286,10 +293,12 @@ async def run_gap_analysis(body: GapAnalysisRequest, user: UserRecord):
 
 
 async def list_runs(user: UserRecord):
-    rows = supabase_storage.list_gap_analysis_runs(
-        owner_id=user.user_id, is_admin=(user.role == "admin")
-    )
-    return [GapAnalysisRun(**row) for row in rows]
+    is_admin = user.role == "admin"
+    rows = supabase_storage.list_gap_analysis_runs(owner_id=user.user_id, is_admin=is_admin)
+    return [
+        GapAnalysisRunListItem(**row, run_by=row.get("owner_email") if is_admin else None)
+        for row in rows
+    ]
 
 
 async def get_run(run_id: str, user: UserRecord):
