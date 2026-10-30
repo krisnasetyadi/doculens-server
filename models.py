@@ -571,6 +571,16 @@ class GapAnalysisRun(BaseModel):
     scenario_input: Optional[str] = None
     status: str = "completed"
     created_at: Union[str, datetime] = ""
+    # collection_id -> name for this run's own collections (MS-916): an admin opening
+    # a member's run can't name them from their own collection list.
+    collection_labels: Dict[str, str] = {}
+
+
+class GapAnalysisRunListItem(GapAnalysisRun):
+    """A run in the history list (MS-916): its result counts per status, so the
+    list needs no detail call per run, and for an admin who ran it."""
+    summary: Dict[str, int] = {}
+    run_by: Optional[str] = None  # owner's email; admins only, since only they see others' runs
 
 
 class GapAnalysisResponse(BaseModel):

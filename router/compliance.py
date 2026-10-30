@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, Query
 from models import (
     GapAnalysisRequest,
     GapAnalysisResponse,
-    GapAnalysisRun,
+    GapAnalysisRunListItem,
     RunDeletedResponse,
     UserRecord,
 )
@@ -28,7 +28,7 @@ async def run_gap_analysis(
     return await compliance_service.run_gap_analysis(body, user)
 
 
-@router.get("/analysis/gap-analysis/runs", response_model=List[GapAnalysisRun])
+@router.get("/analysis/gap-analysis/runs", response_model=List[GapAnalysisRunListItem])
 async def list_gap_analysis_runs(user: UserRecord = Depends(get_current_user)):
     """History of runs visible to the current user (own runs, or all for admins)."""
     return await compliance_service.list_runs(user)

@@ -17,6 +17,7 @@ from fastapi.testclient import TestClient
 
 from services.storage import supabase as storage
 from config import config
+import db
 from models import UserRecord
 from services.rag.processor import processor
 from router import compliance
@@ -142,6 +143,61 @@ class HistoryTest(ComplianceTestCase):
         self.assertEqual(self.client(self.owner).delete(f"/api/v1/analysis/gap-analysis/{mine}").json(),
                          {"run_id": mine, "deleted": True})
         self.assertEqual(self.client(self.owner).get(f"/api/v1/analysis/gap-analysis/{mine}").status_code, 404)
+
+
+class RunsListTest(ComplianceTestCase):
+    """MS-916: the history page reads each run's result counts and, for an
+    admin, who ran it, straight from the list."""
+
+    def register(self, who, created_by=None):
+        conn = db.get_conn("test")
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO users (user_id, email, password_hash, role, created_by) VALUES (%s, %s, 'x', %s, %s)",
+                    (who.user_id, who.email, who.role, created_by),
+                )
+        finally:
+            conn.close()
+
+    def runs(self, who):
+        return {r["run_id"]: r for r in self.client(who).get("/api/v1/analysis/gap-analysis/runs").json()}
+
+    def test_runs_carry_their_summary_and_admins_see_who_ran_them(self):
+        admin = user("admin")
+        self.register(admin)
+        self.register(self.owner, created_by=admin.user_id)
+        run_id = self.run_check().json()["run"]["run_id"]
+
+        [own] = self.runs(self.owner).values()
+        self.assertEqual(own["summary"], {"met": 1, "partial": 1, "not_met": 1, "unknown": 0})
+        self.assertIsNone(own["run_by"])
+
+        listed = self.runs(admin)
+        self.assertEqual(listed[run_id]["run_by"], self.owner.email)
+        self.assertEqual(listed[run_id]["summary"]["met"], 1)
+
+    def test_an_admin_of_another_workspace_does_not_see_who_ran_it(self):
+        self.register(self.owner, created_by=user("admin").user_id)
+        run_id = self.run_check().json()["run"]["run_id"]
+        listed = self.runs(user("admin"))
+        self.assertIsNone(listed[run_id]["run_by"])
+        self.assertEqual(listed[run_id]["summary"]["met"], 1)
+
+    def test_runs_name_their_own_collections(self):
+        """An admin's own collection list can't name another user's documents."""
+        run_id = self.run_check().json()["run"]["run_id"]
+        labels = {self.reference: "ISO 27001", self.target: "Our policies"}
+        admin = user("admin")
+        self.assertEqual(self.runs(admin)[run_id]["collection_labels"], labels)
+        run = self.client(admin).get(f"/api/v1/analysis/gap-analysis/{run_id}").json()["run"]
+        self.assertEqual(run["collection_labels"], labels)
+
+    def test_a_run_without_items_counts_zero(self):
+        self.m["run"].return_value = ([], "AI generated", 10)
+        self.run_check()
+        [run] = self.client(self.owner).get("/api/v1/analysis/gap-analysis/runs").json()
+        self.assertEqual(run["summary"], {"met": 0, "partial": 0, "not_met": 0, "unknown": 0})
 
 
 class ExportTest(ComplianceTestCase):
