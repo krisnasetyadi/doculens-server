@@ -35,6 +35,16 @@ _UPLOADS_BUCKET      = "pdf-uploads"
 _INDICES_BUCKET      = "pdf-indices"
 _CHAT_UPLOADS_BUCKET = "chat-uploads"
 _CHAT_INDICES_BUCKET = "chat-indices"
+# MS-907: public-link indexes share the pdf-indices bucket under this prefix,
+# one folder per link and per index version. A bucket scan for collections
+# must skip it, or it would read as a collection named "public-links".
+PUBLIC_LINK_INDEX_PREFIX = "public-links"
+
+
+def _collection_prefixes(resp) -> List[str]:
+    """Top-level folders of a pdf-indices listing that are collections."""
+    ids = [p["Prefix"].rstrip("/") for p in resp.get("CommonPrefixes", [])]
+    return [cid for cid in ids if cid != PUBLIC_LINK_INDEX_PREFIX]
 
 
 def _database_url() -> Optional[str]:
@@ -101,8 +111,7 @@ def list_collection_ids_from_s3() -> List[str]:
         return []
     try:
         resp = s3.list_objects_v2(Bucket=_INDICES_BUCKET, Delimiter="/")
-        prefixes = resp.get("CommonPrefixes", [])
-        ids = [p["Prefix"].rstrip("/") for p in prefixes]
+        ids = _collection_prefixes(resp)
         logger.info("list_collection_ids_from_s3: found %d collections", len(ids))
         return ids
     except Exception as e:
@@ -120,8 +129,7 @@ def list_collections_from_s3() -> List[Dict[str, Any]]:
     try:
         # Get collection IDs from indices bucket
         resp = s3.list_objects_v2(Bucket=_INDICES_BUCKET, Delimiter="/")
-        prefixes = resp.get("CommonPrefixes", [])
-        collection_ids = [p["Prefix"].rstrip("/") for p in prefixes]
+        collection_ids = _collection_prefixes(resp)
     except Exception as e:
         logger.warning("list_collections_from_s3 (indices scan) failed: %s", e)
         return []
@@ -241,6 +249,70 @@ def download_index(collection_id: str, dest_dir: str) -> bool:
             logger.warning("PDF index download failed (%s): %s", key, e)
             success = False
     return success
+
+
+def _public_link_index_key(link_id: str, version: str, fname: str) -> str:
+    return f"{PUBLIC_LINK_INDEX_PREFIX}/{link_id}/{version}/{fname}"
+
+
+def upload_public_link_index(link_id: str, version: str, index_dir: str) -> bool:
+    """Upload a public link's index.faiss + index.pkl (MS-907). Each build is a
+    new version folder, so a reader never gets one file from the old build
+    and the other from the new one."""
+    s3 = _s3_client()
+    if not s3:
+        return False
+    for fname in ("index.faiss", "index.pkl"):
+        key = _public_link_index_key(link_id, version, fname)
+        try:
+            s3.upload_file(os.path.join(index_dir, fname), _INDICES_BUCKET, key)
+        except Exception as e:
+            logger.warning("Public link index upload failed (%s): %s", key, e)
+            return False
+    logger.info("Uploaded public link index: %s/%s", link_id, version)
+    return True
+
+
+def download_public_link_index(link_id: str, version: str, dest_dir: str) -> bool:
+    """Download one version of a public link's index into dest_dir."""
+    s3 = _s3_client()
+    if not s3:
+        return False
+    os.makedirs(dest_dir, exist_ok=True)
+    for fname in ("index.faiss", "index.pkl"):
+        dest = os.path.join(dest_dir, fname)
+        if os.path.exists(dest):
+            continue
+        key = _public_link_index_key(link_id, version, fname)
+        try:
+            s3.download_file(_INDICES_BUCKET, key, dest)
+        except Exception as e:
+            logger.warning("Public link index download failed (%s): %s", key, e)
+            return False
+    return True
+
+
+def delete_public_link_index(link_id: str, keep_version: Optional[str] = None) -> bool:
+    """Delete every stored version of a link's index, or all but `keep_version`
+    (the old ones, once a rebuild is live). True when nothing is left to delete."""
+    s3 = _s3_client()
+    if not s3:
+        return False
+    prefix = f"{PUBLIC_LINK_INDEX_PREFIX}/{link_id}/"
+    keep = f"{prefix}{keep_version}/" if keep_version else None
+    try:
+        keys: List[str] = []
+        for page in s3.get_paginator("list_objects_v2").paginate(Bucket=_INDICES_BUCKET, Prefix=prefix):
+            keys += [o["Key"] for o in page.get("Contents", []) if not (keep and o["Key"].startswith(keep))]
+        for start in range(0, len(keys), 1000):
+            s3.delete_objects(
+                Bucket=_INDICES_BUCKET,
+                Delete={"Objects": [{"Key": k} for k in keys[start:start + 1000]], "Quiet": True},
+            )
+        return True
+    except Exception as e:
+        logger.warning("Public link index delete failed (%s): %s", prefix, e)
+        return False
 
 
 def get_pdf_signed_url(

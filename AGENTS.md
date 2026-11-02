@@ -51,8 +51,10 @@ Every domain gets exactly ONE base path — list/create/delete/activate/upload/e
                                      + PATCH (history range)
                                      — router/telegram.py
 
-/api/v1/public-links                GET/POST (list/create) + activate, {id} DELETE
-                                     — router/public_links.py
+/api/v1/public-links                GET/POST (list/create) + activate, {id}/sync, {id} DELETE
+                                     — router/public_links.py. Each link is indexed once, in the
+                                     background (MS-907); its index lives in Supabase Storage under
+                                     pdf-indices/public-links/{id}/{version}/.
 
 /api/v1/analysis/gap-analysis       POST (run) + /runs GET
                                      — router/compliance.py

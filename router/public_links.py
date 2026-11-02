@@ -11,6 +11,7 @@ from models import (
     PublicLinkActiveResponse,
     PublicLinkDeletedResponse,
     PublicLinkSource,
+    PublicLinkSyncResponse,
     PublicLinksResponse,
     SetPublicLinkActiveRequest,
     UserRecord,
@@ -40,6 +41,11 @@ async def set_public_link_active(
     user: UserRecord = Depends(get_current_user),
 ):
     return await public_links.set_public_link_active(body, user)
+
+
+@router.post("/public-links/{link_id}/sync", response_model=PublicLinkSyncResponse)
+async def sync_public_link(link_id: str, user: UserRecord = Depends(get_current_user)):
+    return await public_links.sync_public_link(link_id, user)
 
 
 @router.delete("/public-links/{link_id}", response_model=PublicLinkDeletedResponse)

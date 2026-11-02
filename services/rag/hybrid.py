@@ -113,10 +113,10 @@ class HybridSearchMixin:
             return 'chat_documents', chat_docs
 
         def _search_public_links() -> tuple:
-            logger.info(f"🌐 Searching active public links in realtime (weight: {public_link_weight})...")
+            logger.info(f"🌐 Searching active public links (weight: {public_link_weight})...")
             # Wider top_k than k_per_collection: public links span many files,
             # and the answer stage can consume up to 8 snippets.
-            public_link_docs = self.search_public_links_realtime(
+            public_link_docs = self.search_public_link_indexes(
                 question,
                 public_link_sources=public_link_sources,
                 top_k=max(int(config.k_per_collection * public_link_weight), 8),
