@@ -1,11 +1,19 @@
-"""Realtime search over public links: downloading their items (Google Drive included) and searching them per request.
+"""Public links: downloading their items (Google Drive included), building one
+saved index per link, and searching those indexes.
 
-Mixin of services.rag.processor.PDFQAProcessor; the methods were moved
-verbatim from that class by MS-657."""
+Until MS-907 every question downloaded and embedded every file of every active
+link and threw the index away. Now a link is indexed once, in the background
+(services/public_links.py runs the job), its index is kept in Supabase Storage
+under public-links/{link_id}/{version}/, and a question only loads it, from
+memory or Storage, like a collection's.
+
+Mixin of services.rag.processor.PDFQAProcessor (moved out of it by MS-657)."""
 import logging
 import os
 import re
+import shutil
 import tempfile
+import time
 import uuid
 from config import config
 from services.ingest.documents import extract_text_from_pptx
@@ -15,10 +23,19 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain_community.vectorstores import FAISS
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import parse_qs, unquote, urlparse
 
 logger = logging.getLogger(__name__)
+
+SKIP_DOWNLOAD = "Couldn't be downloaded, or isn't a PDF, PowerPoint or text file"
+SKIP_UNREADABLE = "Couldn't be read"
+SKIP_NO_TEXT = "No readable text"
+
+
+def public_link_cache_key(link_id: str) -> str:
+    """Key of a link's index in the processor's index cache (beside PDF and "chat_" keys)."""
+    return f"public_link_{link_id}"
 
 
 class PublicLinkSearchMixin:
@@ -124,9 +141,25 @@ class PublicLinkSearchMixin:
 
         return destination_path, safe_name
 
-    def _load_public_link_documents(self, public_link_sources: List[Dict[str, Any]]) -> List[Document]:
+    def _load_public_link_documents(
+        self,
+        public_link_sources: List[Dict[str, Any]],
+        skipped: Optional[List[Dict[str, str]]] = None,
+        on_item: Optional[Callable[[int, int], None]] = None,
+    ) -> List[Document]:
+        """One Document per readable file. A file that can't be used is left out
+        and, when `skipped` is given, added to it with the reason, so one bad
+        file never fails the whole link. `on_item(done, total)` follows the
+        downloads."""
         documents: List[Document] = []
         seen_urls = set()
+        skipped = skipped if skipped is not None else []
+        total = sum(
+            1 for source in public_link_sources
+            for item in (source.get("items") or [])
+            if item.get("item_type") != "folder"
+        ) or 1
+        done = 0
 
         with tempfile.TemporaryDirectory(prefix="public-link-runtime-") as temp_dir:
             for source in public_link_sources:
@@ -141,9 +174,14 @@ class PublicLinkSearchMixin:
                     if not item_url or item_url in seen_urls or item.get("item_type") == "folder":
                         continue
                     seen_urls.add(item_url)
+                    item_name = item.get("name") or item_url
 
                     downloaded = self._download_public_link_item(item, temp_dir)
+                    done += 1
+                    if on_item:
+                        on_item(done, total)
                     if not downloaded:
+                        skipped.append({"name": item_name, "url": item_url, "reason": SKIP_DOWNLOAD})
                         continue
 
                     file_path, file_name = downloaded
@@ -170,6 +208,7 @@ class PublicLinkSearchMixin:
                             continue
                     except Exception as exc:
                         logger.warning("Failed loading public link item %s: %s", item_url, exc)
+                        skipped.append({"name": item_name, "url": item_url, "reason": SKIP_UNREADABLE})
                         continue
 
                     # Merge all pages of one file into a single Document before
@@ -180,6 +219,7 @@ class PublicLinkSearchMixin:
                         doc.page_content for doc in loaded_docs if doc.page_content.strip()
                     )
                     if not merged_text.strip():
+                        skipped.append({"name": item_name, "url": item_url, "reason": SKIP_NO_TEXT})
                         continue
 
                     merged_doc = Document(
@@ -199,50 +239,165 @@ class PublicLinkSearchMixin:
 
         return documents
 
-    def search_public_links_realtime(
+    def build_public_link_index(
         self,
-        query: str,
-        public_link_sources: Optional[List[Dict[str, Any]]] = None,
-        top_k: int = 5,
-    ) -> List[Document]:
-        if not public_link_sources:
-            return []
-
-        documents = self._load_public_link_documents(public_link_sources)
+        source: Dict[str, Any],
+        on_progress: Optional[Callable[[str, int], None]] = None,
+    ) -> Tuple[Optional[FAISS], List[Dict[str, str]]]:
+        """Download, read, split and embed one link's files into a FAISS index.
+        Returns (index or None when no file was readable, skipped files). Same
+        chunking as before MS-907, so answers draw on the same chunks."""
+        report = on_progress or (lambda stage, progress: None)
+        skipped: List[Dict[str, str]] = []
+        # Downloads are most of the time; they take the bar from 5% to 80%.
+        documents = self._load_public_link_documents(
+            [source],
+            skipped=skipped,
+            on_item=lambda done, total: report("downloading", 5 + int(75 * done / total)),
+        )
         if not documents:
-            logger.info("No readable realtime documents found for public links")
-            return []
+            return None, skipped
 
-        # Larger chunks than the global config: public-link sources are often
-        # slide decks whose per-page text is tiny, so chunks must span several
-        # pages to give the LLM usable context.
+        report("embedding", 85)
         text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=config.public_link_chunk_size,
             chunk_overlap=config.public_link_chunk_overlap,
         )
         chunks = text_splitter.split_documents(documents)
+        for chunk in chunks:
+            # Points into the download folder, which is gone once the build ends.
+            chunk.metadata.pop("file_path", None)
         if not chunks:
+            return None, skipped
+        return FAISS.from_documents(chunks, self.embeddings), skipped
+
+    def _public_link_index_path(self, link_id: str, version: str) -> str:
+        return os.path.join(config.public_link_index_folder, link_id, version)
+
+    def _cache_public_link_index(self, link_id: str, version: str, vector_store: FAISS) -> None:
+        key = public_link_cache_key(link_id)
+        with self._cache_lock:
+            self.vector_store_cache[key] = vector_store
+            self.bm25_cache.pop(key, None)
+            self._public_link_versions[link_id] = version
+
+    def prune_public_link_versions(self, link_id: str, keep_version: str) -> None:
+        """Deletes the link's other versions from local disk. Called by the build
+        once the database points at `keep_version`; not when a version is merely
+        loaded, since a question may still be loading the one a rebuild replaces."""
+        link_dir = os.path.join(config.public_link_index_folder, link_id)
+        try:
+            for entry in os.listdir(link_dir):
+                if entry != keep_version:
+                    shutil.rmtree(os.path.join(link_dir, entry), ignore_errors=True)
+        except OSError:
+            pass
+
+    def save_public_link_index(self, link_id: str, version: str, vector_store: FAISS) -> Optional[str]:
+        """Write a freshly built index to local disk and keep it loaded; returns its folder."""
+        index_path = self._public_link_index_path(link_id, version)
+        try:
+            vector_store.save_local(index_path)
+        except Exception as exc:
+            logger.error("Saving public link index %s/%s failed: %s", link_id, version, exc)
+            return None
+        self._cache_public_link_index(link_id, version, vector_store)
+        return index_path
+
+    def get_public_link_vector_store(self, link_id: str, version: str) -> Optional[FAISS]:
+        """The link's index at `version` (the one the database says is live),
+        from memory, local disk or Supabase Storage. A cached older version is
+        replaced, so a rebuild made by another server instance is picked up."""
+        key = public_link_cache_key(link_id)
+        # Backoff entries are per version: a new build is tried at once.
+        missing_key = f"{key}@{version}"
+        with self._cache_lock:
+            if self._public_link_versions.get(link_id) == version and key in self.vector_store_cache:
+                return self.vector_store_cache[key]
+            retry_at, _ = self._missing_vector_stores.get(missing_key, (0.0, 0))
+            if time.monotonic() < retry_at:
+                return None
+
+        vector_store = self._load_public_link_index(link_id, version)
+        with self._cache_lock:
+            if vector_store is not None:
+                self._missing_vector_stores.pop(missing_key, None)
+            elif self.embeddings is not None:
+                self._mark_missing(missing_key)
+        return vector_store
+
+    def _load_public_link_index(self, link_id: str, version: str) -> Optional[FAISS]:
+        index_path = self._public_link_index_path(link_id, version)
+        files = [os.path.join(index_path, name) for name in ("index.faiss", "index.pkl")]
+        if not all(os.path.exists(f) for f in files):
+            with self._download_lock(("public_link", link_id)):
+                if not all(os.path.exists(f) for f in files):
+                    from services.storage import supabase as supabase_storage
+                    if not supabase_storage.download_public_link_index(link_id, version, index_path):
+                        logger.warning("Public link index %s/%s could not be downloaded", link_id, version)
+                        return None
+        if self.embeddings is None:
+            logger.error("Embeddings model not loaded")
+            return None
+        try:
+            vector_store = FAISS.load_local(index_path, self.embeddings, allow_dangerous_deserialization=True)
+        except Exception as exc:
+            logger.error("Loading public link index %s/%s failed: %s", link_id, version, exc)
+            return None
+        self._cache_public_link_index(link_id, version, vector_store)
+        return vector_store
+
+    def drop_public_link_index(self, link_id: str) -> None:
+        """Forget a deleted link's index: memory, its BM25 index and local disk."""
+        key = public_link_cache_key(link_id)
+        with self._cache_lock:
+            self.vector_store_cache.pop(key, None)
+            self.bm25_cache.pop(key, None)
+            self._public_link_versions.pop(link_id, None)
+        shutil.rmtree(os.path.join(config.public_link_index_folder, link_id), ignore_errors=True)
+
+    def search_public_link_indexes(
+        self,
+        query: str,
+        public_link_sources: Optional[List[Dict[str, Any]]] = None,
+        top_k: int = 5,
+    ) -> List[Document]:
+        """Search the saved index of each link (sources carry `index_version`).
+        Nothing is downloaded from the link itself. Each link is ranked as
+        before MS-907, BM25 + FAISS fused with RRF, and the links' results are
+        merged by score."""
+        sources = [s for s in (public_link_sources or []) if s.get("index_version")]
+        if not sources:
             return []
 
-        vector_store = FAISS.from_documents(chunks, self.embeddings)
-        # Wider FAISS candidate pool than top_k so RRF fusion with BM25 has
-        # dense scores for (nearly) every lexical match it promotes.
-        k_faiss = min(len(chunks), max(top_k * 3, 10))
-        results_with_score = vector_store.similarity_search_with_score(query, k=k_faiss)
-
-        faiss_ranked: List[Tuple[Document, float]] = []
-        for doc, distance in results_with_score:
-            faiss_ranked.append((doc, 1.0 / (1.0 + float(distance))))
-
-        bm25 = self._build_bm25(chunks)
-        fused = self._rrf_fuse(query, faiss_ranked, bm25, chunks, top_k=max(top_k, 1))
-
-        realtime_results: List[Document] = []
-        for doc, similarity_score in fused:
-            if similarity_score <= 0.05:
+        query_vector = self.embeddings.embed_query(query)
+        merged: Dict[int, Tuple[Document, float]] = {}
+        for source in sources:
+            link_id = source["link_id"]
+            vector_store = self.get_public_link_vector_store(link_id, source["index_version"])
+            if vector_store is None:
                 continue
+            try:
+                # Wider FAISS candidate pool than top_k so RRF fusion with BM25 has
+                # dense scores for (nearly) every lexical match it promotes.
+                k_faiss = min(int(vector_store.index.ntotal), max(top_k * 3, 10))
+                results_with_score = vector_store.similarity_search_with_score_by_vector(query_vector, k=k_faiss)
+                faiss_ranked = [(doc, 1.0 / (1.0 + float(distance))) for doc, distance in results_with_score]
+                bm25, corpus_docs = self.get_bm25_index(public_link_cache_key(link_id))
+                fused = self._rrf_fuse(query, faiss_ranked, bm25, corpus_docs, top_k=max(top_k, 1))
+            except Exception as exc:
+                logger.error("Public link search failed for %s: %s", link_id, exc)
+                continue
+            for doc, similarity_score in fused:
+                if similarity_score <= 0.05:
+                    continue
+                key = hash(doc.page_content[:200])
+                if key not in merged or similarity_score > merged[key][1]:
+                    merged[key] = (doc, similarity_score)
+
+        results: List[Document] = []
+        for doc, similarity_score in sorted(merged.values(), key=lambda pair: pair[1], reverse=True):
             doc.metadata["similarity_score"] = similarity_score
             doc.metadata.setdefault("source_kind", "public_link")
-            realtime_results.append(doc)
-
-        return realtime_results[: config.total_k_results]
+            results.append(doc)
+        return results[: config.total_k_results]

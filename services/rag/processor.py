@@ -53,8 +53,11 @@ class PDFQAProcessor(
         # consecutive failed loads); see get_vector_store.
         self._missing_vector_stores: Dict[str, Tuple[float, int]] = {}
         self._cache_lock = threading.RLock()
-        # ("pdf"|"chat", collection_id) -> lock held while that index downloads
+        # ("pdf"|"chat"|"public_link", id) -> lock held while that index downloads
         self._download_locks: Dict[Tuple[str, str], threading.Lock] = {}
+        # link_id -> index version held in vector_store_cache under
+        # "public_link_<id>" (MS-907); a newer version in the database reloads it.
+        self._public_link_versions: Dict[str, str] = {}
         self._initialized = False
         self._init_lock = threading.Lock()
         self.db_manager = None

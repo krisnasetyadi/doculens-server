@@ -70,6 +70,13 @@ class PublicLinkItem(BaseModel):
     item_type: str
 
 
+class PublicLinkSkippedItem(BaseModel):
+    """A file of a link left out of its index, and why (MS-907)."""
+    name: str
+    url: str
+    reason: str
+
+
 class PublicLinkSource(BaseModel):
     link_id: str
     workspace_id: Optional[str] = None
@@ -79,6 +86,24 @@ class PublicLinkSource(BaseModel):
     item_count: int
     created_at: Union[str, datetime]
     items: List[PublicLinkItem] = []
+    # MS-907: the link's saved index. index_status is pending | queued |
+    # indexing | ready | failed; index_ready says whether an index exists to
+    # search (a failed or running rebuild keeps using the previous one), and
+    # index_stale that a build stopped reporting, so a Sync may restart it.
+    index_status: str = "pending"
+    index_ready: bool = False
+    index_stale: bool = False
+    index_stage: Optional[str] = None
+    index_progress: Optional[int] = None
+    index_error: Optional[str] = None
+    skipped_items: List[PublicLinkSkippedItem] = []
+    last_synced_at: Optional[Union[str, datetime]] = None
+
+
+class PublicLinkSyncResponse(BaseModel):
+    """up_to_date: nothing in the folder changed. indexing: a rebuild was queued (or one already was)."""
+    result: str
+    link: PublicLinkSource
 
 
 class PublicLinksResponse(BaseModel):

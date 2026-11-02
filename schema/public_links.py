@@ -43,6 +43,20 @@ def ensure(conn) -> None:
                     created_at    TIMESTAMPTZ NOT NULL DEFAULT now()
                 );
 
+                -- MS-907: a link is indexed once, in the background, and its
+                -- index kept in Supabase Storage under
+                -- public-links/{link_id}/{index_version}/ (services/public_links.py).
+                ALTER TABLE public_links
+                    ADD COLUMN IF NOT EXISTS index_status     TEXT NOT NULL DEFAULT 'pending',
+                    ADD COLUMN IF NOT EXISTS index_stage      TEXT,
+                    ADD COLUMN IF NOT EXISTS index_progress   INTEGER,
+                    ADD COLUMN IF NOT EXISTS index_error      TEXT,
+                    ADD COLUMN IF NOT EXISTS index_version    TEXT,
+                    ADD COLUMN IF NOT EXISTS fingerprint      TEXT,
+                    ADD COLUMN IF NOT EXISTS skipped_items    JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    ADD COLUMN IF NOT EXISTS index_heartbeat_at TIMESTAMPTZ,
+                    ADD COLUMN IF NOT EXISTS last_synced_at   TIMESTAMPTZ;
+
                 CREATE INDEX IF NOT EXISTS idx_public_links_user_created
                     ON public_links (user_id, created_at DESC);
 

@@ -65,10 +65,20 @@ def user(role="user") -> UserRecord:
 
 class PublicLinksTestCase(IsolatedSchemaTestCase):
     def setUp(self):
+        # Index builds (MS-907) are recorded, not run: they would download and embed.
+        self.jobs = []
         for p in (patch("socket.getaddrinfo", fake_getaddrinfo),
-                  patch("httpx.AsyncClient.get", drive_pages({"ROOTFOLDER": FOLDER_HTML, "SUBFOLDER": SUBFOLDER_HTML}))):
+                  patch("httpx.AsyncClient.get", drive_pages({"ROOTFOLDER": FOLDER_HTML, "SUBFOLDER": SUBFOLDER_HTML})),
+                  patch.object(link_service, "_start_index_job", lambda job, *args: self.jobs.append((job.__name__, args))),
+                  # Deleting a link deletes its stored index; covered in test_public_link_index.
+                  patch.object(link_service, "_delete_index", lambda link_id: None)):
             p.start()
             self.addCleanup(p.stop)
+
+    def mark_indexed(self, link_id, version="v1"):
+        """As a finished build leaves a link: ready, with an index to search."""
+        self.sql("UPDATE public_links SET index_status = 'ready', index_version = %s WHERE link_id = %s",
+                 (version, link_id))
 
     def client(self, who):
         app = FastAPI()
@@ -86,8 +96,11 @@ class CreateTest(PublicLinksTestCase):
                            item_urls=["https://example.com/a.pdf", "https://example.com/a.pdf", "https://example.com/b.pdf"])
         self.assertEqual(resp.status_code, 201)
         body = resp.json()
-        self.assertEqual((body["title"], body["status"], body["item_count"]), ("Docs", "active", 2))
+        # MS-907: inactive and indexing until its first index is built, which then activates it.
+        self.assertEqual((body["title"], body["status"], body["item_count"]), ("Docs", "inactive", 2))
+        self.assertEqual((body["index_status"], body["index_ready"]), ("queued", False))
         self.assertEqual([i["name"] for i in body["items"]], ["a.pdf", "b.pdf"])
+        self.assertEqual(self.jobs, [("_build_index", (body["link_id"], None))])
 
     def test_drive_folder_lists_its_pdfs_and_subfolders(self):
         body = self.create(user(), url=FOLDER_URL).json()
@@ -140,6 +153,7 @@ class ManageTest(PublicLinksTestCase):
     def test_activate_own_link_only(self):
         owner, stranger, admin = user(), user(), user("admin")
         link_id = self.create(owner, url="https://example.com/x").json()["link_id"]
+        self.mark_indexed(link_id)
         self.assertEqual(self.client(owner).post("/api/v1/public-links/activate", json={"link_id": link_id, "active": False}).json(),
                          {"status": "success", "link_id": link_id, "active": False})
         self.assertEqual(self.client(stranger).post("/api/v1/public-links/activate",
@@ -158,31 +172,63 @@ class ManageTest(PublicLinksTestCase):
 
 
 class RuntimeResolutionTest(PublicLinksTestCase):
+    """MS-907: a question reads its links from the database only."""
+
     def resolve(self, **kwargs):
         return asyncio.run(link_service.resolve_active_public_link_sources(**kwargs))
 
-    def test_only_active_selected_links_and_folders_expand_recursively(self):
+    def test_only_active_selected_links_without_listing_drive(self):
         who = user()
         folder = self.create(who, url=FOLDER_URL).json()["link_id"]
         other = self.create(who, url="https://example.com/other.pdf").json()["link_id"]
-        inactive = self.create(who, url="https://example.com/off.pdf").json()["link_id"]
-        self.client(who).post("/api/v1/public-links/activate", json={"link_id": inactive, "active": False})
+        off = self.create(who, url="https://example.com/off.pdf").json()["link_id"]
+        for link_id in (folder, other, off):
+            self.mark_indexed(link_id)
+        self.sql("UPDATE public_links SET status = 'active' WHERE link_id IN (%s, %s)", (folder, other))
+        self.jobs.clear()
 
-        everything = {l["link_id"]: l for l in self.resolve(user_id=who.user_id)}
+        with patch("httpx.AsyncClient.get", drive_pages({})):  # any Drive request would fail the listing
+            everything = {l["link_id"]: l for l in self.resolve(user_id=who.user_id)}
         self.assertEqual(set(everything), {folder, other})
-        # report.pdf from the folder, notes.txt from its subfolder; the folder entry itself is expanded away
-        self.assertEqual(sorted(i["name"] for i in everything[folder]["items"]), ["notes.txt", "report.pdf"])
-        self.assertEqual(everything[other]["item_count"], 1)
+        self.assertEqual(everything[folder]["index_version"], "v1")
+        self.assertEqual(self.jobs, [])
 
         only = self.resolve(link_ids=[other], user_id=who.user_id)
         self.assertEqual([l["link_id"] for l in only], [other])
 
-    def test_unreachable_folder_falls_back_to_stored_items(self):
+    def test_a_link_with_no_index_yet_starts_one_and_is_left_out_of_the_search(self):
+        who = user()
+        link_id = self.create(who, url="https://example.com/old.pdf").json()["link_id"]
+        # As links added before MS-907 are: active, never indexed.
+        self.sql("UPDATE public_links SET status = 'active', index_status = 'pending' WHERE link_id = %s", (link_id,))
+        self.jobs.clear()
+        [link] = self.resolve(user_id=who.user_id)
+        self.assertIsNone(link["index_version"])
+        self.assertEqual(self.jobs, [("_build_index", (link_id, None))])
+        # The build now queued is not started a second time by the next question.
+        self.resolve(user_id=who.user_id)
+        self.assertEqual(len(self.jobs), 1)
+
+    def test_a_failed_first_index_waits_for_a_sync(self):
+        """Not rebuilt on every question: that would download the link again each time."""
+        who = user()
+        link_id = self.create(who, url="https://example.com/old.pdf").json()["link_id"]
+        self.sql("UPDATE public_links SET status = 'active', index_status = 'failed' WHERE link_id = %s", (link_id,))
+        self.jobs.clear()
+        self.resolve(user_id=who.user_id)
+        self.assertEqual(self.jobs, [])
+
+    def test_an_indexed_link_is_never_listed_again_by_a_question(self):
+        """Changes are picked up by a manual Sync only, however long ago the last one was."""
         who = user()
         link_id = self.create(who, url=FOLDER_URL).json()["link_id"]
+        self.mark_indexed(link_id)
+        self.sql("UPDATE public_links SET status = 'active', last_synced_at = now() - interval '30 days' "
+                 "WHERE link_id = %s", (link_id,))
+        self.jobs.clear()
         with patch("httpx.AsyncClient.get", drive_pages({})):
-            resolved = self.resolve(link_ids=[link_id], user_id=who.user_id)
-        self.assertEqual(sorted(i["name"] for i in resolved[0]["items"]), ["Archive", "report.pdf"])
+            self.resolve(user_id=who.user_id)
+        self.assertEqual(self.jobs, [])
 
 
 class DriveParsingTest(unittest.TestCase):

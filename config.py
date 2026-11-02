@@ -125,11 +125,16 @@ class Config(BaseSettings):
     chat_chunk_size: int = Field(default=300)
     chat_chunk_overlap: int = Field(default=50)
 
-    # Public-link realtime retrieval (larger chunks: sources are often slide
+    # Public-link index chunking (larger chunks: sources are often slide
     # decks whose per-page text is tiny). Override via env:
     # PUBLIC_LINK_CHUNK_SIZE / PUBLIC_LINK_CHUNK_OVERLAP
     public_link_chunk_size: int = Field(default=2000)
     public_link_chunk_overlap: int = Field(default=300)
+    # MS-907: each link is indexed once and kept here (and in Supabase Storage).
+    public_link_index_folder: str = Field(default="data/public_link_indices")
+    # An index build still "indexing" after this long was cut off (a restart)
+    # and may be started again.
+    public_link_stale_indexing_minutes: int = Field(default=30)
 
     # External database connections (user-connected, realtime — schema-agnostic,
     # NOT the app's own DATABASE_URL). Caps keep a single query from scanning

@@ -54,11 +54,19 @@ async def startup_event():
     if config.prefetch_indexes_on_startup:
         # Background thread: the app answers requests while indexes download.
         threading.Thread(target=processor.prefetch_indexes, name="prefetch-indexes", daemon=True).start()
+    # MS-907: links added before public links had an index get one now (and a
+    # build a restart cut off starts again), one at a time in the background.
+    from services.public_links import start_pending_indexing
+    threading.Thread(target=start_pending_indexing, name="public-link-backfill", daemon=True).start()
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     import db
+    from services.public_links import stop_indexing
+    # Before the pool closes: the running public-link build stops at its next
+    # file, and the next startup queues it again.
+    stop_indexing()
     db.close_pool()
 
 
