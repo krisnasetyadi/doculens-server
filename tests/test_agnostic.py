@@ -57,7 +57,7 @@ class AgnosticTestCase(unittest.TestCase):
             "log": patch.object(agnostic_service, "log_token_usage"),
             "links": patch.object(agnostic_service, "resolve_active_public_link_sources", return_value=[]),
             "external_db": patch.object(agnostic_service, "resolve_active_database_connections", return_value=[]),
-            "all_chats": patch.object(processor, "get_all_chat_collections", return_value=["chat-all"]),
+            "own_chats": patch.object(processor, "get_user_chat_collections", return_value=["chat-1", "chat-2"]),
             "search": patch.object(processor, "hybrid_search", return_value={}),
             "summary": patch.object(processor, "build_summary_results", return_value={}),
             "answer": patch.object(processor, "generate_hybrid_answer", return_value=("Answer", "gemini/x", {})),
@@ -87,7 +87,7 @@ class NonAdminSourcesTest(AgnosticTestCase):
         self.assertEqual((args["pdf_ids"], args["search_chat"], args["chat_ids"]), (["c1"], False, []))
         self.assertFalse(args["search_external_db"])
         self.m["external_db"].assert_not_called()
-        self.m["all_chats"].assert_not_called()
+        self.m["own_chats"].assert_not_called()
 
     def test_no_requested_ids_means_every_own_collection(self):
         self.ask()
@@ -95,10 +95,20 @@ class NonAdminSourcesTest(AgnosticTestCase):
 
 
 class AdminSourcesTest(AgnosticTestCase):
-    def test_chat_defaults_to_every_chat_collection(self):
+    def test_chat_defaults_to_every_own_chat_collection(self):
         self.ask(include_chat_results=True)
+        self.m["own_chats"].assert_called_once_with("u1")
         args = hybrid_args(self.m["search"])
-        self.assertEqual((args["search_chat"], args["chat_ids"]), (True, ["chat-all"]))
+        self.assertEqual((args["search_chat"], args["chat_ids"]), (True, ["chat-1", "chat-2"]))
+
+    def test_chat_ids_the_asker_does_not_own_are_dropped(self):
+        """MS-913: chats are private to whoever added them, other admins included."""
+        self.ask(include_chat_results=True, chat_collection_ids=["chat-2", "someone-elses"])
+        args = hybrid_args(self.m["search"])
+        self.assertEqual((args["search_chat"], args["chat_ids"]), (True, ["chat-2"]))
+        self.ask(include_chat_results=True, chat_collection_ids=["someone-elses"])
+        args = hybrid_args(self.m["search"])
+        self.assertEqual((args["search_chat"], args["chat_ids"]), (False, []))
 
     def test_external_databases_and_public_links_are_resolved_and_searched(self):
         connection = {"connection_id": "d1"}

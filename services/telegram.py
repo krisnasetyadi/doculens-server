@@ -101,7 +101,9 @@ QR_LOGIN_LIMIT_SECONDS = 3 * 60
 
 # flow_id -> {"client": TelegramClient, "api_id": int, "api_hash": str,
 #             "phone": Optional[str], "phone_code_hash": str, "label": Optional[str],
-#             "created_at": float}
+#             "created_at": float, "user_id": str}
+# user_id is who started the sign-in: only they can finish, poll or cancel it,
+# and the connection it makes is theirs (MS-913).
 # A QR flow has no phone/phone_code_hash and adds "qr", "task", "status",
 # "connection" and "error" (see start_qr_connect).
 _pending_logins: Dict[str, Dict[str, Any]] = {}
@@ -137,6 +139,12 @@ def _cleanup_pending_logins() -> None:
     expired = [fid for fid, entry in _pending_logins.items() if now - entry["created_at"] > PENDING_LOGIN_TTL_SECONDS]
     for fid in expired:
         _drop_pending_login(fid)
+
+
+def _pending_login(flow_id: str, user: UserRecord) -> Optional[Dict[str, Any]]:
+    """The user's own pending sign-in; someone else's reads as not there."""
+    entry = _pending_logins.get(flow_id)
+    return entry if entry and entry.get("user_id") == user.user_id else None
 
 
 def _drop_pending_login(flow_id: str) -> None:
@@ -207,10 +215,6 @@ def _write_telegram_transcript(path: str, messages: List[ChatMessage]) -> None:
 # other chat source).
 # ---------------------------------------------------------------------------
 
-def _telegram_user_id() -> str:
-    return os.getenv("DB_CONNECTIONS_USER_ID", os.getenv("DEV_USER_ID", "db-connections-local-user"))
-
-
 _SELECTED_CHAT_COLUMNS = (
     "dialog_id, dialog_title, dialog_type, chat_collection_id, message_count, history_range, status, last_synced_at"
 )
@@ -253,19 +257,29 @@ def _as_connection_source(cur, row: Dict[str, Any]) -> TelegramConnectionSource:
     )
 
 
-def _get_connection_row(connection_id: str) -> Optional[Dict[str, Any]]:
+def _get_connection_row(connection_id: str, user: UserRecord) -> Optional[Dict[str, Any]]:
+    """The connection, only if `user` connected it. A Telegram account and the
+    chats synced from it are private to whoever connected it (MS-913), so
+    someone else's connection, another admin's included, reads as not found."""
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM telegram_connections WHERE connection_id = %s",
-                (connection_id,),
+                "SELECT * FROM telegram_connections WHERE connection_id = %s AND user_id = %s",
+                (connection_id, user.user_id),
             )
             return cur.fetchone()
     finally:
         conn.close()
+
+
+def _own_connection_row(connection_id: str, user: UserRecord) -> Dict[str, Any]:
+    row = _get_connection_row(connection_id, user)
+    if not row:
+        raise HTTPException(status_code=404, detail="Telegram connection not found")
+    return row
 
 
 def _upsert_selected_chat(
@@ -376,7 +390,7 @@ async def _connect_with_saved_session(row: Dict[str, Any]):
     return client
 
 
-async def start_connect(body: TelegramConnectStartRequest):
+async def start_connect(body: TelegramConnectStartRequest, user: UserRecord):
     _require_telegram_enabled()
     _cleanup_pending_logins()
 
@@ -406,14 +420,15 @@ async def start_connect(body: TelegramConnectStartRequest):
         "phone_code_hash": sent.phone_code_hash,
         "label": (body.label or "").strip() or None,
         "created_at": time.time(),
+        "user_id": user.user_id,
     }
     return TelegramConnectStartResponse(flow_id=flow_id, phone=phone)
 
 
-async def verify_connect(body: TelegramConnectVerifyRequest):
+async def verify_connect(body: TelegramConnectVerifyRequest, user: UserRecord):
     _require_telegram_enabled()
 
-    entry = _pending_logins.get(body.flow_id)
+    entry = _pending_login(body.flow_id, user)
     if not entry:
         raise HTTPException(status_code=400, detail="Login session expired or not found — start over.")
 
@@ -474,7 +489,7 @@ async def _save_signed_in_connection(entry: Dict[str, Any]) -> TelegramConnectio
                 """,
                 (
                     connection_id,
-                    _telegram_user_id(),
+                    entry["user_id"],
                     entry["api_id"],
                     encrypt_secret(entry["api_hash"]),
                     # Only the masked number is kept: nothing needs the full
@@ -493,7 +508,7 @@ async def _save_signed_in_connection(entry: Dict[str, Any]) -> TelegramConnectio
         conn.close()
 
 
-async def start_qr_connect(body: TelegramQrStartRequest) -> TelegramQrLoginState:
+async def start_qr_connect(body: TelegramQrStartRequest, user: UserRecord) -> TelegramQrLoginState:
     _require_telegram_enabled()
     _cleanup_pending_logins()
     api_id, api_hash = _app_credentials(None, None)
@@ -518,6 +533,7 @@ async def start_qr_connect(body: TelegramQrStartRequest) -> TelegramQrLoginState
         "phone": None,
         "label": (body.label or "").strip() or None,
         "created_at": time.time(),
+        "user_id": user.user_id,
         "qr": qr,
         "status": "waiting",
         "connection": None,
@@ -580,29 +596,33 @@ def _qr_state(flow_id: str, entry: Dict[str, Any]) -> TelegramQrLoginState:
     )
 
 
-async def qr_connect_status(flow_id: str) -> TelegramQrLoginState:
+async def qr_connect_status(flow_id: str, user: UserRecord) -> TelegramQrLoginState:
     _require_telegram_enabled()
-    entry = _pending_logins.get(flow_id)
+    entry = _pending_login(flow_id, user)
     if not entry or "qr" not in entry:
         raise HTTPException(status_code=404, detail="QR sign-in not found or expired, start again")
     return _qr_state(flow_id, entry)
 
 
-async def cancel_qr_connect(body: TelegramQrCancelRequest) -> dict:
+async def cancel_qr_connect(body: TelegramQrCancelRequest, user: UserRecord) -> dict:
     """Closing the dialog: stop waiting for a scan and let the client go. A
-    flow that already finished or was never there is fine to cancel."""
-    _drop_pending_login(body.flow_id)
+    flow that already finished or was never there is fine to cancel; someone
+    else's is left alone."""
+    if _pending_login(body.flow_id, user):
+        _drop_pending_login(body.flow_id)
     return {"status": "cancelled", "flow_id": body.flow_id}
 
 
-async def list_connections():
+async def list_connections(user: UserRecord):
+    """The user's own connections only (MS-913)."""
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT * FROM telegram_connections ORDER BY created_at DESC",
+                "SELECT * FROM telegram_connections WHERE user_id = %s ORDER BY created_at DESC",
+                (user.user_id,),
             )
             rows = cur.fetchall() or []
             connections = [_as_connection_source(cur, r) for r in rows]
@@ -616,11 +636,9 @@ async def list_connections():
         conn.close()
 
 
-async def list_dialogs(connection_id: str):
+async def list_dialogs(connection_id: str, user: UserRecord):
     _require_telegram_enabled()
-    row = _get_connection_row(connection_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Telegram connection not found")
+    row = _own_connection_row(connection_id, user)
 
     client = await _connect_with_saved_session(row)
     try:
@@ -644,9 +662,7 @@ async def list_dialogs(connection_id: str):
 
 async def sync_connection(connection_id: str, body: TelegramSyncRequest, user: UserRecord):
     _require_telegram_enabled()
-    row = _get_connection_row(connection_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Telegram connection not found")
+    row = _own_connection_row(connection_id, user)
     if not body.dialog_ids:
         raise HTTPException(status_code=400, detail="Select at least one chat to sync")
     limits, workspace_id = resolve_storage_limits(user)
@@ -819,15 +835,19 @@ async def sync_connection(connection_id: str, body: TelegramSyncRequest, user: U
     return TelegramSyncResponse(results=results)
 
 
-async def set_connection_active(body: SetTelegramConnectionActiveRequest):
+async def set_connection_active(body: SetTelegramConnectionActiveRequest, user: UserRecord):
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE telegram_connections SET status = %s WHERE connection_id = %s RETURNING connection_id",
-                ("active" if body.active else "inactive", body.connection_id),
+                """
+                UPDATE telegram_connections SET status = %s
+                WHERE connection_id = %s AND user_id = %s
+                RETURNING connection_id
+                """,
+                ("active" if body.active else "inactive", body.connection_id, user.user_id),
             )
             updated = cur.fetchone()
         if not updated:
@@ -842,19 +862,17 @@ async def set_connection_active(body: SetTelegramConnectionActiveRequest):
         conn.close()
 
 
-async def delete_connection(connection_id: str):
+async def delete_connection(connection_id: str, user: UserRecord):
     """Disconnecting leaves nothing DocuLens took from the account behind: the
     session is logged out of Telegram, every chat it synced is deleted, then
     the connection (its selected chats go with it, ON DELETE CASCADE).
     Telegram being unreachable does not stop the rest; a synced chat that
     cannot be deleted does, so it is never left searchable without a way to
     retry."""
-    row = _get_connection_row(connection_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Telegram connection not found")
+    row = _own_connection_row(connection_id, user)
 
     await _log_out_saved_session(row)
-    failed = await _delete_synced_chats(connection_id)
+    failed = await _delete_synced_chats(connection_id, user)
     if failed:
         raise HTTPException(
             status_code=500,
@@ -867,8 +885,8 @@ async def delete_connection(connection_id: str):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "DELETE FROM telegram_connections WHERE connection_id = %s RETURNING connection_id",
-                (connection_id,),
+                "DELETE FROM telegram_connections WHERE connection_id = %s AND user_id = %s RETURNING connection_id",
+                (connection_id, user.user_id),
             )
             deleted = cur.fetchone()
         if not deleted:
@@ -902,13 +920,13 @@ async def _log_out_saved_session(row: Dict[str, Any]) -> None:
             pass
 
 
-async def _delete_chat_data(collection_id: str) -> bool:
+async def _delete_chat_data(collection_id: str, user: UserRecord) -> bool:
     """Delete everything stored for one synced chat: the transcript and search
     index in Storage, its collections row, the local copies and the in-memory
     index. True once it is gone; one that was already gone (404) counts as
     deleted. Removing a single chat and disconnecting both go through here."""
     try:
-        await chat_service.delete_chat_collection(collection_id)
+        await chat_service.delete_chat_collection(collection_id, user)
     except HTTPException as exc:
         if exc.status_code != 404:
             logger.error("telegram: deleting chat %s failed: %s", collection_id, exc.detail)
@@ -919,10 +937,13 @@ async def _delete_chat_data(collection_id: str) -> bool:
     return True
 
 
-async def set_chat_range(connection_id: str, dialog_id: str, body: TelegramChatRangeRequest) -> TelegramSelectedChat:
+async def set_chat_range(
+    connection_id: str, dialog_id: str, body: TelegramChatRangeRequest, user: UserRecord,
+) -> TelegramSelectedChat:
     """Change how far back a chat is kept. This only saves the setting: the stored
     messages are rebuilt by the next sync, which is also what lets the user
     choose when older messages are dropped."""
+    _own_connection_row(connection_id, user)
     conn = db.get_conn("telegram")
     if not conn:
         raise HTTPException(status_code=503, detail="Database unavailable")
@@ -949,16 +970,17 @@ async def set_chat_range(connection_id: str, dialog_id: str, body: TelegramChatR
         conn.close()
 
 
-async def remove_chat(connection_id: str, dialog_id: str) -> TelegramChatRemovedResponse:
+async def remove_chat(connection_id: str, dialog_id: str, user: UserRecord) -> TelegramChatRemovedResponse:
     """Remove one chat from a connection, with all its stored data. The data goes
     first and the row last: a chat whose data could not be deleted keeps its
     row, so it is never left searchable without a way to try again. Nothing is
     sent to Telegram, so the chat there is not affected."""
+    _own_connection_row(connection_id, user)
     chat = _get_selected_chat(connection_id, dialog_id)
     if not chat:
         raise HTTPException(status_code=404, detail="Telegram chat not found")
     collection_id = chat["chat_collection_id"]
-    if collection_id and not await _delete_chat_data(collection_id):
+    if collection_id and not await _delete_chat_data(collection_id, user):
         raise HTTPException(
             status_code=500,
             detail="Could not delete the chat's stored data, so the chat was kept. Try again.",
@@ -983,7 +1005,7 @@ async def remove_chat(connection_id: str, dialog_id: str) -> TelegramChatRemoved
         conn.close()
 
 
-async def _delete_synced_chats(connection_id: str) -> int:
+async def _delete_synced_chats(connection_id: str, user: UserRecord) -> int:
     """Delete every chat collection this connection synced; returns how many
     could not be deleted."""
     conn = db.get_conn("telegram")
@@ -1004,6 +1026,6 @@ async def _delete_synced_chats(connection_id: str) -> int:
 
     failed = 0
     for collection_id in collection_ids:
-        if not await _delete_chat_data(collection_id):
+        if not await _delete_chat_data(collection_id, user):
             failed += 1
     return failed

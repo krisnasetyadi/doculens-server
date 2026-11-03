@@ -505,10 +505,14 @@ async def _retrieve(
     if scoped_ids and req.include_pdf_results:
         pdf_collection_ids = scoped_ids
     # Chat is admin-only (business rule — non-admins never search it,
-    # regardless of what flags/ids the client sends).
-    chat_collection_ids = req.chat_collection_ids if is_admin else []
-    if is_admin and not chat_collection_ids and req.include_chat_results:
-        chat_collection_ids = processor.get_all_chat_collections()
+    # regardless of what flags/ids the client sends), and private to whoever
+    # added it (MS-913): only the asker's own chats are searched, and IDs the
+    # client sends that aren't theirs are dropped.
+    chat_collection_ids: List[str] = []
+    if is_admin and req.include_chat_results:
+        own_chat_ids = await asyncio.to_thread(processor.get_user_chat_collections, user.user_id)
+        requested = set(req.chat_collection_ids or [])
+        chat_collection_ids = [cid for cid in own_chat_ids if not requested or cid in requested]
 
     should_search_pdfs = bool(req.include_pdf_results) and bool(pdf_collection_ids)
     should_search_db   = bool(req.include_db_results)

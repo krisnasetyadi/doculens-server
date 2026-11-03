@@ -1148,7 +1148,10 @@ def get_chat_collection_size(collection_id: str) -> int:
         conn.close()
 
 
-def list_chat_collections() -> List[Dict[str, Any]]:
+def list_chat_collections(owner_id: str) -> List[Dict[str, Any]]:
+    """The chat collections `owner_id` added. Chats are private to whoever added
+    them (MS-913): never listed for anyone else, admins included, and a row
+    with no owner is listed for nobody."""
     conn = db.get_conn("storage")
     if not conn:
         return []
@@ -1156,8 +1159,8 @@ def list_chat_collections() -> List[Dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(f"""
                 SELECT {_COLLECTIONS_SELECT}
-                FROM collections WHERE kind = 'chat' ORDER BY created_at DESC
-            """)
+                FROM collections WHERE kind = 'chat' AND owner_id = %s ORDER BY created_at DESC
+            """, (owner_id,))
             rows = cur.fetchall()
             telegram_collection_ids = set()
             if any((row.get("metadata") or {}).get("platform") == "telegram" for row in rows):
@@ -1174,9 +1177,10 @@ def list_chat_collections() -> List[Dict[str, Any]]:
                             JOIN telegram_connections AS connection
                               ON connection.connection_id = selected.connection_id
                             WHERE connection.status = 'active'
+                              AND connection.user_id = %s
                               AND selected.status = 'active'
                               AND selected.chat_collection_id IS NOT NULL
-                        """)
+                        """, (owner_id,))
                         telegram_collection_ids = {row["chat_collection_id"] for row in cur.fetchall()}
                 except Exception as e:
                     logger.warning("Telegram source status lookup failed: %s", e)
@@ -1195,7 +1199,30 @@ def list_chat_collections() -> List[Dict[str, Any]]:
         conn.close()
 
 
-def get_chat_collection(collection_id: str) -> Optional[Dict[str, Any]]:
+def list_owned_active_chat_collection_ids() -> List[str]:
+    """Every active chat whose owner is a DocuLens user, whoever it is.
+    Housekeeping only (prefetching indexes, the health count): what a question
+    searches is the asker's own chats, list_chat_collections(owner_id)."""
+    conn = db.get_conn("storage")
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT c.collection_id FROM collections AS c
+                JOIN users AS u ON u.user_id = c.owner_id
+                WHERE c.kind = 'chat' AND c.status = 'active'
+            """)
+            return [row["collection_id"] for row in cur.fetchall()]
+    except Exception as e:
+        logger.warning("list_owned_active_chat_collection_ids failed: %s", e)
+        return []
+    finally:
+        conn.close()
+
+
+def get_chat_collection(collection_id: str, owner_id: str) -> Optional[Dict[str, Any]]:
+    """The chat collection, only if `owner_id` added it; someone else's reads as not found."""
     conn = db.get_conn("storage")
     if not conn:
         return None
@@ -1203,8 +1230,8 @@ def get_chat_collection(collection_id: str) -> Optional[Dict[str, Any]]:
         with conn.cursor() as cur:
             cur.execute(f"""
                 SELECT {_COLLECTIONS_SELECT}
-                FROM collections WHERE collection_id = %s AND kind = 'chat'
-            """, (collection_id,))
+                FROM collections WHERE collection_id = %s AND kind = 'chat' AND owner_id = %s
+            """, (collection_id, owner_id))
             row = cur.fetchone()
         return _chat_row_from_unified(dict(row)) if row else None
     except Exception as e:
@@ -1214,15 +1241,18 @@ def get_chat_collection(collection_id: str) -> Optional[Dict[str, Any]]:
         conn.close()
 
 
-def set_chat_collection_status(collection_id: str, active: bool) -> bool:
+def set_chat_collection_status(collection_id: str, active: bool, owner_id: str) -> bool:
     conn = db.get_conn("storage")
     if not conn:
         return False
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE collections SET status = %s, updated_at = now() WHERE collection_id = %s AND kind = 'chat'",
-                ("active" if active else "inactive", collection_id),
+                """
+                UPDATE collections SET status = %s, updated_at = now()
+                WHERE collection_id = %s AND kind = 'chat' AND owner_id = %s
+                """,
+                ("active" if active else "inactive", collection_id, owner_id),
             )
             updated = cur.rowcount > 0
         return updated
@@ -1233,21 +1263,35 @@ def set_chat_collection_status(collection_id: str, active: bool) -> bool:
         conn.close()
 
 
-def delete_chat_collection_from_db(collection_id: str) -> bool:
-    """True only when a chat collection row was actually deleted; storage
-    files are cleaned up either way."""
+def delete_chat_collection_from_db(collection_id: str, owner_id: Optional[str]) -> bool:
+    """Deletes the chat collection if `owner_id` added it (None: a row with no
+    owner, see scripts/delete_ownerless_chats.py). True only when a row was
+    deleted. Storage files are cleaned up too, also for an id with no row at
+    all (left over), but never while the row belongs to someone else."""
     removed = False
+    someone_elses = False
     conn = db.get_conn("storage")
     if conn:
         try:
             with conn.cursor() as cur:
-                cur.execute("DELETE FROM collections WHERE collection_id = %s AND kind = 'chat'",
-                            (collection_id,))
+                cur.execute(
+                    """
+                    DELETE FROM collections
+                    WHERE collection_id = %s AND kind = 'chat' AND owner_id IS NOT DISTINCT FROM %s
+                    """,
+                    (collection_id, owner_id),
+                )
                 removed = cur.rowcount > 0
+                if not removed:
+                    cur.execute("SELECT 1 FROM collections WHERE collection_id = %s", (collection_id,))
+                    someone_elses = cur.fetchone() is not None
         except Exception as e:
             logger.warning("delete chat row failed: %s", e)
+            return False
         finally:
             conn.close()
+    if someone_elses:
+        return False
     s3 = _s3_client()
     if s3:
         for bucket in (_CHAT_UPLOADS_BUCKET, _CHAT_INDICES_BUCKET):

@@ -11,7 +11,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import HTTPException
 
@@ -150,6 +150,13 @@ def _snippet_around(content: str, query: str) -> str:
     return ("…" if start > 0 else "") + excerpt + ("…" if end < len(text) else "")
 
 
+def _is_owner(row: Dict[str, Any], user: UserRecord) -> bool:
+    """A conversation is private to whoever had it (MS-913), admins included:
+    its answers can quote that person's private chats and files. One with no
+    owner belongs to nobody."""
+    return bool(row.get("owner_id")) and row["owner_id"] == user.user_id
+
+
 def upsert_session(body: UpsertSessionRequest, user: UserRecord):
     sid = body.session_id or str(uuid.uuid4())
     conn = _get_required_conn()
@@ -161,12 +168,7 @@ def upsert_session(body: UpsertSessionRequest, user: UserRecord):
                     (sid,),
                 )
                 existing = cur.fetchone()
-                if (
-                    existing
-                    and existing.get("owner_id")
-                    and existing["owner_id"] != user.user_id
-                    and user.role != "admin"
-                ):
+                if existing and not _is_owner(existing, user):
                     raise HTTPException(status_code=403, detail="Not allowed to modify this session")
 
             cur.execute("""
@@ -287,46 +289,26 @@ def list_sessions(q: Optional[str], user: UserRecord):
         with conn.cursor() as cur:
             # The lateral join is textually before WHERE, so its parameter binds
             # first — hence join_params ahead of the owner id, not after it.
-            if user.role == "admin":
-                cur.execute(f"""
-                    SELECT s.session_id,
-                           s.title,
-                           s.pdf_collections,
-                           s.chat_collections,
-                           s.created_at,
-                           s.updated_at,
-                           COUNT(m.id) AS message_count
-                           {match_select}
-                    FROM chat_sessions s
-                    LEFT JOIN chat_messages m ON m.session_id = s.session_id
-                    {match_join}
-                    WHERE TRUE {search_clause}
-                    GROUP BY s.session_id, s.title, s.pdf_collections,
-                             s.chat_collections, s.created_at, s.updated_at
-                             {match_group}
-                    ORDER BY s.updated_at DESC
-                    LIMIT 200
-                """, join_params + where_params)
-            else:
-                cur.execute(f"""
-                    SELECT s.session_id,
-                           s.title,
-                           s.pdf_collections,
-                           s.chat_collections,
-                           s.created_at,
-                           s.updated_at,
-                           COUNT(m.id) AS message_count
-                           {match_select}
-                    FROM chat_sessions s
-                    LEFT JOIN chat_messages m ON m.session_id = s.session_id
-                    {match_join}
-                    WHERE s.owner_id = %s {search_clause}
-                    GROUP BY s.session_id, s.title, s.pdf_collections,
-                             s.chat_collections, s.created_at, s.updated_at
-                             {match_group}
-                    ORDER BY s.updated_at DESC
-                    LIMIT 200
-                """, join_params + (user.user_id,) + where_params)
+            # Everyone, admins included, lists only their own (MS-913).
+            cur.execute(f"""
+                SELECT s.session_id,
+                       s.title,
+                       s.pdf_collections,
+                       s.chat_collections,
+                       s.created_at,
+                       s.updated_at,
+                       COUNT(m.id) AS message_count
+                       {match_select}
+                FROM chat_sessions s
+                LEFT JOIN chat_messages m ON m.session_id = s.session_id
+                {match_join}
+                WHERE s.owner_id = %s {search_clause}
+                GROUP BY s.session_id, s.title, s.pdf_collections,
+                         s.chat_collections, s.created_at, s.updated_at
+                         {match_group}
+                ORDER BY s.updated_at DESC
+                LIMIT 200
+            """, join_params + (user.user_id,) + where_params)
             rows = cur.fetchall()
 
         results: List[SessionSummary] = []
@@ -373,11 +355,7 @@ def get_session(session_id: str, limit: int, before: Optional[str], user: UserRe
             session_row = cur.fetchone()
             if not session_row:
                 raise HTTPException(status_code=404, detail="Session not found")
-            if (
-                user.role != "admin"
-                and session_row.get("owner_id")
-                and session_row["owner_id"] != user.user_id
-            ):
+            if not _is_owner(session_row, user):
                 raise HTTPException(status_code=403, detail="Not allowed to access this session")
 
             # Page by chat, not by message row: number every message with a
@@ -486,11 +464,7 @@ def get_session_questions(session_id: str, user: UserRecord):
             session_row = cur.fetchone()
             if not session_row:
                 raise HTTPException(status_code=404, detail="Session not found")
-            if (
-                user.role != "admin"
-                and session_row.get("owner_id")
-                and session_row["owner_id"] != user.user_id
-            ):
+            if not _is_owner(session_row, user):
                 raise HTTPException(status_code=403, detail="Not allowed to access this session")
 
             # Numbered over the whole session first, then cut to the newest
@@ -553,11 +527,7 @@ def rename_session(session_id: str, body: RenameSessionRequest, user: UserRecord
             existing = cur.fetchone()
             if not existing:
                 raise HTTPException(status_code=404, detail="Session not found")
-            if (
-                user.role != "admin"
-                and existing.get("owner_id")
-                and existing["owner_id"] != user.user_id
-            ):
+            if not _is_owner(existing, user):
                 raise HTTPException(status_code=403, detail="Not allowed to rename this session")
 
             cur.execute("""
@@ -604,11 +574,7 @@ def delete_session(session_id: str, user: UserRecord):
             existing = cur.fetchone()
             if not existing:
                 raise HTTPException(status_code=404, detail="Session not found")
-            if (
-                user.role != "admin"
-                and existing.get("owner_id")
-                and existing["owner_id"] != user.user_id
-            ):
+            if not _is_owner(existing, user):
                 raise HTTPException(status_code=403, detail="Not allowed to delete this session")
             cur.execute("DELETE FROM chat_sessions WHERE session_id = %s", (session_id,))
         return {"status": "deleted", "session_id": session_id}

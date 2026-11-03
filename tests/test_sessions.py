@@ -84,16 +84,19 @@ class UpsertTest(SessionsTestCase):
 
 
 class ListAndSearchTest(SessionsTestCase):
-    def test_users_see_their_own_sessions_and_admins_see_all(self):
+    def test_everyone_sees_only_their_own_sessions_admins_too(self):
+        """MS-913: a conversation can quote its owner's private chats, so no
+        one else lists it, another admin included."""
         alice, bob, admin = user(), user(), user("admin")
         a = self.create(alice, chats(2))["session_id"]
         b = self.create(bob, chats(1))["session_id"]
+        own = self.create(admin, chats(1))["session_id"]
         alice_view = {s["session_id"]: s for s in self.client(alice).get("/api/v1/sessions").json()}
         self.assertIn(a, alice_view)
         self.assertNotIn(b, alice_view)
         self.assertEqual(alice_view[a]["message_count"], 4)
         admin_view = {s["session_id"] for s in self.client(admin).get("/api/v1/sessions").json()}
-        self.assertTrue({a, b} <= admin_view)
+        self.assertEqual(admin_view & {a, b, own}, {own})
 
     def test_title_match_has_no_snippet_and_message_match_has_one(self):
         owner = user()
@@ -143,7 +146,24 @@ class PaginationTest(SessionsTestCase):
         sid = self.create(owner, chats(1))["session_id"]
         self.assertEqual(self.client(owner).get("/api/v1/sessions/nope").status_code, 404)
         self.assertEqual(self.client(stranger).get(f"/api/v1/sessions/{sid}").status_code, 403)
-        self.assertEqual(self.client(admin).get(f"/api/v1/sessions/{sid}").status_code, 200)
+        # MS-913: an admin is a stranger to someone else's conversation too.
+        admin_client = self.client(admin)
+        self.assertEqual(admin_client.get(f"/api/v1/sessions/{sid}").status_code, 403)
+        self.assertEqual(admin_client.get(f"/api/v1/sessions/{sid}/questions").status_code, 403)
+        self.assertEqual(admin_client.put(f"/api/v1/sessions/{sid}", json={"title": "x"}).status_code, 403)
+        self.assertEqual(admin_client.delete(f"/api/v1/sessions/{sid}").status_code, 403)
+        self.assertEqual(admin_client.post("/api/v1/sessions", json={
+            "session_id": sid, "title": "Taken", "messages": []}).status_code, 403)
+        self.assertEqual(self.client(owner).get(f"/api/v1/sessions/{sid}").status_code, 200)
+
+    def test_a_session_with_no_owner_belongs_to_nobody(self):
+        owner, admin = user(), user("admin")
+        sid = self.create(owner, chats(1))["session_id"]
+        self.sql("UPDATE chat_sessions SET owner_id = NULL WHERE session_id = %s", (sid,))
+        for who in (owner, admin):
+            self.assertEqual(self.client(who).get(f"/api/v1/sessions/{sid}").status_code, 403)
+            self.assertEqual(self.client(who).post("/api/v1/sessions", json={
+                "session_id": sid, "title": "Claimed", "messages": []}).status_code, 403)
 
     def test_question_index(self):
         owner = user()

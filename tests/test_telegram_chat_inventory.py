@@ -18,13 +18,19 @@ class TelegramChatInventoryTests(unittest.TestCase):
         connection.cursor.return_value.__enter__.return_value = cursor
 
         with patch.object(storage.db, "get_conn", return_value=connection):
-            collections = storage.list_chat_collections()
+            collections = storage.list_chat_collections("admin-1")
 
         self.assertEqual(
             {collection["collection_id"]: collection["status"] for collection in collections},
             {"linked": "active", "orphan": "inactive", "whatsapp": "active"},
         )
-        self.assertIn("connection.status = 'active'", cursor.execute.call_args_list[-1].args[0])
+        # Only the user's own chats, and only their own connections keep them active (MS-913).
+        self.assertIn("owner_id = %s", cursor.execute.call_args_list[0].args[0])
+        self.assertEqual(cursor.execute.call_args_list[0].args[1], ("admin-1",))
+        last = cursor.execute.call_args_list[-1]
+        self.assertIn("connection.status = 'active'", last.args[0])
+        self.assertIn("connection.user_id = %s", last.args[0])
+        self.assertEqual(last.args[1], ("admin-1",))
 
     def test_orphan_is_inactive_when_telegram_tables_are_absent(self):
         cursor = MagicMock()
@@ -36,7 +42,7 @@ class TelegramChatInventoryTests(unittest.TestCase):
         connection.cursor.return_value.__enter__.return_value = cursor
 
         with patch.object(storage.db, "get_conn", return_value=connection):
-            collections = storage.list_chat_collections()
+            collections = storage.list_chat_collections("admin-1")
 
         self.assertEqual(collections[0]["status"], "inactive")
 
