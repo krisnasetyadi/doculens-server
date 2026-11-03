@@ -63,10 +63,11 @@ class ChatSearchMixin:
         file_filter: Optional[str] = None,
         top_k: int = 5
     ) -> List:
-        """Search across chat collections with optional file filtering"""
-        if collection_ids is None:
-            collection_ids = self.get_all_chat_collections()
-        
+        """Search the given chat collections, with optional file filtering. The
+        caller picks them (get_user_chat_collections): chats are private to
+        whoever added them, so there is no "all chats" default (MS-913)."""
+        collection_ids = collection_ids or []
+
         # Auto-detect file reference if not explicitly provided
         if file_filter is None:
             file_filter = self.extract_file_reference(question)

@@ -2,7 +2,11 @@
 """Chat collections (admin-only): uploading a chat export and indexing it
 (through services/ingest/chat_ingest.py, shared with Telegram sync), listing, previewing,
 paging messages, activating, moving to a folder and deleting.
-router/chat.py calls these."""
+router/chat.py calls these.
+
+A chat is private to whoever added it (MS-913): every function here takes the
+user and acts only on their own chats. Someone else's chat, other admins
+included, reads as not found (404), the same as an unknown ID."""
 
 import asyncio
 import logging
@@ -27,18 +31,24 @@ from services.ingest.progress import ProgressCallback, progress_response, upload
 logger = logging.getLogger(__name__)
 
 
-def _resolve_chat_collection_file(collection_id: str) -> tuple[str, Optional[dict]]:
-    """Locate the raw uploaded file for a chat collection, restoring it from
-    the Supabase bucket first if the local disk copy is missing (e.g. an
-    ephemeral HF Space restart). Shared by /preview and /messages so both
-    read the exact same file.
+def _own_chat_collection(collection_id: str, user: UserRecord) -> dict:
+    """The user's own chat collection, or 404. Who added a chat is only
+    recorded in the database, so without it no chat can be opened."""
+    if not supabase_storage.has_database():
+        raise HTTPException(status_code=503, detail="Database unavailable")
+    row = supabase_storage.get_chat_collection(collection_id, user.user_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="Chat collection not found")
+    return row
+
+
+def _resolve_chat_collection_file(collection_id: str, user: UserRecord) -> tuple[str, Optional[dict]]:
+    """Locate the raw uploaded file for one of the user's chat collections,
+    restoring it from the Supabase bucket first if the local disk copy is
+    missing (e.g. an ephemeral HF Space restart). Shared by /preview and
+    /messages so both read the exact same file.
     """
-    collection_info = None
-    if supabase_storage.has_database():
-        try:
-            collection_info = supabase_storage.get_chat_collection(collection_id)
-        except Exception as exc:
-            logger.warning(f"Chat collection metadata lookup failed for {collection_id}: {exc}")
+    collection_info = _own_chat_collection(collection_id, user)
 
     upload_dir = os.path.join(config.chat_upload_folder, collection_id)
 
@@ -180,38 +190,20 @@ async def upload_chat(file: UploadFile, platform: str, user: UserRecord, stream_
     return ChatUploadResponse(**await asyncio.to_thread(prepare, lambda stage, progress: None))
 
 
-async def list_chat_collections():
+async def list_chat_collections(user: UserRecord):
+    """The user's own chats. Only the database records who added a chat, so
+    there is no fallback to the chats on local disk, which are everyone's."""
+    rows = []
     if supabase_storage.has_database():
         try:
-            rows = supabase_storage.list_chat_collections()
-            if rows:
-                return {"collections": rows, "count": len(rows)}
+            rows = supabase_storage.list_chat_collections(user.user_id)
         except Exception as e:
-            logger.warning(f"Supabase list_chat_collections failed, using disk: {e}")
-
-    # Disk fallback
-    collections = []
-    chat_index_folder = config.chat_index_folder
-    if not os.path.exists(chat_index_folder):
-        return {"collections": []}
-    
-    for collection_id in os.listdir(chat_index_folder):
-        collection_path = os.path.join(chat_index_folder, collection_id)
-        if os.path.isdir(collection_path):
-            metadata_path = os.path.join(collection_path, "metadata.json")
-            if os.path.exists(metadata_path):
-                import json
-                with open(metadata_path, encoding='utf-8') as f:
-                    metadata = json.load(f)
-                    collections.append(metadata)
-            else:
-                collections.append({"collection_id": collection_id, "status": "no_metadata"})
-    
-    return {"collections": collections, "count": len(collections)}
+            logger.warning(f"Supabase list_chat_collections failed: {e}")
+    return {"collections": rows, "count": len(rows)}
 
 
-async def preview(collection_id: str, max_chars: int):
-    file_path, _collection_info = _resolve_chat_collection_file(collection_id)
+async def preview(collection_id: str, max_chars: int, user: UserRecord):
+    file_path, _collection_info = _resolve_chat_collection_file(collection_id, user)
 
     try:
         with open(file_path, encoding='utf-8', errors='replace') as handle:
@@ -232,8 +224,8 @@ async def preview(collection_id: str, max_chars: int):
     }
 
 
-async def get_messages(collection_id: str, offset: int, limit: int):
-    file_path, collection_info = _resolve_chat_collection_file(collection_id)
+async def get_messages(collection_id: str, offset: int, limit: int, user: UserRecord):
+    file_path, collection_info = _resolve_chat_collection_file(collection_id, user)
     platform = (collection_info or {}).get("platform")
 
     try:
@@ -251,23 +243,23 @@ async def get_messages(collection_id: str, offset: int, limit: int):
     }
 
 
-async def set_active(body: SetChatCollectionActiveRequest):
-    if not supabase_storage.is_enabled() and not supabase_storage.has_database():
+async def set_active(body: SetChatCollectionActiveRequest, user: UserRecord):
+    if not supabase_storage.has_database():
         raise HTTPException(status_code=503, detail="Database unavailable")
-    updated = supabase_storage.set_chat_collection_status(body.collection_id, body.active)
+    updated = supabase_storage.set_chat_collection_status(body.collection_id, body.active, user.user_id)
     if not updated:
         raise HTTPException(status_code=404, detail="Chat collection not found")
     return {"status": "success", "collection_id": body.collection_id, "active": body.active}
 
 
-async def move_to_folder(body: MoveToFolderRequest):
-    row = supabase_storage.get_chat_collection(body.collection_id)
-    if not row:
-        raise HTTPException(status_code=404, detail="Chat collection not found")
+async def move_to_folder(body: MoveToFolderRequest, user: UserRecord):
+    """Into one of the user's own folders only. The chat stays private there,
+    even in a folder that also holds files shared with members."""
+    _own_chat_collection(body.collection_id, user)
 
     if body.folder_id:
         folder = supabase_storage.get_folder(body.folder_id)
-        if not folder:
+        if not folder or folder.get("owner_id") != user.user_id:
             raise HTTPException(status_code=404, detail="Folder not found")
 
     ok = supabase_storage.set_collection_folder(body.collection_id, body.folder_id)
@@ -276,9 +268,12 @@ async def move_to_folder(body: MoveToFolderRequest):
     return {"status": "success", "collection_id": body.collection_id, "folder_id": body.folder_id}
 
 
-async def delete_chat_collection(collection_id: str):
+async def delete_chat_collection(collection_id: str, user: UserRecord):
     import shutil
-    
+
+    # Checked before anything is removed, so someone else's chat is left whole.
+    _own_chat_collection(collection_id, user)
+
     # Remove from cache if exists
     cache_key = f"chat_{collection_id}"
     if cache_key in processor.vector_store_cache:
@@ -287,11 +282,10 @@ async def delete_chat_collection(collection_id: str):
     deleted = False
 
     # Delete from Supabase (DB row + S3 objects)
-    if supabase_storage.is_enabled() or supabase_storage.has_database():
-        try:
-            deleted = supabase_storage.delete_chat_collection_from_db(collection_id)
-        except Exception as e:
-            logger.warning(f"Supabase delete failed for {collection_id}: {e}")
+    try:
+        deleted = supabase_storage.delete_chat_collection_from_db(collection_id, user.user_id)
+    except Exception as e:
+        logger.warning(f"Supabase delete failed for {collection_id}: {e}")
 
     # Delete local upload folder
     upload_path = os.path.join(config.chat_upload_folder, collection_id)

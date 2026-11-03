@@ -209,12 +209,17 @@ class TelegramTestCase(IsolatedSchemaTestCase):
         self.sql("DELETE FROM collections")  # the schema lives for the whole class; leftovers would count as used storage
         self.role = "admin"
 
+        self.user_id = "admin-1"
+
+    @property
+    def user(self):
+        return UserRecord(user_id=self.user_id, email=f"{self.user_id}@example.com", role=self.role, is_active=True)
+
     @property
     def http(self):
         app = FastAPI()
         app.include_router(telegram.router, prefix="/api/v1")
-        app.dependency_overrides[get_current_user] = lambda: UserRecord(
-            user_id="admin-1", email="admin@example.com", role=self.role, is_active=True)
+        app.dependency_overrides[get_current_user] = lambda: self.user
         return TestClient(app)
 
     def start(self, **body):
@@ -646,7 +651,7 @@ class RemoveChatTest(TelegramTestCase):
 
     def test_data_that_is_already_gone_does_not_block_the_removal(self):
         collection_id = self.collections["-20"]
-        asyncio.run(telegram_service.chat_service.delete_chat_collection(collection_id))
+        asyncio.run(telegram_service.chat_service.delete_chat_collection(collection_id, self.user))
         self.assertEqual(self.remove("-20").status_code, 200)
         self.assertEqual([r["dialog_id"] for r in self.sql("SELECT dialog_id FROM telegram_selected_chats")], ["-21"])
 
@@ -667,6 +672,65 @@ class RemoveChatTest(TelegramTestCase):
         for collection_id in self.collections.values():
             self.assertEqual(self.chat_rows(collection_id), [])
             self.assertFalse((self.chat_dir / collection_id).exists())
+
+
+class PrivacyTest(TelegramTestCase):
+    """MS-913: a Telegram connection, and every chat synced from it, belongs to
+    the admin who connected it. Another admin finds none of it."""
+
+    def setUp(self):
+        super().setUp()
+        self.connection_id = self.connect()["connection_id"]
+        self.account.entities[-20] = Chat(id=-20, title="Ops")
+        self.account.messages[-20] = [message(1, "hello Ops", 2, 0)]
+        resp = self.http.post(f"/api/v1/telegram-connections/{self.connection_id}/sync", json={"dialog_ids": ["-20"]})
+        self.collection_id = resp.json()["results"][0]["chat_collection_id"]
+
+    def test_the_connection_and_its_chats_belong_to_who_connected(self):
+        self.assertEqual(self.sql("SELECT user_id FROM telegram_connections")[0]["user_id"], "admin-1")
+        owners = self.sql("SELECT owner_id FROM collections WHERE collection_id = %s", (self.collection_id,))
+        self.assertEqual(owners[0]["owner_id"], "admin-1")
+
+    def test_another_admin_finds_nothing_and_changes_nothing(self):
+        self.user_id = "admin-2"
+        cid = self.connection_id
+        self.assertEqual(self.http.get("/api/v1/telegram-connections").json()["connections"], [])
+        statuses = {
+            "dialogs": self.http.get(f"/api/v1/telegram-connections/{cid}/dialogs"),
+            "sync": self.http.post(f"/api/v1/telegram-connections/{cid}/sync", json={"dialog_ids": ["-20"]}),
+            "activate": self.http.post("/api/v1/telegram-connections/activate",
+                                       json={"connection_id": cid, "active": False}),
+            "range": self.http.patch(f"/api/v1/telegram-connections/{cid}/chats/-20", json={"history_range": "1m"}),
+            "remove": self.http.delete(f"/api/v1/telegram-connections/{cid}/chats/-20"),
+            "delete": self.http.delete(f"/api/v1/telegram-connections/{cid}"),
+        }
+        self.assertEqual({name: r.status_code for name, r in statuses.items()}, dict.fromkeys(statuses, 404))
+        self.assertEqual(self.account.log_outs, 0)
+        connection = self.sql("SELECT status FROM telegram_connections WHERE connection_id = %s", (cid,))
+        self.assertEqual(connection[0]["status"], "active")
+        chat = self.sql("SELECT history_range FROM telegram_selected_chats WHERE connection_id = %s", (cid,))
+        self.assertEqual(chat[0]["history_range"], "all")
+        self.assertEqual(len(self.sql("SELECT 1 FROM collections WHERE collection_id = %s", (self.collection_id,))), 1)
+
+    def test_a_sign_in_can_only_be_finished_by_who_started_it(self):
+        flow_id = self.start().json()["flow_id"]
+        self.user_id = "admin-2"
+        resp = self.http.post("/api/v1/telegram-connections/connect/verify", json={"flow_id": flow_id, "code": "11111"})
+        self.assertEqual(resp.status_code, 400)
+        self.http.post("/api/v1/telegram-connections/connect/qr/cancel", json={"flow_id": flow_id})
+        self.assertIn(flow_id, telegram_service._pending_logins)
+        self.user_id = "admin-1"
+        resp = self.http.post("/api/v1/telegram-connections/connect/verify", json={"flow_id": flow_id, "code": "11111"})
+        self.assertEqual(resp.json()["status"], "connected")
+
+    def test_old_connections_with_no_real_owner_are_listed_for_nobody(self):
+        self.sql(
+            """INSERT INTO telegram_connections (connection_id, user_id, api_id, api_hash_enc, phone, label, session_enc)
+               VALUES ('legacy', 'db-connections-local-user', 1, 'h', 'p', 'Old', 's')"""
+        )
+        listed = [c["connection_id"] for c in self.http.get("/api/v1/telegram-connections").json()["connections"]]
+        self.assertEqual(listed, [self.connection_id])
+        self.assertEqual(self.http.get("/api/v1/telegram-connections/legacy/dialogs").status_code, 404)
 
 
 class RangedChatCase(TelegramTestCase):

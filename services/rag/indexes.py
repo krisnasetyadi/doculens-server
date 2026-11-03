@@ -202,19 +202,36 @@ class IndexMixin:
         logger.info("get_all_collections: %d from local disk", len(collections))
         return collections
 
+    def get_user_chat_collections(self, owner_id: str) -> List[str]:
+        """IDs of the active chat collections `owner_id` added: the only chats a
+        question of theirs may search (MS-913, chats are private to whoever
+        added them). Read from the database only; Storage and local disk don't
+        record an owner, so without the database no chat is searched."""
+        try:
+            from services.storage import supabase as supabase_storage
+            if supabase_storage.has_database():
+                rows = supabase_storage.list_chat_collections(owner_id)
+                return [r["collection_id"] for r in rows if r.get("status", "active") == "active"]
+        except Exception as e:
+            logger.warning("Supabase list_chat_collections failed: %s", e)
+        return []
+
     def get_all_chat_collections(self):
-        """Return list of available chat collection IDs (Supabase DB → S3 scan → local disk)."""
+        """Every active chat collection's ID, whoever added it (Supabase DB →
+        S3 scan → local disk). For housekeeping only (prefetching indexes, the
+        health count), never to pick what a question searches: that is
+        get_user_chat_collections."""
         # ── Supabase DB first ─────────────────────────────────────────────────
         try:
             from services.storage import supabase as supabase_storage
             if supabase_storage.has_database():
-                rows = supabase_storage.list_chat_collections()
-                if rows:
-                    ids = [r["collection_id"] for r in rows if r.get("status", "active") == "active"]
-                    logger.info("get_all_chat_collections: %d active of %d from Supabase DB", len(ids), len(rows))
-                    return ids
+                # Trusted even when empty: Storage and disk also hold chats
+                # nobody owns, which are never prefetched.
+                ids = supabase_storage.list_owned_active_chat_collection_ids()
+                logger.info("get_all_chat_collections: %d active from Supabase DB", len(ids))
+                return ids
         except Exception as e:
-            logger.warning("Supabase list_chat_collections failed: %s", e)
+            logger.warning("Supabase chat collection scan failed: %s", e)
 
         # ── S3 bucket scan fallback ───────────────────────────────────────────
         try:
