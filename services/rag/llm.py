@@ -1,4 +1,4 @@
-"""Choosing, loading and caching LLMs (Gemini, HuggingFace) and the embeddings.
+"""Choosing, loading and caching LLMs (Gemini, OpenAI, HuggingFace) and the embeddings.
 
 Mixin of services.rag.processor.PDFQAProcessor; the methods were moved
 verbatim from that class by MS-657."""
@@ -32,7 +32,10 @@ class LLMMixin:
             except ValueError:
                 logger.warning(f"Invalid provider '{provider}', using default")
                 llm_provider = config.default_llm_provider
-            llm_model = model or (config.gemini_model if llm_provider == LLMProvider.GEMINI else config.model_name)
+            llm_model = model or {
+                LLMProvider.GEMINI: config.gemini_model,
+                LLMProvider.OPENAI: config.openai_model,
+            }.get(llm_provider, config.model_name)
         else:
             inferred_gemini = bool(model and model.lower().startswith("gemini"))
             llm_provider = LLMProvider.GEMINI if inferred_gemini else config.default_llm_provider
@@ -55,6 +58,8 @@ class LLMMixin:
                 llm = self._load_huggingface_llm(llm_model)
             elif llm_provider == LLMProvider.GEMINI:
                 llm = self._load_gemini_llm(llm_model)
+            elif llm_provider == LLMProvider.OPENAI:
+                llm = self._load_openai_llm(llm_model)
             else:
                 raise ValueError(f"Unsupported provider: {llm_provider}")
             
@@ -147,6 +152,32 @@ class LLMMixin:
             google_api_key=config.gemini_api_key,
             temperature=config.temperature,
             **extra_kwargs,
+        )
+
+    def _load_openai_llm(self, model_name: str):
+        """Load an OpenAI GPT model (cloud - paid, alternative to Gemini)"""
+        if not config.openai_api_key:
+            logger.error("❌ OPENAI_API_KEY not set in .env file")
+            raise ValueError("OPENAI_API_KEY not configured. Please add it to .env file or use Gemini")
+
+        try:
+            from langchain_openai import ChatOpenAI
+        except ImportError:
+            logger.error("❌ langchain-openai not installed")
+            raise ImportError("Please install: pip install langchain-openai")
+
+        logger.info(f"🔑 Using OpenAI API with model: {model_name}")
+
+        return ChatOpenAI(
+            model=model_name,
+            api_key=config.openai_api_key,
+            temperature=config.temperature,
+            # Like Gemini's thinking budget of 0: grounded RAG answers need no reasoning
+            # tokens, and they would be billed as output.
+            reasoning_effort="none",
+            # OpenAI reports token usage only when asked; without it every streamed
+            # answer is metered as 0 tokens (services/rag/model_stream.py sums the chunks).
+            stream_usage=True,
         )
 
     def initialize_components(self):
