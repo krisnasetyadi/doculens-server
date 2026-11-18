@@ -142,7 +142,7 @@ Contoh: {example}
 
 JSON:"""
 
-        llm, _ = self.get_llm(provider="gemini")
+        llm, _ = self.get_llm()
         raw = ""
         tokens_consumed = 0
         try:
@@ -289,7 +289,7 @@ JSON:"""
                 })
 
             prompt = self._build_gap_check_batch_prompt(framework_name, batch_items, language)
-            llm, _ = self.get_llm(provider="gemini")
+            llm, _ = self.get_llm()
             parsed: List[Dict[str, Any]] = []
             try:
                 result = llm.invoke(prompt)
