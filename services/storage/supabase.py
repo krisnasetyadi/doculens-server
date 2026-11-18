@@ -636,12 +636,12 @@ def list_collection_ids_for_user(user_id: str, is_admin: bool) -> List[str]:
         conn.close()
 
 
-def list_active_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[str, str]]:
-    """(collection_id, display title) for the active ones among the
-    collections list_collection_ids_for_user allows — one query, filtered in SQL, so the
-    chat router can name/scope a user's collections without reading every
-    tenant's rows (list_collections) on each message. Display title falls
-    back to the first file name, then the id, like the chat UI does.
+def list_active_collections_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
+    """The active collections list_collection_ids_for_user allows (collection_id,
+    title, file_names, folder_id): one query, filtered in SQL, so the chat
+    router can name/scope a user's collections without reading every tenant's
+    rows (list_collections) on each message. Also the one access point of the
+    Lens Guide scope (MS-1180, services/lens_guide/scope.py).
 
     Only active collections: these are the sources chat searches and names,
     and a file the user deactivated must not reach the answer (MS-665)."""
@@ -652,25 +652,34 @@ def list_active_collection_titles_for_user(user_id: str, is_admin: bool) -> List
         with conn.cursor() as cur:
             if is_admin:
                 cur.execute(
-                    "SELECT collection_id, title, file_names FROM collections "
+                    "SELECT collection_id, title, file_names, folder_id FROM collections "
                     "WHERE kind = 'pdf' AND status = 'active' ORDER BY created_at DESC"
                 )
             else:
                 cur.execute(
-                    "SELECT collection_id, title, file_names FROM collections "
+                    "SELECT collection_id, title, file_names, folder_id FROM collections "
                     "WHERE kind = 'pdf' AND status = 'active' AND owner_id = %s ORDER BY created_at DESC",
                     (user_id,),
                 )
-            rows = cur.fetchall()
-        return [
-            (r["collection_id"], r.get("title") or (r.get("file_names") or [""])[0] or r["collection_id"])
-            for r in rows
-        ]
+            return [dict(r) for r in cur.fetchall()]
     except Exception as e:
-        logger.warning("list_active_collection_titles_for_user failed: %s", e)
+        logger.warning("list_active_collections_for_user failed: %s", e)
         return []
     finally:
         conn.close()
+
+
+def collection_display_title(row: Dict[str, Any]) -> str:
+    """Title, else the first file name, else the id, like the chat UI does."""
+    return row.get("title") or (row.get("file_names") or [""])[0] or row["collection_id"]
+
+
+def list_active_collection_titles_for_user(user_id: str, is_admin: bool) -> List[Tuple[str, str]]:
+    """(collection_id, display title) of list_active_collections_for_user."""
+    return [
+        (r["collection_id"], collection_display_title(r))
+        for r in list_active_collections_for_user(user_id, is_admin)
+    ]
 
 
 def set_collection_status(collection_id: str, active: bool) -> bool:

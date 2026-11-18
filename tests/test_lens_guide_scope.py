@@ -1,0 +1,139 @@
+"""MS-1180: the Lens Guide scope. Path and count logic runs on fakes; who sees
+what runs against real SQL in a throwaway schema (testing_db), skipped when no
+database is reachable. Never point DATABASE_URL at a shared database for it."""
+
+import unittest
+import uuid
+from unittest.mock import patch
+from urllib.parse import urlparse
+
+from models import UserRecord
+from services.lens_guide import scope as scope_module
+from services.lens_guide.scope import load_scope
+from services.storage import supabase as storage
+from tests.testing_db import IsolatedSchemaTestCase, _base_url
+
+
+def user(role="user") -> UserRecord:
+    uid = f"{role}-{uuid.uuid4().hex[:8]}"
+    return UserRecord(user_id=uid, email=f"{uid}@example.com", role=role, is_active=True)
+
+
+def fake_scope(folders, collections):
+    """load_scope over fixed storage rows (who sees them is tested below)."""
+    with patch.object(scope_module.supabase_storage, "list_folders_for_user", return_value=folders), \
+            patch.object(scope_module.supabase_storage, "list_active_collections_for_user", return_value=collections):
+        return load_scope(user())
+
+
+class ScopePathTests(unittest.TestCase):
+    def test_three_levels_and_root(self):
+        result = fake_scope(
+            [
+                {"folder_id": "d", "name": "Delivery", "parent_folder_id": None},
+                {"folder_id": "y", "name": "Proyek Klien Y", "parent_folder_id": "d"},
+                {"folder_id": "b", "name": "Backend", "parent_folder_id": "y"},
+            ],
+            [
+                {"collection_id": "c1", "title": "Arsitektur", "file_names": ["a.pdf", "b.pdf"], "folder_id": "b"},
+                {"collection_id": "c2", "title": "Brief", "file_names": ["brief.pdf"], "folder_id": "y"},
+                {"collection_id": "c3", "title": None, "file_names": ["cuti.pdf"], "folder_id": None},
+            ],
+        )
+        folders = {f.folder_id: f for f in result.folders}
+        self.assertEqual(folders["b"].path, ["Delivery", "Proyek Klien Y", "Backend"])
+        self.assertEqual(folders["d"].path, ["Delivery"])
+        # A folder counts the files of every folder below it.
+        self.assertEqual((folders["b"].file_count, folders["y"].file_count, folders["d"].file_count), (2, 3, 3))
+
+        collections = {c.collection_id: c for c in result.collections}
+        self.assertEqual(collections["c1"].folder_path, ["Delivery", "Proyek Klien Y", "Backend"])
+        self.assertEqual((collections["c3"].folder_id, collections["c3"].folder_path), (None, []))
+        self.assertEqual(collections["c3"].title, "cuti.pdf")
+
+    def test_folders_outside_the_scope_are_never_named(self):
+        # "secret" is not in the user's folders: its child starts the path, and a
+        # collection filed in it counts as being at the root.
+        result = fake_scope(
+            [{"folder_id": "child", "name": "Mine", "parent_folder_id": "secret"}],
+            [
+                {"collection_id": "c1", "title": "Doc", "file_names": ["x.pdf"], "folder_id": "secret"},
+                {"collection_id": "c2", "title": "Doc 2", "file_names": ["y.pdf"], "folder_id": "child"},
+            ],
+        )
+        self.assertEqual(result.folders[0].path, ["Mine"])
+        self.assertIsNone(result.folders[0].parent_folder_id)
+        self.assertEqual(result.folders[0].file_count, 1)
+        self.assertEqual((result.collections[0].folder_id, result.collections[0].folder_path), (None, []))
+
+    def test_a_cycle_does_not_hang(self):
+        result = fake_scope(
+            [
+                {"folder_id": "a", "name": "A", "parent_folder_id": "b"},
+                {"folder_id": "b", "name": "B", "parent_folder_id": "a"},
+            ],
+            [{"collection_id": "c1", "title": "Doc", "file_names": ["x.pdf"], "folder_id": "a"}],
+        )
+        self.assertEqual({f.folder_id: f.path for f in result.folders}, {"a": ["B", "A"], "b": ["A", "B"]})
+
+
+# A pooled database (the Supabase pooler in .env) ignores the search_path the
+# throwaway schema relies on, so the rows land in the real public tables.
+LOCAL_DB = urlparse(_base_url() or "").hostname in ("127.0.0.1", "localhost")
+
+
+@unittest.skipUnless(LOCAL_DB, "needs DATABASE_URL on a local Postgres, never a shared one")
+class ScopeAccessTests(IsolatedSchemaTestCase):
+    def collection(self, owner, title, folder_id=None):
+        cid = str(uuid.uuid4())
+        self.assertTrue(storage.register_collection(cid, [f"{title}.pdf"], 1, title=title, owner_id=owner.user_id))
+        if folder_id:
+            self.assertTrue(storage.set_collection_folder(cid, folder_id))
+        return cid
+
+    def folder(self, owner, name, parent=None):
+        return storage.create_folder(str(uuid.uuid4()), name, owner.user_id, parent)["folder_id"]
+
+    def test_each_user_gets_only_their_own_and_admin_gets_all(self):
+        alice, bob, admin = user(), user(), user("admin")
+        delivery = self.folder(alice, "Delivery")
+        project = self.folder(alice, "Proyek Klien Y", delivery)
+        backend = self.folder(alice, "Backend", project)
+        alice_doc = self.collection(alice, "Arsitektur", backend)
+        alice_root = self.collection(alice, "Kebijakan Cuti")
+        bob_folder = self.folder(bob, "Rahasia Bob")
+        bob_doc = self.collection(bob, "Gaji", bob_folder)
+
+        dropped = self.collection(alice, "Lama", project)
+        self.assertTrue(storage.set_collection_status(dropped, False))
+        chat = str(uuid.uuid4())
+        self.assertTrue(storage.register_chat_collection(chat, "grup.txt", "whatsapp", 3, [], None, owner_id=alice.user_id))
+
+        seen = {}
+        for who in (alice, bob, admin):
+            result = load_scope(who)
+            seen[who.role if who is admin else who.user_id] = (
+                {f.folder_id for f in result.folders},
+                {c.collection_id for c in result.collections},
+                result,
+            )
+
+        a_folders, a_docs, a_result = seen[alice.user_id]
+        self.assertEqual(a_folders, {delivery, project, backend})
+        self.assertEqual(a_docs, {alice_doc, alice_root})  # not inactive, not chat, not Bob's
+        doc = next(c for c in a_result.collections if c.collection_id == alice_doc)
+        self.assertEqual(doc.folder_path, ["Delivery", "Proyek Klien Y", "Backend"])
+        self.assertEqual(next(c for c in a_result.collections if c.collection_id == alice_root).folder_path, [])
+        self.assertEqual(next(f for f in a_result.folders if f.folder_id == delivery).file_count, 1)
+
+        b_folders, b_docs, _ = seen[bob.user_id]
+        self.assertEqual((b_folders, b_docs), ({bob_folder}, {bob_doc}))
+
+        admin_folders, admin_docs, _ = seen["admin"]
+        self.assertTrue({delivery, project, backend, bob_folder} <= admin_folders)
+        self.assertTrue({alice_doc, alice_root, bob_doc} <= admin_docs)
+        self.assertFalse({dropped, chat} & admin_docs)
+
+
+if __name__ == "__main__":
+    unittest.main()
