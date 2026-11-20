@@ -1400,11 +1400,16 @@ def create_folder(
         conn.close()
 
 
-def list_folders_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
+def list_folders_for_user(user_id: str, is_admin: bool, strict: bool = False) -> List[Dict[str, Any]]:
     """Folders a given user is allowed to see: all of them for admins, only
-    their own (owner_id match) for everyone else — same rule as collections."""
+    their own (owner_id match) for everyone else, the same rule as collections.
+
+    strict: raise instead of returning [] when the database fails, for a caller
+    that must not mistake a failure for "this user has no folders" (MS-1181)."""
     conn = db.get_conn("storage")
     if not conn:
+        if strict:
+            raise RuntimeError("list_folders_for_user: no storage connection")
         return []
     try:
         with conn.cursor() as cur:
@@ -1422,7 +1427,31 @@ def list_folders_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
         return [dict(r) for r in rows]
     except Exception as e:
         logger.warning("list_folders_for_user failed: %s", e)
+        if strict:
+            raise
         return []
+    finally:
+        conn.close()
+
+
+def get_user_names(user_ids: List[str]) -> Dict[str, str]:
+    """user_id -> name, or email when the user set no name. Users that don't
+    exist are left out; a database failure gives {}."""
+    if not user_ids:
+        return {}
+    conn = db.get_conn("storage")
+    if not conn:
+        return {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT user_id, COALESCE(NULLIF(name, ''), email) AS label FROM users WHERE user_id = ANY(%s)",
+                (list(user_ids),),
+            )
+            return {r["user_id"]: r["label"] for r in cur.fetchall()}
+    except Exception as e:
+        logger.warning("get_user_names failed: %s", e)
+        return {}
     finally:
         conn.close()
 

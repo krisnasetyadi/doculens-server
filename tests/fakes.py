@@ -10,13 +10,13 @@ class FakeLLMResult:
         self.usage_metadata = {"total_tokens": total_tokens}
 
 
-def fake_llm(content=None, total_tokens=42, error=None, tool_args=None):
-    """`tool_args` set -> the model "calls" search_documents with them."""
+def fake_llm(content=None, total_tokens=42, error=None, tool_args=None, tool_name="search_documents"):
+    """`tool_args` set -> the model "calls" `tool_name` with them."""
     llm = MagicMock()
     llm.bind_tools.return_value = llm  # route_message binds the search tool first
     if error:
         llm.invoke.side_effect = error
     else:
-        tool_calls = [{"name": "search_documents", "args": tool_args, "id": "t1"}] if tool_args else None
+        tool_calls = [{"name": tool_name, "args": tool_args, "id": "t1"}] if tool_args else None
         llm.invoke.return_value = FakeLLMResult("" if tool_args else content, total_tokens, tool_calls)
     return llm

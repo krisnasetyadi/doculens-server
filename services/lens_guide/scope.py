@@ -23,6 +23,7 @@ class ScopeFolder:
     parent_folder_id: Optional[str]
     path: List[str]             # names from the top folder down, this one last
     file_count: int = 0         # files in this folder and every subfolder
+    owner_id: Optional[str] = None      # another user's id only shows up for admins
 
 
 @dataclass
@@ -38,6 +39,8 @@ class ScopeCollection:
 class Scope:
     folders: List[ScopeFolder] = field(default_factory=list)
     collections: List[ScopeCollection] = field(default_factory=list)
+    # False when the folders could not be read: "no folders" would then be a lie.
+    folders_loaded: bool = True
 
 
 def _paths(folders: List[dict]) -> Dict[str, List[str]]:
@@ -58,7 +61,11 @@ def _paths(folders: List[dict]) -> Dict[str, List[str]]:
 def load_scope(user: UserRecord) -> Scope:
     """Blocking (two DB queries): call through asyncio.to_thread."""
     is_admin = user.role == "admin"
-    folder_rows = supabase_storage.list_folders_for_user(user.user_id, is_admin)
+    try:
+        folder_rows = supabase_storage.list_folders_for_user(user.user_id, is_admin, strict=True)
+        folders_loaded = True
+    except Exception:
+        folder_rows, folders_loaded = [], False
     collection_rows = supabase_storage.list_active_collections_for_user(user.user_id, is_admin)
 
     paths = _paths(folder_rows)
@@ -68,6 +75,7 @@ def load_scope(user: UserRecord) -> Scope:
             name=f["name"],
             parent_folder_id=f.get("parent_folder_id") if f.get("parent_folder_id") in paths else None,
             path=paths[f["folder_id"]],
+            owner_id=f.get("owner_id"),
         )
         for f in folder_rows
     }
@@ -90,4 +98,4 @@ def load_scope(user: UserRecord) -> Scope:
             folders[folder_id].file_count += file_count
             folder_id = folders[folder_id].parent_folder_id
 
-    return Scope(folders=list(folders.values()), collections=collections)
+    return Scope(folders=list(folders.values()), collections=collections, folders_loaded=folders_loaded)

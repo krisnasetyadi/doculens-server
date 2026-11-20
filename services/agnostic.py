@@ -40,7 +40,13 @@ from services.rag.conversation.messages import internal_refusal, no_source_selec
 from services.rag.model_stream import ModelStream
 from services.rag.processor import processor
 from services.storage import supabase as supabase_storage
-from models import AgnosticQueryRequest, AgnosticQueryResponse, MemoryTurn, PdfSourceDetail, UserRecord
+from models import AgnosticQueryRequest, AgnosticQueryResponse, Guide, MemoryTurn, PdfSourceDetail, UserRecord
+from services.lens_guide.match import (
+    collection_ids_in, find_mentioned_folders, folder_label, match_folders, resolve_folder_label,
+)
+from services.lens_guide.drive_import import find_drive_link, import_offer
+from services.lens_guide.reply import empty_folder_reply, folder_reply, requested_name
+from services.lens_guide.scope import load_scope
 from services.public_links import resolve_active_public_link_sources
 from services.database_connections import resolve_active_database_connections
 from services.billing.allocation import get_usage_snapshot
@@ -105,6 +111,7 @@ def _system_response(
     question: str,
     start_time: datetime,
     source_type: str = "System",
+    guide: Optional[Guide] = None,
 ) -> AgnosticQueryResponse:
     """A reply that involved no retrieval (system answers, refusals,
     conversation mode) — no sources, nothing retrieved."""
@@ -120,6 +127,7 @@ def _system_response(
         target_tables=[],
         source_type=source_type,
         retrieved_count=0,
+        guide=guide,
     )
 
 
@@ -287,12 +295,12 @@ async def _answer_query(
         # Resolve collections — scoped to what this user is allowed to see.
         # Admins can reach every PDF collection; everyone else only their own.
         # Deactivated collections are left out entirely: not searched, not
-        # summarized, not named to the router (MS-665). One query returns both
-        # the ids and their display titles (which the router needs to
-        # name/scope collections), filtered in SQL.
-        collections = await asyncio.to_thread(
-            supabase_storage.list_active_collection_titles_for_user, user.user_id, is_admin
-        )
+        # summarized, not named to the router (MS-665). The Lens Guide scope
+        # (MS-1180) reads them with the same rule, filtered in SQL, together
+        # with the user's folders: ids and display titles for the router, and
+        # folder paths for finding and searching a folder (MS-1181).
+        scope = await asyncio.to_thread(load_scope, user)
+        collections = [(c.collection_id, c.title) for c in scope.collections]
         allowed_pdf_ids = {cid for cid, _ in collections}
         titles = [title for _, title in collections]
         if req.pdf_collection_ids:
@@ -352,6 +360,17 @@ async def _answer_query(
             req.include_external_db,
         ])
         intent = "retrieval" if req.skill_id else rule_based_intent(req.question, titles)
+        # MS-1181: a message naming one of the user's folders goes to the router,
+        # which confirms that folder or searches inside it. The rules alone
+        # would search everything ("dokumen Proyek Klien Y").
+        if intent == "retrieval" and not req.skill_id and find_mentioned_folders(req.question, scope):
+            intent = None
+        # MS-1181: a pasted Google Drive link is offered for import (no model
+        # call), whether or not a source is switched on; the UI imports it with
+        # the existing upload-from-urls if the user agrees.
+        drive_link = None if req.skill_id else find_drive_link(req.question)
+        if drive_link:
+            intent = None
 
         # No source selected for a data question — safety net for requests
         # that bypass the chat-ui toggle guard (regenerate, direct API
@@ -403,6 +422,12 @@ async def _answer_query(
             ))
 
         try:
+            if drive_link:
+                text, guide = await import_offer(drive_link, requested_name(memory_payload), language)
+                return _system_response(
+                    text, "system/lens-guide", req.question, start_time, source_type="Conversation", guide=guide,
+                )
+
             if intent == "retrieval":
                 scoped_titles = scope_titles_for(req.question, titles)
                 return await _retrieve(
@@ -422,6 +447,7 @@ async def _answer_query(
                 processor.route_message,
                 req.question, language, memory_payload, is_admin, titles, len(allowed_pdf_ids),
                 usage, req.llm_provider, req.llm_model, has_source,
+                folder_paths=[folder_label(f) for f in scope.folders] if scope.folders_loaded else None,
             )
             if await stop.stopped():
                 # The router call already ran: count it, answer nothing.
@@ -434,6 +460,18 @@ async def _answer_query(
                     decision.answer, decision.model_id, req.question, start_time, source_type="Conversation",
                 )
 
+            if decision.action == "find_folder":
+                # The model only named the folder; which ones match, and the
+                # reply, come from this user's scope.
+                await _log_tokens(user.user_id, decision.total_tokens)
+                text, guide = await asyncio.to_thread(
+                    folder_reply,
+                    decision.folder_name, match_folders(decision.folder_name, scope), scope, user.user_id, language,
+                )
+                return _system_response(
+                    text, decision.model_id, req.question, start_time, source_type="Conversation", guide=guide,
+                )
+
             if not has_source:
                 await _log_tokens(user.user_id, decision.total_tokens)
                 return _system_response(
@@ -441,6 +479,22 @@ async def _answer_query(
                 )
 
             scoped_titles = [decision.search_collection] if decision.search_collection else []
+            scope_ids = _collection_ids_for(scoped_titles, collections)
+            # MS-1181: a confirmed folder limits the search to it and every
+            # folder below it. shortcut: two folders with one full path (an
+            # admin seeing two users' folders) are searched together, since the
+            # conversation text cannot tell them apart; upgrade by carrying the
+            # folder id once the cards are saved with the message.
+            folders = resolve_folder_label(decision.search_folder, scope) if decision.search_folder else []
+            if folders:
+                in_folder = collection_ids_in(folders, scope)
+                if not in_folder:
+                    await _log_tokens(user.user_id, decision.total_tokens)
+                    return _system_response(
+                        empty_folder_reply(folders, language), decision.model_id, req.question, start_time,
+                        source_type="Conversation",
+                    )
+                scope_ids = [cid for cid in scope_ids if cid in in_folder] or in_folder
             # The model picks the task, but a summary of one PART ("ringkas
             # pasal 5", "summarize the access control section") must still be
             # a search for that part — never the whole-document sample.
@@ -456,7 +510,7 @@ async def _answer_query(
                 memory_payload, language,
                 routing_tokens=decision.total_tokens,
                 question=decision.search_query,
-                scope_collection_ids=_collection_ids_for(scoped_titles, collections),
+                scope_collection_ids=scope_ids,
                 task=task,
                 stop=stop,
                 reservation=reservation,

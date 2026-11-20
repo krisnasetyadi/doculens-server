@@ -123,6 +123,66 @@ class RouterTests(unittest.TestCase):
         data = self.route("what is the leave policy?", broken)
         self.assertEqual((data.action, data.search_query, data.fallback), ("search", "what is the leave policy?", True))
 
+    def route_with_folders(self, question, llm, folder_paths, memory=None):
+        with patch.object(processor, "get_llm", return_value=(llm, "gemini/gemini-test")):
+            return processor.route_message(
+                question, "id", memory, False, ["ISO Policy"], 1, folder_paths=folder_paths,
+            )
+
+    def test_find_folder_is_offered_only_when_folders_were_read(self):
+        llm = fake_llm("Halo!")
+        self.route("hi", llm)
+        self.assertEqual([t["name"] for t in llm.bind_tools.call_args[0][0]], ["search_documents"])
+        self.assertNotIn("find_folder", llm.invoke.call_args[0][0])
+
+        llm = fake_llm("Halo!")
+        self.route_with_folders("halo", llm, [])  # read, but none: a named project still gets asked about
+        tools = llm.bind_tools.call_args[0][0]
+        self.assertEqual([t["name"] for t in tools], ["search_documents", "find_folder"])
+        self.assertNotIn("folder", tools[0]["parameters"]["properties"])
+        self.assertIn("CALL find_folder", llm.invoke.call_args[0][0])
+
+    def test_folder_paths_become_the_search_folder_enum(self):
+        llm = fake_llm("Halo!")
+        paths = ["Delivery", "Delivery › Proyek Klien Y"]
+        self.route_with_folders("halo", llm, paths)
+        folder = llm.bind_tools.call_args[0][0][0]["parameters"]["properties"]["folder"]
+        self.assertEqual(folder["enum"], paths)
+
+        llm = fake_llm("Halo!")
+        self.route_with_folders("halo", llm, [f"F{i}" for i in range(51)])
+        folder = llm.bind_tools.call_args[0][0][0]["parameters"]["properties"]["folder"]
+        self.assertNotIn("enum", folder)  # past the cap: free text, matched back by the server
+
+    def test_find_folder_call_carries_only_the_name(self):
+        decision = self.route_with_folders(
+            "aku baru masuk Proyek Klien Y",
+            fake_llm(tool_name="find_folder", tool_args={"name": " Proyek Klien Y "}, total_tokens=7),
+            ["Delivery › Proyek Klien Y"],
+        )
+        self.assertEqual(
+            (decision.action, decision.folder_name, decision.total_tokens), ("find_folder", "Proyek Klien Y", 7),
+        )
+
+    def test_find_folder_without_a_name_searches_as_typed(self):
+        decision = self.route_with_folders(
+            "dokumen onboarding", fake_llm(tool_name="find_folder", tool_args={"name": " "}), [],
+        )
+        self.assertEqual((decision.action, decision.search_query), ("search", "dokumen onboarding"))
+
+    def test_search_keeps_the_confirmed_folder(self):
+        memory = [{"role": "assistant", "content": "Aku menemukan Sources › Delivery › Proyek Klien Y. Benar?"}]
+        decision = self.route_with_folders(
+            "ya, apa yang harus kubaca dulu?",
+            fake_llm(tool_args={"query": "dokumen onboarding", "folder": "Delivery › Proyek Klien Y", "task": "answer"}),
+            ["Delivery › Proyek Klien Y"], memory,
+        )
+        self.assertEqual((decision.action, decision.search_folder), ("search", "Delivery › Proyek Klien Y"))
+
+    def test_a_folder_argument_is_ignored_when_folders_are_off(self):
+        decision = self.route("what is in it?", fake_llm(tool_args={"query": "x", "folder": "Secret", "task": "answer"}))
+        self.assertIsNone(decision.search_folder)
+
     def test_reply_leak_is_replaced(self):
         decision = self.route("hi", fake_llm("DocuLens runs on FastAPI with Gemini."))
         self.assertEqual(decision.answer, internal_refusal("en"))
