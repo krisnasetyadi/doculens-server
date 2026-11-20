@@ -305,10 +305,12 @@ def match_collection_titles(question: str, collection_titles: Iterable[str]) -> 
 @dataclass
 class RouteDecision:
     """What processor.route_message decided for one message."""
-    action: Literal["reply", "search"]
+    action: Literal["reply", "search", "find_folder"]
     answer: str = ""                          # action == "reply"
+    folder_name: str = ""                     # action == "find_folder" (MS-1181): the name the user said
     search_query: str = ""                    # action == "search": the function call's args
     search_collection: Optional[str] = None
+    search_folder: Optional[str] = None       # a folder path the conversation confirmed (MS-1181)
     search_task: Literal["answer", "summarize"] = "answer"
     model_id: str = ""
     total_tokens: int = 0

@@ -32,8 +32,11 @@ class AgnosticEndpointTests(unittest.TestCase):
         )
         self.client = TestClient(self.app)
         self.patches = [
-            patch.object(agnostic_service.supabase_storage, "list_active_collection_titles_for_user",
-                         return_value=[("c1", "ISO Policy"), ("c2", "Section 3 Handbook")]),
+            patch.object(agnostic_service.supabase_storage, "list_active_collections_for_user", return_value=[
+                {"collection_id": "c1", "title": "ISO Policy", "file_names": [], "folder_id": None},
+                {"collection_id": "c2", "title": "Section 3 Handbook", "file_names": [], "folder_id": None},
+            ]),
+            patch.object(agnostic_service.supabase_storage, "list_folders_for_user", return_value=[]),
             patch.object(agnostic_service.supabase_storage, "list_collections",
                          side_effect=AssertionError("must not scan every tenant's collections")),
             patch.object(agnostic_service, "resolve_workspace_id", return_value="w1"),
@@ -216,7 +219,9 @@ class ConcurrencyEndpointTests(unittest.IsolatedAsyncioTestCase):
             user_id="u1", email="u1@example.com", role="admin", is_active=True
         )
         for target, attr, kwargs in [
-            (agnostic_service.supabase_storage, "list_active_collection_titles_for_user", {"return_value": [("c1", "ISO Policy")]}),
+            (agnostic_service.supabase_storage, "list_active_collections_for_user", {"return_value": [
+                {"collection_id": "c1", "title": "ISO Policy", "file_names": [], "folder_id": None}]}),
+            (agnostic_service.supabase_storage, "list_folders_for_user", {"return_value": []}),
             (agnostic_service, "resolve_workspace_id", {"return_value": "w1"}),
             (agnostic_service, "enforce_rate_limit", {}),
             (agnostic_service, "enforce_plan_limit", {"return_value": None}),

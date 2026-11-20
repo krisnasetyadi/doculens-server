@@ -76,6 +76,27 @@ class ScopePathTests(unittest.TestCase):
         )
         self.assertEqual({f.folder_id: f.path for f in result.folders}, {"a": ["B", "A"], "b": ["A", "B"]})
 
+    def test_a_folder_failure_is_not_an_empty_scope(self):
+        # MS-1181: "no folder found" must not be said when the folders could not be read.
+        doc = {"collection_id": "c1", "title": "Doc", "file_names": ["x.pdf"], "folder_id": None}
+        with patch.object(scope_module.supabase_storage, "list_folders_for_user", side_effect=RuntimeError("db down")), \
+                patch.object(scope_module.supabase_storage, "list_active_collections_for_user", return_value=[doc]):
+            result = load_scope(user())
+        self.assertFalse(result.folders_loaded)
+        self.assertEqual((result.folders, [c.collection_id for c in result.collections]), ([], ["c1"]))
+        self.assertTrue(fake_scope([], []).folders_loaded)
+
+    def test_each_folder_keeps_its_owner(self):
+        admin = user("admin")
+        result = fake_scope(
+            [
+                {"folder_id": "mine", "name": "Proyek Klien Y", "parent_folder_id": None, "owner_id": admin.user_id},
+                {"folder_id": "budi", "name": "Proyek Klien Y", "parent_folder_id": None, "owner_id": "u-budi"},
+            ],
+            [],
+        )
+        self.assertEqual({f.folder_id: f.owner_id for f in result.folders}, {"mine": admin.user_id, "budi": "u-budi"})
+
 
 # A pooled database (the Supabase pooler in .env) ignores the search_path the
 # throwaway schema relies on, so the rows land in the real public tables.
@@ -96,6 +117,10 @@ class ScopeAccessTests(IsolatedSchemaTestCase):
 
     def test_each_user_gets_only_their_own_and_admin_gets_all(self):
         alice, bob, admin = user(), user(), user("admin")
+        self.sql("INSERT INTO users (user_id, email, password_hash, role, name) VALUES (%s, %s, 'x', 'user', 'Alice')",
+                 (alice.user_id, alice.email))
+        self.sql("INSERT INTO users (user_id, email, password_hash, role) VALUES (%s, %s, 'x', 'user')",
+                 (bob.user_id, bob.email))
         delivery = self.folder(alice, "Delivery")
         project = self.folder(alice, "Proyek Klien Y", delivery)
         backend = self.folder(alice, "Backend", project)
@@ -129,10 +154,17 @@ class ScopeAccessTests(IsolatedSchemaTestCase):
         b_folders, b_docs, _ = seen[bob.user_id]
         self.assertEqual((b_folders, b_docs), ({bob_folder}, {bob_doc}))
 
-        admin_folders, admin_docs, _ = seen["admin"]
+        admin_folders, admin_docs, admin_result = seen["admin"]
         self.assertTrue({delivery, project, backend, bob_folder} <= admin_folders)
         self.assertTrue({alice_doc, alice_root, bob_doc} <= admin_docs)
         self.assertFalse({dropped, chat} & admin_docs)
+
+        self.assertTrue(a_result.folders_loaded)
+        owner = {f.folder_id: f.owner_id for f in admin_result.folders}
+        self.assertEqual((owner[delivery], owner[bob_folder]), (alice.user_id, bob.user_id))
+        # MS-1181: an owner's name for the folder cards, else their email.
+        names = storage.get_user_names([alice.user_id, bob.user_id, "nobody"])
+        self.assertEqual(names, {alice.user_id: "Alice", bob.user_id: bob.email})
 
 
 if __name__ == "__main__":

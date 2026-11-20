@@ -1023,6 +1023,62 @@ class PdfSourceDetail(BaseModel):
     search_text:      Optional[str]   = None
 
 
+class GuideFolder(BaseModel):
+    path:            List[str]
+    file_count:      int
+    subfolder_count: int = 0
+    owner:           Optional[str] = None   # another user's folder (admins only); None: the asker's own
+
+
+class GuideImportLink(BaseModel):
+    """A public Google Drive link pasted in the chat, offered for import
+    through the existing upload-from-urls (the UI calls it with `urls`)."""
+    url:        str
+    title:      Optional[str] = None   # the project the user was looking for, if any
+    file_count: int
+    urls:       List[str]
+
+
+class GuideQuestion(BaseModel):
+    options:         List[str]
+    allow_free_text: bool = True
+
+
+class GuideContext(BaseModel):
+    label: str
+    value: str
+
+
+class GuideStep(BaseModel):
+    key:     str
+    title:   str
+    file:    str
+    where:   str
+    why:     str
+    minutes: Optional[int] = None
+    origin:  Optional[str] = None
+
+
+class GuideNotice(BaseModel):
+    kind: Literal["missing", "conflict", "old_version"]
+    text: str
+
+
+class Guide(BaseModel):
+    """Lens Guide (MS-1179) cards under an answer. Every part is optional and
+    filled by its own story: folder/folders/missing_source/import_link by
+    MS-1181, question/context by MS-1182, steps/notices by MS-1183. Not saved
+    with the message, so the answer text always says the same in words."""
+    folder:         Optional[GuideFolder] = None         # one folder matched: confirm it
+    folders:        Optional[List[GuideFolder]] = None   # several matched (which one?), or to pick from
+    missing_source: Optional[bool] = None                # nothing matched: where are the documents?
+    import_link:    Optional[GuideImportLink] = None     # a Drive link pasted in the chat: import it?
+    question:       Optional[GuideQuestion] = None
+    context:        Optional[List[GuideContext]] = None
+    steps:          Optional[List[GuideStep]] = None
+    notices:        Optional[List[GuideNotice]] = None
+
+
 class AgnosticQueryResponse(BaseModel):
     answer:               str
     model_used:           str
@@ -1041,6 +1097,7 @@ class AgnosticQueryResponse(BaseModel):
     # low-confidence direct-extraction branch, none of which build a
     # prompt/context to measure).
     efficiency:           Optional[Dict[str, Any]] = None
+    guide:                Optional[Guide] = None
 
 
 

@@ -16,7 +16,9 @@ services/rag/        the RAG engine: processor.py composes one mixin per concern
 services/storage/    supabase.py (Storage + collection/folder/skill/run rows), limits.py, app_db.py
 services/ingest/     documents.py (text extractors, indexing), chat_parser.py, chat_ingest.py, progress.py
 services/security/   ssrf_guard.py, telegram_crypto.py
-services/lens_guide/ Lens Guide (MS-1179): scope.py (documents and folders a user may open, with folder paths)
+services/lens_guide/ Lens Guide (MS-1179): scope.py (documents and folders a user may open, with folder paths),
+                     match.py (which folders a name refers to), reply.py (find_folder replies and cards),
+                     drive_import.py (a Drive link pasted in chat, offered for the existing import)
 tests/               run from the repo root: python -m unittest discover -s tests -t .
 scripts/  migrations/
 ```
