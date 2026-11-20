@@ -51,12 +51,21 @@ class PromptLanguageTests(unittest.TestCase):
         self.assertIn("dalam Bahasa Indonesia", processor._build_general_prompt("ctx", "q", [], {}))
 
     def test_gap_check_prompt_language(self):
-        items = [{"label": "A.5.1", "target_context": ""}]
-        id_prompt = processor._build_gap_check_batch_prompt("ISO 27001", items, "id")
-        en_prompt = processor._build_gap_check_batch_prompt("ISO 27001", items, "en")
-        self.assertNotIn("bahasa Inggris", id_prompt)
-        self.assertIn("bahasa Inggris (English)", en_prompt)
-        self.assertEqual(id_prompt, processor._build_gap_check_batch_prompt("ISO 27001", items))
+        batch = [{"requirement": {"key": "A.5.1", "code": "A.5.1", "label": "Policies", "expected_document": "policy"},
+                  "sources": [{"id": "S1", "file_name": "policy.pdf", "page": "2", "text": "Approved yearly."}]}]
+        id_prompt = processor._build_gap_check_batch_prompt("ISO 27001", batch, ["policy.pdf"], language="id")
+        en_prompt = processor._build_gap_check_batch_prompt("ISO 27001", batch, ["policy.pdf"], language="en")
+        self.assertIn("in Indonesian (Bahasa Indonesia)", id_prompt)
+        self.assertNotIn("in Indonesian", en_prompt)
+        self.assertIn("in English.", en_prompt)
+        self.assertEqual(id_prompt, processor._build_gap_check_batch_prompt("ISO 27001", batch, ["policy.pdf"]))
+        # MS-1112: the selected documents decide not_checked versus missing; sources are numbered.
+        self.assertIn("THE USER SELECTED ONLY THESE DOCUMENTS TO CHECK:\n- policy.pdf", id_prompt)
+        self.assertIn("ITEM 1 (key: A.5.1): A.5.1 Policies", id_prompt)
+        self.assertIn("[S1] policy.pdf (page 2):\nApproved yearly.", id_prompt)
+        self.assertNotIn("DIRECTIONS FROM THE USER", id_prompt)
+        self.assertIn("DIRECTIONS FROM THE USER (follow them):\nIgnore drafts",
+                      processor._build_gap_check_batch_prompt("ISO 27001", batch, [], "Ignore drafts", "en"))
 
     def test_canned_english_replies_survive_validation(self):
         # The validator swaps answers matching failure_patterns for a raw
@@ -197,6 +206,25 @@ class GapCheckJsonParsingTests(unittest.TestCase):
         self.assertEqual(parse('[{"label": "A.5"}]'), [{"label": "A.5"}])
         self.assertEqual(parse('Result: [{"label": "A.5"}] done'), [{"label": "A.5"}])
         self.assertEqual(parse("[not json"), [])
+
+
+class GapCheckSourcesTests(unittest.TestCase):
+    """MS-1112: a requirement is judged on passages from every selected document."""
+
+    def test_every_document_gets_its_best_passage_in_before_any_second_best(self):
+        from langchain_core.documents import Document
+
+        def search(query, collection_ids, top_k):
+            cid = collection_ids[0]
+            return [Document(page_content=f"{cid}-{n}", metadata={"source": f"{cid}.pdf", "collection_id": cid, "page": "1"})
+                    for n in range(1, top_k + 2)]
+
+        requirement = {"key": "A.8.13", "code": "A.8.13", "label": "Backup", "expected_document": None}
+        with patch.object(processor, "search_across_collections", side_effect=search) as searched:
+            sources = processor._retrieve_sources(requirement, ["a", "b", "c", "d", "e"])
+        self.assertEqual(searched.call_count, 5)  # one search per document
+        self.assertEqual([s["text"] for s in sources], ["a-1", "b-1", "c-1", "d-1", "e-1", "a-2", "b-2", "c-2"])
+        self.assertEqual((sources[0]["id"], sources[-1]["id"]), ("S1", "S8"))  # capped at 8
 
 if __name__ == "__main__":
     unittest.main()

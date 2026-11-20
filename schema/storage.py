@@ -233,6 +233,70 @@ def ensure():
                 CREATE INDEX IF NOT EXISTS idx_gap_analysis_items_run
                     ON gap_analysis_items (run_id);
 
+                -- MS-1112: an analysis keeps a goal, its target folders, a
+                -- versioned rule set (the requirement list, each with a stable
+                -- key, plus directions) and its runs, so a run can be compared
+                -- item by item with the one before it.
+                CREATE TABLE IF NOT EXISTS analyses (
+                    id                BIGSERIAL   PRIMARY KEY,
+                    analysis_id       TEXT        NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
+                    owner_id          TEXT,
+                    goal              TEXT        NOT NULL DEFAULT '',
+                    target_folder_ids TEXT[]      NOT NULL DEFAULT '{}',
+                    created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+                );
+                CREATE INDEX IF NOT EXISTS idx_analyses_owner
+                    ON analyses (owner_id, updated_at DESC);
+                CREATE TABLE IF NOT EXISTS analysis_rule_sets (
+                    analysis_id              TEXT        NOT NULL REFERENCES analyses(analysis_id) ON DELETE CASCADE,
+                    version                  INTEGER     NOT NULL,
+                    framework_name           TEXT        NOT NULL DEFAULT '',
+                    reference_collection_ids TEXT[]      NOT NULL DEFAULT '{}',
+                    requirements             JSONB       NOT NULL DEFAULT '[]'::jsonb,
+                    directions               TEXT        NOT NULL DEFAULT '',
+                    created_at               TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    PRIMARY KEY (analysis_id, version)
+                );
+                ALTER TABLE gap_analysis_runs
+                    ADD COLUMN IF NOT EXISTS analysis_id TEXT REFERENCES analyses(analysis_id) ON DELETE SET NULL,
+                    ADD COLUMN IF NOT EXISTS rule_set_version INTEGER,
+                    ADD COLUMN IF NOT EXISTS searched JSONB;
+                CREATE INDEX IF NOT EXISTS idx_gap_analysis_runs_analysis
+                    ON gap_analysis_runs (analysis_id, created_at DESC);
+                ALTER TABLE gap_analysis_items
+                    ADD COLUMN IF NOT EXISTS requirement_key TEXT,
+                    ADD COLUMN IF NOT EXISTS code TEXT,
+                    ADD COLUMN IF NOT EXISTS reason TEXT,
+                    ADD COLUMN IF NOT EXISTS summary TEXT,
+                    ADD COLUMN IF NOT EXISTS next_step JSONB,
+                    ADD COLUMN IF NOT EXISTS findings JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    ADD COLUMN IF NOT EXISTS searched JSONB,
+                    ADD COLUMN IF NOT EXISTS trend TEXT;
+                -- Five statuses plus not_checked replace met / partial / not_met /
+                -- unknown. Done once: only while the status check does not yet
+                -- know 'needs_decision', so later startups skip the table scan and
+                -- lock. The old values stay allowed so a backend still on the old
+                -- code keeps writing during a deploy; reads map them (normalize_status).
+                DO $$
+                BEGIN
+                    IF NOT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'gap_analysis_items_status_check'
+                          AND pg_get_constraintdef(oid) LIKE '%needs_decision%'
+                    ) THEN
+                        ALTER TABLE gap_analysis_items DROP CONSTRAINT IF EXISTS gap_analysis_items_status_check;
+                        UPDATE gap_analysis_items
+                           SET status = CASE status WHEN 'met' THEN 'done' WHEN 'partial' THEN 'incomplete'
+                                                    WHEN 'not_met' THEN 'missing' ELSE 'needs_decision' END
+                         WHERE status IN ('met', 'partial', 'not_met', 'unknown');
+                        ALTER TABLE gap_analysis_items ADD CONSTRAINT gap_analysis_items_status_check
+                            CHECK (status IN ('done', 'incomplete', 'missing', 'needs_decision', 'not_applicable',
+                                              'not_checked', 'met', 'partial', 'not_met', 'unknown'));
+                        ALTER TABLE gap_analysis_items ALTER COLUMN status SET DEFAULT 'needs_decision';
+                    END IF;
+                END $$;
+
                 CREATE TABLE IF NOT EXISTS users (
                     id            BIGSERIAL    PRIMARY KEY,
                     user_id       TEXT         NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
