@@ -74,7 +74,8 @@ def find_mentioned_folders(question: str, scope: Scope) -> List[ScopeFolder]:
     Y"), or a one-word name right after "proyek", "modul", "folder", ...
     ("modul Backend"). A lone common word ("laporan", "policy") that happens
     to be a folder name is not taken as one."""
-    text = f" {' '.join(re.findall(r'[^\W_]+', question.lower()))} "
+    tokens = re.findall(r"[^\W_]+", question.lower())
+    text = " " + " ".join(tokens) + " "
     found = []
     for f in scope.folders:
         words = _words(f.name)
