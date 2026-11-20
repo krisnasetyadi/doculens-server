@@ -354,6 +354,22 @@ def get_pdf_signed_url(
         return None
 
 
+def download_document(collection_id: str, filename: str, dest_path: str) -> bool:
+    """Download an uploaded document from the uploads bucket to dest_path.
+    MS-1112: a gap check re-reads Word and Excel files for exact locations,
+    and on an ephemeral disk (HF Spaces) only the bucket still has them."""
+    s3 = _s3_client()
+    if not s3:
+        return False
+    key = f"{collection_id}/{filename}"
+    try:
+        s3.download_file(_UPLOADS_BUCKET, key, dest_path)
+        return True
+    except Exception as e:
+        logger.warning("Document download failed (%s): %s", key, e)
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Chat uploads & indices
 # ---------------------------------------------------------------------------
@@ -737,6 +753,9 @@ def create_gap_analysis_run(
     scenario_input: Optional[str] = None,
     owner_id: Optional[str] = None,
     status: str = "completed",
+    analysis_id: Optional[str] = None,
+    rule_set_version: Optional[int] = None,
+    searched: Optional[Dict[str, Any]] = None,
 ) -> bool:
     conn = db.get_conn("storage")
     if not conn:
@@ -747,12 +766,16 @@ def create_gap_analysis_run(
             cur.execute("""
                 INSERT INTO gap_analysis_runs
                     (run_id, skill_id, framework_name, reference_collection_ids,
-                     target_collection_ids, scenario_input, owner_id, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                     target_collection_ids, scenario_input, owner_id, status,
+                     analysis_id, rule_set_version, searched)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (run_id) DO UPDATE SET
                     status = EXCLUDED.status
             """, (run_id, skill_id, framework_name, reference_collection_ids,
-                  target_collection_ids or [], scenario_input, owner_id, status))
+                  target_collection_ids or [], scenario_input, owner_id, status,
+                  analysis_id, rule_set_version, json.dumps(searched) if searched is not None else None))
+            if analysis_id:
+                cur.execute("UPDATE analyses SET updated_at = now() WHERE analysis_id = %s", (analysis_id,))
         logger.info("Created gap_analysis_run: %s (skill=%s)", run_id, skill_id)
         return True
     except Exception as e:
@@ -763,29 +786,44 @@ def create_gap_analysis_run(
 
 
 def save_gap_analysis_items(run_id: str, items: List[Dict[str, Any]]) -> bool:
-    """items: dicts with keys label, status, evidence, source_citation,
-    recommendation, target_collection_id (which target this item was checked against)."""
+    """items: dicts as services/rag/gap_locations.finalize_item builds them
+    (label, status, the MS-1112 fields, and the older evidence /
+    source_citation / recommendation / target_collection_id), plus trend."""
     if not items:
         return True
     conn = db.get_conn("storage")
     if not conn:
         logger.warning("save_gap_analysis_items: no DB connection, skipping insert")
         return False
+
+    def as_json(value):
+        return json.dumps(value) if value is not None else None
+
     try:
         with conn.cursor() as cur:
             for item in items:
                 cur.execute("""
                     INSERT INTO gap_analysis_items
-                        (run_id, label, status, evidence, source_citation, recommendation, target_collection_id)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        (run_id, label, status, evidence, source_citation, recommendation, target_collection_id,
+                         requirement_key, code, reason, summary, next_step, findings, searched, trend, answered)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     run_id,
                     item.get("label", ""),
-                    item.get("status", "unknown"),
+                    item.get("status", "needs_decision"),
                     item.get("evidence"),
                     item.get("source_citation"),
                     item.get("recommendation"),
                     item.get("target_collection_id"),
+                    item.get("requirement_key"),
+                    item.get("code"),
+                    item.get("reason"),
+                    item.get("summary"),
+                    as_json(item.get("next_step")),
+                    json.dumps(item.get("findings") or []),
+                    as_json(item.get("searched")),
+                    item.get("trend"),
+                    item.get("answered", True),
                 ))
         return True
     except Exception as e:
@@ -808,6 +846,10 @@ _RUN_COLLECTION_LABELS = """
 """
 
 
+# The statuses a run's summary counts (MS-1112); not_checked is counted apart.
+RUN_SUMMARY_STATUSES = ("done", "incomplete", "missing", "needs_decision", "not_applicable")
+
+
 def list_gap_analysis_runs(owner_id: Optional[str] = None, is_admin: bool = False) -> List[Dict[str, Any]]:
     """Runs newest first (all of them for an admin, else the owner's), each with
     its result counts per status and, for runs from the caller's own workspace
@@ -825,17 +867,23 @@ def list_gap_analysis_runs(owner_id: Optional[str] = None, is_admin: bool = Fals
                        r.target_collection_ids, r.scenario_input, r.owner_id, r.status, r.created_at,
                        CASE WHEN r.owner_id = %(owner_id)s OR u.created_by = %(owner_id)s
                             THEN u.email END AS owner_email,
-                       s.met, s.partial, s.not_met, s.unknown,
+                       r.analysis_id, r.rule_set_version, r.searched, a.goal,
+                       COALESCE(a.target_folder_ids, '{}') AS target_folder_ids,
+                       s.done, s.incomplete, s.missing, s.needs_decision, s.not_applicable, s.not_checked,
                        COALESCE(l.labels, '{}'::jsonb) AS collection_labels
                 FROM gap_analysis_runs r
                 LEFT JOIN users u ON u.user_id = r.owner_id
+                LEFT JOIN analyses a ON a.analysis_id = r.analysis_id
                 -- Counted per listed run (LATERAL, on idx_gap_analysis_items_run), not
-                -- for the whole items table before the owner filter applies.
+                -- for the whole items table before the owner filter applies. Old
+                -- status values count as their MS-1112 equivalents.
                 LEFT JOIN LATERAL (
-                    SELECT COUNT(*) FILTER (WHERE i.status = 'met')     AS met,
-                           COUNT(*) FILTER (WHERE i.status = 'partial') AS partial,
-                           COUNT(*) FILTER (WHERE i.status = 'not_met') AS not_met,
-                           COUNT(*) FILTER (WHERE i.status = 'unknown') AS unknown
+                    SELECT COUNT(*) FILTER (WHERE i.status IN ('done', 'met'))           AS done,
+                           COUNT(*) FILTER (WHERE i.status IN ('incomplete', 'partial')) AS incomplete,
+                           COUNT(*) FILTER (WHERE i.status IN ('missing', 'not_met'))    AS missing,
+                           COUNT(*) FILTER (WHERE i.status IN ('needs_decision', 'unknown')) AS needs_decision,
+                           COUNT(*) FILTER (WHERE i.status = 'not_applicable')           AS not_applicable,
+                           COUNT(*) FILTER (WHERE i.status = 'not_checked')              AS not_checked
                     FROM gap_analysis_items i WHERE i.run_id = r.run_id
                 ) s ON true
                 LEFT JOIN LATERAL (""" + _RUN_COLLECTION_LABELS + """) l ON true
@@ -846,7 +894,8 @@ def list_gap_analysis_runs(owner_id: Optional[str] = None, is_admin: bool = Fals
         runs = []
         for r in rows:
             run = dict(r)
-            run["summary"] = {key: int(run.pop(key)) for key in ("met", "partial", "not_met", "unknown")}
+            run["summary"] = {key: int(run.pop(key)) for key in RUN_SUMMARY_STATUSES}
+            run["not_checked"] = int(run.pop("not_checked"))
             runs.append(run)
         return runs
     except Exception as e:
@@ -865,8 +914,18 @@ def get_gap_analysis_run(run_id: str) -> Optional[Dict[str, Any]]:
             cur.execute("""
                 SELECT r.run_id, r.skill_id, r.framework_name, r.reference_collection_ids,
                        r.target_collection_ids, r.scenario_input, r.owner_id, r.status, r.created_at,
+                       r.analysis_id, r.rule_set_version, r.searched, a.goal,
+                       COALESCE(a.target_folder_ids, '{}') AS target_folder_ids,
+                       p.run_id AS previous_run_id, p.created_at AS previous_run_at,
                        COALESCE(l.labels, '{}'::jsonb) AS collection_labels
                 FROM gap_analysis_runs r
+                LEFT JOIN analyses a ON a.analysis_id = r.analysis_id
+                -- The run before this one in the same analysis: what its trends compare against.
+                LEFT JOIN LATERAL (
+                    SELECT pr.run_id, pr.created_at FROM gap_analysis_runs pr
+                    WHERE pr.analysis_id = r.analysis_id AND pr.created_at < r.created_at
+                    ORDER BY pr.created_at DESC LIMIT 1
+                ) p ON r.analysis_id IS NOT NULL
                 LEFT JOIN LATERAL (""" + _RUN_COLLECTION_LABELS + """) l ON true
                 WHERE r.run_id = %s
             """, (run_id,))
@@ -886,7 +945,9 @@ def get_gap_analysis_items(run_id: str) -> List[Dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT label, status, evidence, source_citation, recommendation, target_collection_id, created_at
+                SELECT label, status, evidence, source_citation, recommendation, target_collection_id,
+                       requirement_key, code, reason, summary, next_step,
+                       COALESCE(findings, '[]'::jsonb) AS findings, searched, trend, answered, created_at
                 FROM gap_analysis_items WHERE run_id = %s ORDER BY id ASC
             """, (run_id,))
             rows = cur.fetchall()
@@ -912,6 +973,149 @@ def delete_gap_analysis_run(run_id: str) -> bool:
     except Exception as e:
         logger.warning("delete_gap_analysis_run failed for %s: %s", run_id, e)
         return False
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# analyses / analysis_rule_sets (MS-1112): what a run belongs to. A rule set
+# is never changed in place; a change is a new version, so every run still
+# names the exact requirement list it was checked against.
+# ---------------------------------------------------------------------------
+
+def create_analysis(
+    analysis_id: str,
+    owner_id: Optional[str],
+    goal: str,
+    target_folder_ids: List[str],
+    framework_name: str,
+    reference_collection_ids: List[str],
+    requirements: List[Dict[str, Any]],
+    directions: str = "",
+) -> bool:
+    """The analysis row and its rule set version 1, together."""
+    conn = db.get_conn("storage")
+    if not conn:
+        logger.warning("create_analysis: no DB connection, skipping insert")
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO analyses (analysis_id, owner_id, goal, target_folder_ids)
+                VALUES (%s, %s, %s, %s)
+            """, (analysis_id, owner_id, goal, target_folder_ids))
+            cur.execute("""
+                INSERT INTO analysis_rule_sets
+                    (analysis_id, version, framework_name, reference_collection_ids, requirements, directions)
+                VALUES (%s, 1, %s, %s, %s, %s)
+            """, (analysis_id, framework_name, reference_collection_ids, json.dumps(requirements), directions))
+        return True
+    except Exception as e:
+        logger.warning("create_analysis failed: %s", e)
+        return False
+    finally:
+        conn.close()
+
+
+def add_rule_set_version(
+    analysis_id: str,
+    framework_name: str,
+    reference_collection_ids: List[str],
+    requirements: List[Dict[str, Any]],
+    directions: str,
+) -> Optional[int]:
+    """Store a changed rule set as the analysis's next version; returns that
+    version number, or None when it could not be stored."""
+    conn = db.get_conn("storage")
+    if not conn:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO analysis_rule_sets
+                    (analysis_id, version, framework_name, reference_collection_ids, requirements, directions)
+                SELECT %s, COALESCE(MAX(version), 0) + 1, %s, %s, %s, %s
+                FROM analysis_rule_sets WHERE analysis_id = %s
+                RETURNING version
+            """, (analysis_id, framework_name, reference_collection_ids, json.dumps(requirements), directions, analysis_id))
+            row = cur.fetchone()
+        return row["version"] if row else None
+    except Exception as e:
+        logger.warning("add_rule_set_version failed for %s: %s", analysis_id, e)
+        return None
+    finally:
+        conn.close()
+
+
+def get_analysis(analysis_id: str) -> Optional[Dict[str, Any]]:
+    """An analysis with its latest rule set (version, framework_name,
+    reference_collection_ids, requirements, directions)."""
+    conn = db.get_conn("storage")
+    if not conn:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT a.analysis_id, a.owner_id, a.goal, a.target_folder_ids, a.created_at, a.updated_at,
+                       rs.version AS rule_set_version, rs.framework_name, rs.reference_collection_ids,
+                       rs.requirements, rs.directions
+                FROM analyses a
+                LEFT JOIN LATERAL (
+                    SELECT * FROM analysis_rule_sets s
+                    WHERE s.analysis_id = a.analysis_id ORDER BY s.version DESC LIMIT 1
+                ) rs ON true
+                WHERE a.analysis_id = %s
+            """, (analysis_id,))
+            row = cur.fetchone()
+        return dict(row) if row else None
+    except Exception as e:
+        logger.warning("get_analysis failed for %s: %s", analysis_id, e)
+        return None
+    finally:
+        conn.close()
+
+
+def update_analysis_targets(analysis_id: str, target_folder_ids: List[str]) -> bool:
+    conn = db.get_conn("storage")
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE analyses SET target_folder_ids = %s, updated_at = now() WHERE analysis_id = %s",
+                (target_folder_ids, analysis_id),
+            )
+        return True
+    except Exception as e:
+        logger.warning("update_analysis_targets failed for %s: %s", analysis_id, e)
+        return False
+    finally:
+        conn.close()
+
+
+def get_latest_run_statuses(analysis_id: str) -> Dict[str, str]:
+    """{requirement_key: status} each requirement had in the analysis's newest
+    run that answered it: what a new run's trends compare against. A run where
+    the AI gave no answer for a requirement is skipped for that requirement,
+    so a failed check never counts as a baseline. Empty when the analysis has
+    no run yet."""
+    conn = db.get_conn("storage")
+    if not conn:
+        return {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (i.requirement_key) i.requirement_key, i.status
+                FROM gap_analysis_items i
+                JOIN gap_analysis_runs r ON r.run_id = i.run_id
+                WHERE r.analysis_id = %s AND i.requirement_key IS NOT NULL AND i.answered
+                ORDER BY i.requirement_key, r.created_at DESC, i.id DESC
+            """, (analysis_id,))
+            rows = cur.fetchall()
+        return {r["requirement_key"]: r["status"] for r in rows}
+    except Exception as e:
+        logger.warning("get_latest_run_statuses failed for %s: %s", analysis_id, e)
+        return {}
     finally:
         conn.close()
 

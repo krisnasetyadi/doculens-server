@@ -31,7 +31,9 @@ from services.ingest.documents import (
     CONTENT_TYPE_BY_EXT,
     INLINE_VIEWABLE_EXTS,
     content_disposition,
+    extract_docx_blocks,
     extract_text_from_txt,
+    extract_xlsx_blocks,
     pptx_preview_lines,
 )
 
@@ -318,35 +320,82 @@ async def serve_file(collection_id: str, file_name: str, user: UserRecord):
         raise HTTPException(status_code=500, detail="Failed to serve file") from e
 
 
+def _structured_preview_lines(blocks: list, group: str, place: str, heading, ordinal: Optional[str] = None):
+    """Lines for a Word or Excel preview, one per paragraph or row, with a
+    heading line whenever the section or sheet changes, and the index of each
+    block's line keyed (section, paragraph) or (sheet, row) — what a gap
+    analysis pointer names (MS-1112). A Word section is also keyed by its
+    `ordinal` (section_index), since two sections can share a title; the
+    title-only key then names the first of them."""
+    lines, anchors, current = [], {}, object()
+    for block in blocks:
+        group_key = block[ordinal] if ordinal else block[group]
+        if group_key != current:
+            current = group_key
+            if block[group] is not None:
+                lines.append(heading(block[group]))
+        anchors.setdefault((block[group], block[place]), len(lines))
+        if ordinal:
+            anchors[(ordinal, block[ordinal], block[place])] = len(lines)
+        lines.append(block["text"] if group == "section" else f"Row {block['row']}: {block['text']}")
+    return lines, anchors
+
+
 def _read_preview_lines(path: str, ext: str):
-    """(lines, slide number -> index of its "Slide N" line) for the viewer;
-    a .pptx deck is shown slide by slide (MS-910)."""
+    """(lines, anchor -> line index) for the viewer. A .pptx deck is shown
+    slide by slide, anchored by slide number (MS-910); a .docx paragraph by
+    paragraph under its section headings and an .xlsx row by row under its
+    sheet names, anchored by (section, paragraph) / (sheet, row) (MS-1112)."""
     if ext == ".pptx":
         return pptx_preview_lines(path)
+    if ext == ".docx":
+        return _structured_preview_lines(
+            extract_docx_blocks(path), "section", "paragraph", lambda s: f"§ {s}", ordinal="section_index"
+        )
+    if ext == ".xlsx":
+        return _structured_preview_lines(extract_xlsx_blocks(path), "sheet", "row", lambda s: f"[Sheet: {s}]")
     extracted = extract_text_from_txt(path)
     return (extracted[0]["text"] if extracted else "").splitlines(), {}
 
 
+PREVIEW_CONTEXT_LINES = 3
+
+
+def _preview_anchor(ext: str, slide, section, paragraph, sheet, row, section_index=None):
+    if ext == ".pptx":
+        return slide
+    if ext == ".docx" and paragraph is not None and section_index is not None:
+        return ("section_index", section_index, paragraph)
+    if ext == ".docx" and paragraph is not None:
+        # A pointer stored before section_index existed: the first section with that title.
+        return (section or None, paragraph)
+    if ext == ".xlsx" and row is not None and sheet:
+        return (sheet, row)
+    return None
+
+
 async def get_text_content(collection_id: str, file_name: str, offset: int, limit: int, user: UserRecord,
-                           slide: Optional[int] = None):
-    row = supabase_storage.get_collection(collection_id)
-    if not _can_access(row, user):
+                           slide: Optional[int] = None, section: Optional[str] = None,
+                           paragraph: Optional[int] = None, sheet: Optional[str] = None,
+                           row: Optional[int] = None, section_index: Optional[int] = None):
+    collection = supabase_storage.get_collection(collection_id)
+    if not _can_access(collection, user):
         raise HTTPException(status_code=403, detail="Not allowed to access this collection")
 
     decoded_file_name = urllib.parse.unquote(file_name)
     if ".." in decoded_file_name or decoded_file_name.startswith("/"):
         raise HTTPException(status_code=400, detail="Invalid file name")
     ext = os.path.splitext(decoded_file_name)[1].lower()
-    if ext not in (".txt", ".pptx"):
+    if ext not in (".txt", ".pptx", ".docx", ".xlsx"):
         raise HTTPException(status_code=400, detail="Not a text file")
 
     upload_folder_abs = os.path.abspath(config.upload_folder)
     file_path = os.path.join(upload_folder_abs, collection_id, decoded_file_name)
 
     lines: Optional[list] = None
-    slide_offsets: dict = {}
+    anchors: dict = {}
     if os.path.exists(file_path):
-        lines, slide_offsets = _read_preview_lines(file_path, ext)
+        lines, anchors = _read_preview_lines(file_path, ext)
     elif supabase_storage.is_enabled():
         # Ephemeral disk (e.g. HF Space restart): no pdf-side equivalent of
         # download_chat_file exists to restore the file locally, so pull the
@@ -363,7 +412,7 @@ async def get_text_content(collection_id: str, file_name: str, offset: int, limi
                     tmp.write(resp.content)
                     tmp_path = tmp.name
                 try:
-                    lines, slide_offsets = _read_preview_lines(tmp_path, ext)
+                    lines, anchors = _read_preview_lines(tmp_path, ext)
                 finally:
                     os.remove(tmp_path)
             except Exception as exc:
@@ -372,8 +421,13 @@ async def get_text_content(collection_id: str, file_name: str, offset: int, limi
     if lines is None:
         raise HTTPException(status_code=404, detail="Text file not found")
 
-    if slide is not None and slide in slide_offsets:
-        offset = slide_offsets[slide]
+    # A slide opens on its own "Slide N" line; a paragraph or row opens a few
+    # lines early, so its section heading or neighbours show above it.
+    target_line = None
+    anchor = _preview_anchor(ext, slide, section, paragraph, sheet, row, section_index)
+    if anchor is not None and anchor in anchors:
+        target_line = anchors[anchor] + 1
+        offset = anchors[anchor] if ext == ".pptx" else max(0, anchors[anchor] - PREVIEW_CONTEXT_LINES)
     total = len(lines)
     page = lines[offset: offset + limit]
 
@@ -384,6 +438,7 @@ async def get_text_content(collection_id: str, file_name: str, offset: int, limi
         "offset": offset,
         "limit": limit,
         "has_more": offset + limit < total,
+        "target_line": target_line,
         "lines": [
             {"line_number": offset + i + 1, "content": line}
             for i, line in enumerate(page)

@@ -60,7 +60,11 @@ Every domain gets exactly ONE base path — list/create/delete/activate/upload/e
                                      pdf-indices/public-links/{id}/{version}/.
 
 /api/v1/analysis/gap-analysis       POST (run) + /runs GET
-                                     — router/compliance.py
+                                     — router/compliance.py. Since MS-1112 every run belongs to an
+                                     analysis (tables analyses + analysis_rule_sets: goal, target
+                                     folders, versioned requirement list with stable keys); items have
+                                     five statuses plus not_checked, findings with structured pointers
+                                     and a trend vs the previous run (rules in services/rag/gap_locations.py).
 
 /api/v1/auth                        register/login/me/change-password/admin/...
                                      — router/auth.py
