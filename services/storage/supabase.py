@@ -796,8 +796,8 @@ def save_gap_analysis_items(run_id: str, items: List[Dict[str, Any]]) -> bool:
                 cur.execute("""
                     INSERT INTO gap_analysis_items
                         (run_id, label, status, evidence, source_citation, recommendation, target_collection_id,
-                         requirement_key, code, reason, summary, next_step, findings, searched, trend)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         requirement_key, code, reason, summary, next_step, findings, searched, trend, answered)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     run_id,
                     item.get("label", ""),
@@ -814,6 +814,7 @@ def save_gap_analysis_items(run_id: str, items: List[Dict[str, Any]]) -> bool:
                     json.dumps(item.get("findings") or []),
                     as_json(item.get("searched")),
                     item.get("trend"),
+                    item.get("answered", True),
                 ))
         return True
     except Exception as e:
@@ -937,7 +938,7 @@ def get_gap_analysis_items(run_id: str) -> List[Dict[str, Any]]:
             cur.execute("""
                 SELECT label, status, evidence, source_citation, recommendation, target_collection_id,
                        requirement_key, code, reason, summary, next_step,
-                       COALESCE(findings, '[]'::jsonb) AS findings, searched, trend, created_at
+                       COALESCE(findings, '[]'::jsonb) AS findings, searched, trend, answered, created_at
                 FROM gap_analysis_items WHERE run_id = %s ORDER BY id ASC
             """, (run_id,))
             rows = cur.fetchall()
@@ -1084,20 +1085,22 @@ def update_analysis_targets(analysis_id: str, target_folder_ids: List[str]) -> b
 
 
 def get_latest_run_statuses(analysis_id: str) -> Dict[str, str]:
-    """{requirement_key: status} of the analysis's newest run: what a new run's
-    trends compare against. Empty when the analysis has no run yet."""
+    """{requirement_key: status} each requirement had in the analysis's newest
+    run that answered it: what a new run's trends compare against. A run where
+    the AI gave no answer for a requirement is skipped for that requirement,
+    so a failed check never counts as a baseline. Empty when the analysis has
+    no run yet."""
     conn = db.get_conn("storage")
     if not conn:
         return {}
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT i.requirement_key, i.status
+                SELECT DISTINCT ON (i.requirement_key) i.requirement_key, i.status
                 FROM gap_analysis_items i
-                WHERE i.run_id = (
-                    SELECT run_id FROM gap_analysis_runs
-                    WHERE analysis_id = %s ORDER BY created_at DESC LIMIT 1
-                ) AND i.requirement_key IS NOT NULL
+                JOIN gap_analysis_runs r ON r.run_id = i.run_id
+                WHERE r.analysis_id = %s AND i.requirement_key IS NOT NULL AND i.answered
+                ORDER BY i.requirement_key, r.created_at DESC, i.id DESC
             """, (analysis_id,))
             rows = cur.fetchall()
         return {r["requirement_key"]: r["status"] for r in rows}

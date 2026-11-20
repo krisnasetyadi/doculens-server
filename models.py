@@ -592,6 +592,7 @@ class GapAnalysisPointer(BaseModel):
     kind: str  # "pdf" | "docx" | "xlsx" | "slide" | "file"
     page: Optional[int] = None  # pdf page or slide number
     section: Optional[str] = None  # docx section heading (None: before the first heading)
+    section_index: Optional[int] = None  # which heading it is (1 = first; 0 = before any), for repeated titles
     paragraph: Optional[int] = None  # docx paragraph number within its section
     sheet: Optional[str] = None  # xlsx sheet name
     row: Optional[int] = None  # xlsx row number as Excel shows it
@@ -630,6 +631,7 @@ class GapAnalysisItem(BaseModel):
     findings: List[GapAnalysisFinding] = []
     searched: Optional[Dict[str, Any]] = None  # {"folders": [names], "document_count": n}, missing items only
     trend: Optional[str] = None  # "improved" | "worse" | "unchanged" vs the previous run; None on a first run
+    answered: bool = True  # False: the AI gave no answer for it in this run (no findings, no trend)
 
 
 class GapAnalysisRun(BaseModel):

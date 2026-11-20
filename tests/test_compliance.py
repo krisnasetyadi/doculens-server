@@ -155,6 +155,19 @@ class RunTest(ComplianceTestCase):
         self.assertEqual(self.run_check(analysis_id="nope").status_code, 404)
         self.assertEqual(self.run_check(user(), analysis_id=analysis_id).status_code, 403)
 
+    def test_a_requirement_the_ai_gave_no_answer_for_gets_no_trend_and_is_no_baseline(self):
+        from services.rag.gap_locations import unanswered_item
+        analysis_id = self.run_check().json()["run"]["analysis_id"]  # A.5.1 done
+        unanswered = unanswered_item(REQUIREMENTS[0])
+        self.m["run"].side_effect = lambda **_: engine_result([unanswered, *ITEMS[1:]])
+        second = self.run_check(analysis_id=analysis_id).json()
+        self.assertEqual((second["items"][0]["trend"], second["items"][0]["answered"]), (None, False))
+
+        # The next run compares A.5.1 with the last run that answered it (done), not with "needs decision".
+        self.m["run"].side_effect = lambda **_: engine_result([dict(ITEMS[0], status="incomplete"), *ITEMS[1:]])
+        third = self.run_check(analysis_id=analysis_id).json()
+        self.assertEqual(third["items"][0]["trend"], "worse")
+
     def test_checking_again_after_a_document_was_deleted_says_so(self):
         analysis_id = self.run_check().json()["run"]["analysis_id"]
         self.assertTrue(storage.delete_collection_from_db(self.target))
@@ -190,6 +203,13 @@ class RunTest(ComplianceTestCase):
         self.assertEqual(body["run"]["searched"], {"folders": ["02 IT Infra"], "document_count": 1})
         self.assertEqual(body["run"]["target_folder_ids"], [mine, theirs])
 
+    def test_where_the_ai_searched_counts_files_not_collections(self):
+        bundle = str(uuid.uuid4())
+        self.assertTrue(storage.register_collection(bundle, ["a.pdf", "b.docx", "c.xlsx"], 3, title="Bundle",
+                                                    owner_id=self.owner.user_id))
+        body = self.run_check(target_collection_ids=[self.target, bundle]).json()
+        self.assertEqual(body["run"]["searched"]["document_count"], 4)
+
     def test_runs_stored_before_ms_1112_read_with_the_new_statuses(self):
         run_id = str(uuid.uuid4())
         storage.create_gap_analysis_run(run_id, "compliance_gap_check", [self.reference], "ISO 27001",
@@ -198,12 +218,18 @@ class RunTest(ComplianceTestCase):
         try:
             with conn.cursor() as cur:
                 for label, status in (("A", "met"), ("B", "partial"), ("C", "not_met"), ("D", "unknown")):
-                    cur.execute("INSERT INTO gap_analysis_items (run_id, label, status) VALUES (%s, %s, %s)",
-                                (run_id, label, status))
+                    cur.execute("INSERT INTO gap_analysis_items (run_id, label, status, evidence, source_citation,"
+                                " recommendation) VALUES (%s, %s, %s, %s, %s, %s)",
+                                (run_id, label, status, f"{label} evidence.", f"{label}.pdf p.1",
+                                 None if status == "met" else f"Fix {label}."))
         finally:
             conn.close()
         body = self.client(self.owner).get(f"/api/v1/analysis/gap-analysis/{run_id}").json()
         self.assertEqual([i["status"] for i in body["items"]], ["done", "incomplete", "missing", "needs_decision"])
+        # Their old evidence, citation and recommendation still show on the new results page.
+        partial = body["items"][1]
+        self.assertEqual(partial["findings"][0]["text"], "B evidence. (B.pdf p.1)")
+        self.assertEqual((partial["reason"], partial["next_step"]["explain"]), ("B evidence.", "Fix B."))
         self.assertEqual(body["summary"], {**ZERO, "done": 1, "incomplete": 1, "missing": 1, "needs_decision": 1})
         self.assertIsNone(body["run"]["analysis_id"])
 

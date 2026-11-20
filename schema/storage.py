@@ -272,7 +272,10 @@ def ensure():
                     ADD COLUMN IF NOT EXISTS next_step JSONB,
                     ADD COLUMN IF NOT EXISTS findings JSONB NOT NULL DEFAULT '[]'::jsonb,
                     ADD COLUMN IF NOT EXISTS searched JSONB,
-                    ADD COLUMN IF NOT EXISTS trend TEXT;
+                    ADD COLUMN IF NOT EXISTS trend TEXT,
+                    -- false: the AI gave no answer for this requirement in this
+                    -- run, so it is left out of trends (theirs and the next run's).
+                    ADD COLUMN IF NOT EXISTS answered BOOLEAN NOT NULL DEFAULT TRUE;
                 -- Five statuses plus not_checked replace met / partial / not_met /
                 -- unknown. Done once: only while the status check does not yet
                 -- know 'needs_decision', so later startups skip the table scan and

@@ -102,6 +102,7 @@ async def get_pdf_text_content(
     paragraph: Optional[int] = Query(default=None, ge=1),
     sheet: Optional[str] = Query(default=None, max_length=200),
     row: Optional[int] = Query(default=None, ge=1),
+    section_index: Optional[int] = Query(default=None, ge=0),
     user: UserRecord = Depends(get_current_user),
 ):
     """Paginated plain-text content for a .txt, .pptx, .docx or .xlsx document
@@ -111,11 +112,12 @@ async def get_pdf_text_content(
     (MS-910). A .docx is shown paragraph by paragraph under its section
     headings and an .xlsx row by row under its sheet names; `section` +
     `paragraph` or `sheet` + `row` (a gap analysis pointer, MS-1112) start the
-    page just above that line and name it in `target_line`.
+    page just above that line and name it in `target_line`; `section_index`
+    picks the right section when two share a title.
     Read-only — never writes to the stored file.
     """
     return await collection_service.get_text_content(
-        collection_id, file_name, offset, limit, user, slide, section, paragraph, sheet, row
+        collection_id, file_name, offset, limit, user, slide, section, paragraph, sheet, row, section_index
     )
 
 

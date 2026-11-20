@@ -15,6 +15,7 @@ from services.rag.gap_locations import (
     normalize_status,
     split_code,
     trend,
+    with_legacy_details,
 )
 
 SEARCHED = {"folders": ["02 IT Infra", "03 Dev"], "document_count": 5}
@@ -166,9 +167,30 @@ class FinalizeItemTest(unittest.TestCase):
         self.assertEqual((item["status"], item["findings"], item["next_step"], item["searched"]),
                          ("not_checked", [], None, None))
 
-    def test_a_requirement_the_llm_skipped(self):
-        self.assertEqual(finalize_item(self.REQ, None, self.SOURCES, SEARCHED, no_blocks)["status"], "needs_decision")
-        self.assertEqual(finalize_item(self.REQ, None, [], SEARCHED, no_blocks)["status"], "not_checked")
+    def test_a_requirement_the_ai_gave_no_answer_for_is_unanswered_not_a_verdict(self):
+        for sources in (self.SOURCES, []):
+            item = finalize_item(self.REQ, None, sources, SEARCHED, no_blocks)
+            # No made-up pointer, and not not_checked (that is for documents that weren't selected).
+            self.assertEqual((item["status"], item["answered"], item["findings"], item["next_step"]),
+                             ("needs_decision", False, [], None))
+            self.assertIn("no answer", item["reason"])
+        self.assertTrue(finalize_item(self.REQ, {"status": "done"}, self.SOURCES, SEARCHED, no_blocks)["answered"])
+
+
+class LegacyDetailsTest(unittest.TestCase):
+    def test_an_item_stored_before_ms_1112_keeps_its_evidence_and_recommendation(self):
+        item = with_legacy_details({"status": "incomplete", "findings": [], "evidence": "Backups run weekly. Not daily.",
+                                    "source_citation": "Backup.pdf p.2", "recommendation": "Run backups daily."})
+        self.assertEqual(item["findings"][0]["text"], "Backups run weekly. Not daily. (Backup.pdf p.2)")
+        self.assertEqual((item["findings"][0]["verdict"], item["findings"][0]["location"]), ("partial", None))
+        self.assertEqual(item["reason"], "Backups run weekly.")
+        self.assertEqual(item["next_step"], {"action": "revise_document", "explain": "Run backups daily."})
+
+    def test_new_items_and_empty_old_ones_are_left_alone(self):
+        new = {"status": "done", "findings": [{"text": "x"}], "evidence": "x"}
+        self.assertIs(with_legacy_details(new), new)
+        empty = {"status": "needs_decision", "findings": []}
+        self.assertIs(with_legacy_details(empty), empty)
 
 
 class ExtractorTest(unittest.TestCase):
@@ -193,10 +215,10 @@ class ExtractorTest(unittest.TestCase):
         document.save(path)
 
         self.assertEqual(extract_docx_blocks(path), [
-            {"section": None, "paragraph": 1, "text": "Backup Procedure MLT-INF-P05"},
-            {"section": "1. Purpose", "paragraph": 1, "text": "Protect company data."},
-            {"section": "1. Purpose", "paragraph": 2, "text": "Keep copies offsite."},
-            {"section": "2. Schedule", "paragraph": 1, "text": "Daily | 01:00"},
+            {"section": None, "section_index": 0, "paragraph": 1, "text": "Backup Procedure MLT-INF-P05"},
+            {"section": "1. Purpose", "section_index": 1, "paragraph": 1, "text": "Protect company data."},
+            {"section": "1. Purpose", "section_index": 1, "paragraph": 2, "text": "Keep copies offsite."},
+            {"section": "2. Schedule", "section_index": 2, "paragraph": 1, "text": "Daily | 01:00"},
         ])
         self.assertEqual(extract_docx_blocks(os.path.join(self.dir.name, "missing.docx")), [])
 
@@ -258,6 +280,30 @@ class PointerPreviewTest(unittest.TestCase):
         self.assertEqual(page["target_line"], page["lines"][3]["line_number"])
         self.assertIsNone(self.content("proc.docx", section="9. Nope", paragraph=1)["target_line"])
         self.assertEqual(self.content("proc.docx", paragraph=1)["target_line"], 1)  # before the first heading
+
+    def test_two_sections_with_the_same_title_are_told_apart(self):
+        import docx
+        document = docx.Document()
+        for section in ("Scope", "Restore", "Scope"):
+            document.add_heading(section, level=1)
+            document.add_paragraph(f"{section} text under heading")
+        path = os.path.join(self.dir.name, "c1", "twice.docx")
+        document.save(path)
+
+        second_scope = extract_docx_blocks(path)[2]
+        self.assertEqual((second_scope["section"], second_scope["section_index"]), ("Scope", 3))
+        pointer = make_pointer("twice.docx", "c1", blocks=extract_docx_blocks(path),
+                               quote="Scope text under heading", passage="")
+        self.assertEqual(pointer["section_index"], 1)  # the quote is in both; the first one holds it
+
+        def line_at(page):
+            return next(l["content"] for l in page["lines"] if l["line_number"] == page["target_line"])
+
+        page = self.content("twice.docx", section="Scope", section_index=3, paragraph=1)
+        self.assertEqual(page["target_line"], 6)  # § Scope, text, § Restore, text, § Scope, text
+        self.assertEqual(line_at(page), "Scope text under heading")
+        # A pointer stored before section_index existed opens the first section of that name.
+        self.assertEqual(self.content("twice.docx", section="Scope", paragraph=1)["target_line"], 2)
 
     def test_an_xlsx_pointer_opens_on_its_row(self):
         import openpyxl

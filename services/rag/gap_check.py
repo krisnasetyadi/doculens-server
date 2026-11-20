@@ -17,7 +17,7 @@ from itertools import zip_longest
 from config import config
 from services.ingest.documents import extract_docx_blocks, extract_xlsx_blocks
 from services.rag.conversation.language import ReplyLanguage, detect_text_language
-from services.rag.gap_locations import build_requirements, finalize_item
+from services.rag.gap_locations import build_requirements, finalize_item, unanswered_item
 from services.storage import supabase as supabase_storage
 from typing import Any, Callable, Dict, List, Optional, Tuple
 from services.rag.shared import _extract_total_tokens
@@ -313,11 +313,12 @@ JSON:"""
                     logger.error(f"gap-check batch future failed: {e}")
 
         # A batch that crashed outright still keeps its requirements in the
-        # run, as not checked, so the next run can compare them by key.
+        # run, marked unanswered: not a verdict on the documents, and left out
+        # of trends.
         items: List[Dict[str, Any]] = []
         for batch, batch_items in zip(batches, results):
             if batch_items is None:
-                batch_items = [finalize_item(r, None, [], check.searched, check.load_blocks) for r in batch]
+                batch_items = [unanswered_item(r) for r in batch]
             items.extend(batch_items)
         return items, disclaimer, tokens_consumed, requirements
 
@@ -395,13 +396,7 @@ JSON:"""
     def _target_document_names(self, target_collection_ids: List[str]) -> List[str]:
         """File names of the selected documents, for the prompt's "only these
         were selected" list that decides not_checked versus missing."""
-        names: List[str] = []
-        for cid in target_collection_ids:
-            row = supabase_storage.get_collection(cid) or {}
-            for name in row.get("file_names") or [row.get("title") or cid]:
-                if name and name not in names:
-                    names.append(name)
-        return names
+        return selected_document_names(target_collection_ids)
 
     def _document_blocks_loader(self):
         """load(collection_id, file_name) -> the structured blocks of one Word
@@ -429,6 +424,19 @@ JSON:"""
                 return cache[key]
 
         return load
+
+
+def selected_document_names(collection_ids: List[str]) -> List[str]:
+    """The file names in the selected collections: one collection can hold
+    several files, so this, not the number of collections, is how many
+    documents a run checks."""
+    names: List[str] = []
+    for cid in collection_ids:
+        row = supabase_storage.get_collection(cid) or {}
+        for name in row.get("file_names") or [row.get("title") or cid]:
+            if name and name not in names:
+                names.append(name)
+    return names
 
 
 @dataclass

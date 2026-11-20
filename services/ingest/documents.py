@@ -87,7 +87,9 @@ def extract_docx_blocks(docx_path):
     heading, in reading order (tables included, one paragraph per row), so a
     finding can point at "Section 4, paragraph 2" instead of the whole file.
     Paragraph numbers restart at 1 under each heading; text before the first
-    heading has section None. Returns [] when the file can't be read."""
+    heading has section None. `section_index` counts the headings (0 before
+    the first one), so two sections with the same title ("Scope" twice) are
+    still told apart. Returns [] when the file can't be read."""
     try:
         import docx
         from docx.table import Table
@@ -96,6 +98,7 @@ def extract_docx_blocks(docx_path):
         document = docx.Document(docx_path)
         blocks = []
         section = None
+        section_index = 0
         number = 0
 
         def add(text):
@@ -103,7 +106,7 @@ def extract_docx_blocks(docx_path):
             text = re.sub(r"\s+", " ", text).strip()
             if text:
                 number += 1
-                blocks.append({"section": section, "paragraph": number, "text": text})
+                blocks.append({"section": section, "section_index": section_index, "paragraph": number, "text": text})
 
         for child in document.element.body.iterchildren():
             tag = child.tag.rsplit("}", 1)[-1]
@@ -111,6 +114,7 @@ def extract_docx_blocks(docx_path):
                 paragraph = Paragraph(child, document)
                 if paragraph.text.strip() and _is_docx_heading(paragraph):
                     section = re.sub(r"\s+", " ", paragraph.text).strip()
+                    section_index += 1
                     number = 0
                 else:
                     add(paragraph.text)

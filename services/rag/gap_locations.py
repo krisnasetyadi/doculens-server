@@ -192,7 +192,7 @@ def make_pointer(
     kind = file_kind(file_name)
     pointer: Dict[str, Any] = {
         "file_name": file_name, "collection_id": collection_id, "kind": kind,
-        "page": None, "section": None, "paragraph": None, "sheet": None, "row": None,
+        "page": None, "section": None, "section_index": None, "paragraph": None, "sheet": None, "row": None,
     }
     if kind in ("pdf", "slide"):
         try:
@@ -202,7 +202,7 @@ def make_pointer(
     elif kind in ("docx", "xlsx") and blocks:
         block = find_block(blocks, quote, passage)
         if block:
-            for field in ("section", "paragraph", "sheet", "row"):
+            for field in ("section", "section_index", "paragraph", "sheet", "row"):
                 if field in block:
                     pointer[field] = block[field]
     pointer["label"] = pointer_label(pointer)
@@ -260,12 +260,14 @@ def finalize_item(
     - every missing item says where the AI searched;
     - not_checked items carry no findings and no next step.
 
-    `verdict` is None when the LLM skipped the requirement. `sources` are the
+    `verdict` is None when the LLM gave no answer for the requirement (it
+    skipped it, or the call failed): see unanswered_item. `sources` are the
     passages it was shown ({"id": "S1", "file_name", "collection_id", "page",
     "text"}); `load_blocks(collection_id, file_name)` gives a Word or Excel
     file's paragraphs or rows, for exact pointers."""
-    verdict = verdict if isinstance(verdict, dict) else None
-    status = normalize_status(verdict.get("status")) if verdict else ("needs_decision" if sources else NOT_CHECKED)
+    if not isinstance(verdict, dict):
+        return unanswered_item(requirement)
+    status = normalize_status(verdict.get("status"))
     pointer_to = _pointer_finder(sources, load_blocks)
     findings = [] if status == NOT_CHECKED else _findings(verdict, pointer_to)
 
@@ -288,6 +290,7 @@ def finalize_item(
         "code": requirement.get("code"),
         "label": requirement["label"],
         "status": status,
+        "answered": True,
         "reason": reason,
         "summary": summary,
         "next_step": next_step,
@@ -298,6 +301,56 @@ def finalize_item(
         "source_citation": first_location["label"] if first_location else None,
         "recommendation": next_step["explain"] if next_step else None,
         "target_collection_id": first_location["collection_id"] if first_location else None,
+    }
+
+
+_LEGACY_FINDING_VERDICT = {"done": "met", "not_applicable": "met", "missing": "missing"}
+
+
+def with_legacy_details(item: Dict[str, Any]) -> Dict[str, Any]:
+    """An item stored before MS-1112 has only evidence, a citation string and
+    a recommendation. Shown as a finding (its citation as the text, since it
+    names no exact place), a reason and a next step, so old runs keep their
+    details on the new results page. Items with findings are returned as is."""
+    if item.get("findings") or not (item.get("evidence") or item.get("source_citation") or item.get("recommendation")):
+        return item
+    item = dict(item)
+    status = item.get("status")
+    evidence, citation = item.get("evidence"), item.get("source_citation")
+    if evidence or citation:
+        text = f"{evidence} ({citation})" if evidence and citation else (evidence or citation)
+        item["findings"] = [_finding(_LEGACY_FINDING_VERDICT.get(status, "partial"), text, quote=evidence)]
+    item["reason"] = item.get("reason") or _first_sentence(evidence or item.get("recommendation") or "") or None
+    item["summary"] = item.get("summary") or evidence
+    if not item.get("next_step") and item.get("recommendation") and status in _DEFAULT_ACTION:
+        item["next_step"] = {"action": _DEFAULT_ACTION[status], "explain": _first_sentence(item["recommendation"])}
+    return item
+
+
+UNANSWERED_REASON ="The AI gave no answer for this requirement in this run. Check again to get one."
+
+
+def unanswered_item(requirement: Dict[str, Any]) -> Dict[str, Any]:
+    """A requirement the AI gave no answer for (its batch failed, or the reply
+    left it out). It is not a finding about the documents, so it gets no
+    status of its own and no made-up pointer: it waits for a person or the
+    next run as needs_decision, and `answered: False` keeps it out of trends,
+    both this run's and the next run's baseline."""
+    return {
+        "requirement_key": requirement["key"],
+        "code": requirement.get("code"),
+        "label": requirement["label"],
+        "status": "needs_decision",
+        "answered": False,
+        "reason": UNANSWERED_REASON,
+        "summary": UNANSWERED_REASON,
+        "next_step": None,
+        "findings": [],
+        "searched": None,
+        "evidence": None,
+        "source_citation": None,
+        "recommendation": None,
+        "target_collection_id": None,
     }
 
 

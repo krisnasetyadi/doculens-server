@@ -29,7 +29,8 @@ from models import (
     UserRecord,
 )
 from services.rag.processor import processor
-from services.rag.gap_locations import NOT_CHECKED, STATUSES, normalize_status, trend
+from services.rag.gap_check import selected_document_names
+from services.rag.gap_locations import NOT_CHECKED, STATUSES, normalize_status, trend, with_legacy_details
 from services.billing.enforcement import enforce_gap_check_plan, enforce_member_allocation, enforce_plan_limit
 from services.billing.inflight import begin_in_flight, end_in_flight, get_workspace_lock, in_flight_tokens, resolve_workspace_id
 from services.billing.ledger import enforce_rate_limit, log_token_usage
@@ -47,11 +48,14 @@ SCENARIO_SCAFFOLD_DISCLAIMER = (
 
 def _normalize_item(item: dict) -> dict:
     """A stored item as the API returns it: runs stored before MS-1112 carry
-    met / partial / not_met / unknown, which read as their new statuses."""
+    met / partial / not_met / unknown, which read as their new statuses, and
+    their evidence, citation and recommendation read as a finding, a reason
+    and a next step."""
     item = dict(item)
     item["status"] = normalize_status(item.get("status"))
     item["findings"] = item.get("findings") or []
-    return item
+    item["answered"] = item.get("answered", True) is not False
+    return with_legacy_details(item)
 
 
 def _summarize(items: List[dict]) -> dict:
@@ -85,10 +89,11 @@ def _can_access_run(row: Optional[dict], user: UserRecord) -> bool:
     return row.get("owner_id") == user.user_id
 
 
-def _searched(folder_ids: List[str], document_count: int, user: UserRecord) -> dict:
+def _searched(folder_ids: List[str], collection_ids: List[str], user: UserRecord) -> dict:
     """Where the AI looked, as a missing item states it: the names of the
     folders the documents were picked from (only ones the user may open), and
-    how many documents were checked."""
+    how many documents were checked (files, not collections)."""
+    document_count = len(selected_document_names(collection_ids))
     names = []
     for folder_id in folder_ids:
         folder = supabase_storage.get_folder(folder_id)
@@ -261,7 +266,7 @@ async def run_gap_analysis(body: GapAnalysisRequest, user: UserRecord):
         raise HTTPException(status_code=400, detail="target_collection_ids is required for compliance_gap_check")
 
     folder_ids = body.target_folder_ids or list((analysis or {}).get("target_folder_ids") or [])
-    searched = await asyncio.to_thread(_searched, folder_ids, len(body.target_collection_ids), user)
+    searched = await asyncio.to_thread(_searched, folder_ids, body.target_collection_ids, user)
     items, disclaimer, requirements = await _run_metered_gap_check(user, rule_set, body.target_collection_ids, searched)
 
     filed = await _file_under_analysis(body, user, analysis, rule_set, requirements, folder_ids)
@@ -427,10 +432,12 @@ async def _file_under_analysis(
 
 def _record_trends(items: List[dict], previous_statuses: Dict[str, str]) -> None:
     """Each item's move since the previous run: improved, worse or unchanged
-    (None on a first run, and for requirements that were not checked)."""
+    (None on a first run, for requirements that were not checked, and for
+    ones the AI gave no answer for, which say nothing about the documents)."""
     for item in items:
         previous = previous_statuses.get(item.get("requirement_key"))
-        item["trend"] = None if item["status"] == NOT_CHECKED else trend(previous, item["status"])
+        compared = item["status"] != NOT_CHECKED and item.get("answered", True)
+        item["trend"] = trend(previous, item["status"]) if compared else None
 
 
 async def _store_run(
