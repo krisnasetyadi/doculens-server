@@ -78,8 +78,6 @@ class PromptLanguageTests(unittest.TestCase):
         result = {"source": "a.pdf", "content": "chunk text", "confidence": 0.5, "type": "pdf"}
         self.assertTrue(processor._extract_direct_answer(result, "what?", "en").startswith("Based on a.pdf:"))
         self.assertTrue(processor._extract_direct_answer(result, "apa?", "id").startswith("Berdasarkan a.pdf:"))
-        self.assertTrue(processor._generate_fallback_answer({}, "q", "en").startswith("The system couldn't"))
-        self.assertTrue(processor._generate_fallback_answer({}, "q").startswith("Maaf, sistem"))
 
 
 class RouterTests(unittest.TestCase):
@@ -285,6 +283,26 @@ class GapCheckSourcesTests(unittest.TestCase):
         self.assertEqual(searched.call_count, 5)  # one search per document
         self.assertEqual([s["text"] for s in sources], ["a-1", "b-1", "c-1", "d-1", "e-1", "a-2", "b-2", "c-2"])
         self.assertEqual((sources[0]["id"], sources[-1]["id"]), ("S1", "S8"))  # capped at 8
+
+
+class RelevanceThresholdTests(unittest.TestCase):
+    """A weak top match (0.12 to 0.18) still goes to a cloud model, GPT as well as
+    Gemini; only a local HuggingFace model gets the raw passage instead."""
+
+    def plan(self, model_id):
+        results = {"merged_results": [
+            {"type": "pdf", "source": "a.pdf", "content": "Leave is twelve days per year.", "confidence": 0.15},
+        ]}
+        with patch.object(processor, "get_llm", return_value=(fake_llm("x"), model_id)):
+            return processor.plan_hybrid_answer(results, "how many leave days?", language="en")
+
+    def test_cloud_models_get_the_question(self):
+        for model_id in ("openai/gpt-5.4-mini", "gemini/gemini-flash-latest"):
+            self.assertIsNone(self.plan(model_id).ready, model_id)
+
+    def test_a_local_model_gets_the_raw_passage(self):
+        self.assertIsNotNone(self.plan("huggingface/google/flan-t5-small").ready)
+
 
 if __name__ == "__main__":
     unittest.main()

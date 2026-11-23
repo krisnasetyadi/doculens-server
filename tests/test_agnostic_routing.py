@@ -163,6 +163,18 @@ class AgnosticEndpointTests(unittest.TestCase):
         agnostic_service.log_token_usage.assert_called_once()
         self.assertEqual(agnostic_service.log_token_usage.call_args[0][1], 15)  # router + answer, one ledger row
 
+    def test_a_failed_answer_is_a_500_and_the_router_call_is_still_metered(self):
+        # MS-1192: the model failing is an error, not a raw passage as the answer.
+        self.hybrid_search.return_value = {}
+        router = fake_llm(tool_args={"query": "leave policy annual leave", "task": "answer"}, total_tokens=5)
+        with patch.object(processor, "get_llm", return_value=(router, "openai/gpt-x")), \
+                patch.object(processor, "generate_hybrid_answer", side_effect=RuntimeError("401 invalid_api_key")):
+            response = self.ask("what is the leave policy?")
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["detail"], "Failed to answer the question")
+        agnostic_service.log_token_usage.assert_called_once()
+        self.assertEqual(agnostic_service.log_token_usage.call_args[0][1], 5)
+
     def test_skill_invocation_always_retrieves(self):
         self.hybrid_search.return_value = {}
         with patch.object(agnostic_service.supabase_storage, "get_skill_for_user", return_value=None), \

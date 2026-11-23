@@ -650,8 +650,13 @@ async def _answer_in_full(outcome: Union[AgnosticQueryResponse, PendingAnswer]) 
 async def _generate_in_full(pending: PendingAnswer) -> AgnosticQueryResponse:
     """The model call in one piece, usage logging and the response.
     A question stopped during the model call has its tokens logged and no
-    response built (MS-667)."""
-    answer_result = await asyncio.to_thread(processor.generate_hybrid_answer, *pending.generate_args())
+    response built (MS-667). A failed model call is a 500 (MS-1192); the
+    router call that brought the message here is still metered."""
+    try:
+        answer_result = await asyncio.to_thread(processor.generate_hybrid_answer, *pending.generate_args())
+    except Exception:
+        await _log_answer_tokens(pending.user.user_id, pending.routing_tokens, None)
+        raise
 
     if isinstance(answer_result, tuple) and len(answer_result) >= 2:
         answer, model_used = answer_result[0], answer_result[1]
@@ -844,8 +849,8 @@ class _AnswerStream:
     """The events of one streamed answer: `sources` as soon as the search is
     done, a `delta` per piece of text the model writes, then `done` with the
     same body the non-streamed endpoint returns (the text is validated once it
-    is complete, so `done` can replace what was streamed). If the model fails
-    after text went out: `error`.
+    is complete, so `done` can replace what was streamed). If the model fails:
+    `error`.
 
     However the stream ends (done, error, or the client leaving) `settle` runs
     exactly once: the tokens used so far are logged and the reservation freed."""
@@ -881,30 +886,16 @@ class _AnswerStream:
             else:
                 model = self._model = ModelStream(plan.llm, plan.prompt)
                 written: List[str] = []
-                try:
-                    async for text in model.chunks():
-                        written.append(text)
-                        yield _event("delta", text=text)
-                except Exception as error:
-                    if written:
-                        raise  # the user has already read part of it: no quiet replacement
-                    # Same as the non-streamed endpoint: nothing sent yet, so
-                    # the best retrieved passage stands in for the answer.
-                    answer, model_used, metadata = await asyncio.to_thread(
-                        processor.fallback_hybrid_answer, plan, error,
-                    )
-                else:
-                    # The model finished. A failure in validating its text takes
-                    # the same fallback as the non-streamed endpoint (done.result
-                    # must match it), and `done` replaces the text already shown.
-                    try:
-                        answer, model_used, metadata = await asyncio.to_thread(
-                            processor.finish_hybrid_answer, plan, "".join(written), model.total_tokens,
-                        )
-                    except Exception as error:
-                        answer, model_used, metadata = await asyncio.to_thread(
-                            processor.fallback_hybrid_answer, plan, error,
-                        )
+                # A model that fails, before or after text went out, ends the
+                # stream with `error` (below), as the non-streamed endpoint
+                # answers 500 (MS-1192). `done` replaces the streamed text with
+                # the validated one.
+                async for text in model.chunks():
+                    written.append(text)
+                    yield _event("delta", text=text)
+                answer, model_used, metadata = await asyncio.to_thread(
+                    processor.finish_hybrid_answer, plan, "".join(written), model.total_tokens,
+                )
 
             # Before `done`, so a client that asks for its usage the moment the
             # answer ends already sees this one counted.
