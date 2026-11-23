@@ -574,17 +574,64 @@ class GapAnalysisRequest(BaseModel):
     skill_id: str  # "compliance_gap_check" | "scenario_regulatory_impact"
     reference_collection_ids: List[str]  # array from day one (Opsi A: multi-framework per run)
     framework_name: str  # free-label, e.g. "ISO 27001" or "Ketentuan PPh Pinjaman vs Modal"
-    target_collection_ids: List[str] = []  # required for compliance_gap_check — one guideline vs N files, verdict per file
+    target_collection_ids: List[str] = []  # required for compliance_gap_check — the documents checked
     scenario_input: Optional[str] = None  # used by scenario_regulatory_impact instead of a target collection
+    # MS-1112: a run belongs to an analysis. Without analysis_id a new one is
+    # made (goal defaults to framework_name); with it, the run reuses that
+    # analysis's latest rule set, so its items compare with the previous run.
+    analysis_id: Optional[str] = None
+    goal: Optional[str] = None
+    directions: Optional[str] = None  # extra instructions for the AI, kept in the rule set
+    target_folder_ids: List[str] = []  # the folders the documents were picked from, for "where the AI searched"
+
+
+class GapAnalysisPointer(BaseModel):
+    """MS-1112: one exact place in a checked document."""
+    file_name: str
+    collection_id: Optional[str] = None
+    kind: str  # "pdf" | "docx" | "xlsx" | "slide" | "file"
+    page: Optional[int] = None  # pdf page or slide number
+    section: Optional[str] = None  # docx section heading (None: before the first heading)
+    section_index: Optional[int] = None  # which heading it is (1 = first; 0 = before any), for repeated titles
+    paragraph: Optional[int] = None  # docx paragraph number within its section
+    sheet: Optional[str] = None  # xlsx sheet name
+    row: Optional[int] = None  # xlsx row number as Excel shows it
+    label: str = ""  # how it reads, e.g. "Backup.docx · Section 4. Restore, paragraph 2"
+
+
+class GapAnalysisFinding(BaseModel):
+    """MS-1112: one thing the AI found, or did not find, for a requirement."""
+    verdict: str  # "met" | "partial" | "missing"
+    text: str
+    quote: Optional[str] = None
+    location: Optional[GapAnalysisPointer] = None
+    suggested_place: Optional[str] = None  # where a missing part should go
+    searched: Optional[str] = None  # where the AI looked, for a missing finding
+
+
+class GapAnalysisNextStep(BaseModel):
+    action: str  # "upload_document" | "revise_document" | "add_evidence" | "decide_status"
+    explain: Optional[str] = None
 
 
 class GapAnalysisItem(BaseModel):
     label: str  # control/klausul name (Skill 1) or option name (Skill 2)
-    status: str  # "met" | "partial" | "not_met" | "unknown"
+    # "done" | "incomplete" | "missing" | "needs_decision" | "not_applicable" | "not_checked"
+    # (MS-1112; runs stored before it are mapped from met / partial / not_met / unknown)
+    status: str
     evidence: Optional[str] = None
     source_citation: Optional[str] = None
     recommendation: Optional[str] = None
-    target_collection_id: Optional[str] = None  # which target collection/file this item was checked against
+    target_collection_id: Optional[str] = None  # the collection of the item's first pointer
+    requirement_key: Optional[str] = None  # stable across runs of one analysis; None on pre-MS-1112 runs
+    code: Optional[str] = None  # e.g. "A.8.13"
+    reason: Optional[str] = None  # one sentence
+    summary: Optional[str] = None  # what is missing / why it is done
+    next_step: Optional[GapAnalysisNextStep] = None
+    findings: List[GapAnalysisFinding] = []
+    searched: Optional[Dict[str, Any]] = None  # {"folders": [names], "document_count": n}, missing items only
+    trend: Optional[str] = None  # "improved" | "worse" | "unchanged" vs the previous run; None on a first run
+    answered: bool = True  # False: the AI gave no answer for it in this run (no findings, no trend)
 
 
 class GapAnalysisRun(BaseModel):
@@ -599,19 +646,32 @@ class GapAnalysisRun(BaseModel):
     # collection_id -> name for this run's own collections (MS-916): an admin opening
     # a member's run can't name them from their own collection list.
     collection_labels: Dict[str, str] = {}
+    # MS-1112: the analysis this run belongs to (None on runs stored before it).
+    analysis_id: Optional[str] = None
+    goal: Optional[str] = None
+    rule_set_version: Optional[int] = None
+    target_folder_ids: List[str] = []
+    searched: Optional[Dict[str, Any]] = None  # {"folders": [names], "document_count": n}
+    previous_run_id: Optional[str] = None  # the run the trends compare against
+    previous_run_at: Optional[Union[str, datetime]] = None
 
 
 class GapAnalysisRunListItem(GapAnalysisRun):
     """A run in the history list (MS-916): its result counts per status, so the
     list needs no detail call per run, and for an admin who ran it."""
     summary: Dict[str, int] = {}
+    not_checked: int = 0
     run_by: Optional[str] = None  # owner's email; admins only, since only they see others' runs
 
 
 class GapAnalysisResponse(BaseModel):
     run: GapAnalysisRun
     items: List[GapAnalysisItem]
-    summary: Dict[str, int]  # counts per status, e.g. {"met": 60, "partial": 18, "not_met": 15, "unknown": 0}
+    # Counts per status, not_checked excluded (MS-1112):
+    # {"done": 60, "incomplete": 18, "missing": 15, "needs_decision": 2, "not_applicable": 1}
+    summary: Dict[str, int]
+    not_checked: int = 0  # requirements whose kind of document was not selected
+    total_requirements: int = 0  # every requirement in the rule set, checked or not
     disclaimer: Optional[str] = None
 
 
@@ -1023,6 +1083,62 @@ class PdfSourceDetail(BaseModel):
     search_text:      Optional[str]   = None
 
 
+class GuideFolder(BaseModel):
+    path:            List[str]
+    file_count:      int
+    subfolder_count: int = 0
+    owner:           Optional[str] = None   # another user's folder (admins only); None: the asker's own
+
+
+class GuideImportLink(BaseModel):
+    """A public Google Drive link pasted in the chat, offered for import
+    through the existing upload-from-urls (the UI calls it with `urls`)."""
+    url:        str
+    title:      Optional[str] = None   # the project the user was looking for, if any
+    file_count: int
+    urls:       List[str]
+
+
+class GuideQuestion(BaseModel):
+    options:         List[str]
+    allow_free_text: bool = True
+
+
+class GuideContext(BaseModel):
+    label: str
+    value: str
+
+
+class GuideStep(BaseModel):
+    key:     str
+    title:   str
+    file:    str
+    where:   str
+    why:     str
+    minutes: Optional[int] = None
+    origin:  Optional[str] = None
+
+
+class GuideNotice(BaseModel):
+    kind: Literal["missing", "conflict", "old_version"]
+    text: str
+
+
+class Guide(BaseModel):
+    """Lens Guide (MS-1179) cards under an answer. Every part is optional and
+    filled by its own story: folder/folders/missing_source/import_link by
+    MS-1181, question/context by MS-1182, steps/notices by MS-1183. Not saved
+    with the message, so the answer text always says the same in words."""
+    folder:         Optional[GuideFolder] = None         # one folder matched: confirm it
+    folders:        Optional[List[GuideFolder]] = None   # several matched (which one?), or to pick from
+    missing_source: Optional[bool] = None                # nothing matched: where are the documents?
+    import_link:    Optional[GuideImportLink] = None     # a Drive link pasted in the chat: import it?
+    question:       Optional[GuideQuestion] = None
+    context:        Optional[List[GuideContext]] = None
+    steps:          Optional[List[GuideStep]] = None
+    notices:        Optional[List[GuideNotice]] = None
+
+
 class AgnosticQueryResponse(BaseModel):
     answer:               str
     model_used:           str
@@ -1041,6 +1157,7 @@ class AgnosticQueryResponse(BaseModel):
     # low-confidence direct-extraction branch, none of which build a
     # prompt/context to measure).
     efficiency:           Optional[Dict[str, Any]] = None
+    guide:                Optional[Guide] = None
 
 
 
@@ -1104,6 +1221,9 @@ class TextContentResponse(BaseModel):
     limit: int
     has_more: bool
     lines: List[TextLine]
+    # MS-1112: the line_number the request's anchor (slide, DOCX paragraph or
+    # XLSX row) landed on, for the viewer to highlight; None without one.
+    target_line: Optional[int] = None
 
 
 class CollectionFile(BaseModel):

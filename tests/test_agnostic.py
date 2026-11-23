@@ -26,6 +26,12 @@ QUESTION = "what does the document say about leave?"  # retrieval by rule, Engli
 COLLECTIONS = [("c1", "ISO Policy"), ("c2", "Handbook")]
 
 
+def rows(collections, folder_id=None):
+    """(id, title) pairs as list_active_collections_for_user rows (read through load_scope)."""
+    return [{"collection_id": cid, "title": title, "file_names": [f"{title}.pdf"], "folder_id": folder_id}
+            for cid, title in collections]
+
+
 def hybrid_args(mock):
     """processor.hybrid_search's positional arguments, by name."""
     names = ["question", "pdf_ids", "search_chat", "search_pdfs", "search_db", "chat_ids",
@@ -46,8 +52,9 @@ class AgnosticTestCase(unittest.TestCase):
         self.http = TestClient(app, raise_server_exceptions=False)
 
         patches = {
-            "titles": patch.object(agnostic_service.supabase_storage, "list_active_collection_titles_for_user",
-                                   return_value=COLLECTIONS),
+            "titles": patch.object(agnostic_service.supabase_storage, "list_active_collections_for_user",
+                                   return_value=rows(COLLECTIONS)),
+            "folders": patch.object(agnostic_service.supabase_storage, "list_folders_for_user", return_value=[]),
             "skill": patch.object(agnostic_service.supabase_storage, "get_skill_for_user", return_value=None),
             "workspace": patch.object(agnostic_service, "resolve_workspace_id", return_value="w1"),
             "rate": patch.object(agnostic_service, "enforce_rate_limit"),

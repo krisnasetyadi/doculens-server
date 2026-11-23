@@ -16,6 +16,9 @@ services/rag/        the RAG engine: processor.py composes one mixin per concern
 services/storage/    supabase.py (Storage + collection/folder/skill/run rows), limits.py, app_db.py
 services/ingest/     documents.py (text extractors, indexing), chat_parser.py, chat_ingest.py, progress.py
 services/security/   ssrf_guard.py, telegram_crypto.py
+services/lens_guide/ Lens Guide (MS-1179): scope.py (documents and folders a user may open, with folder paths),
+                     match.py (which folders a name refers to), reply.py (find_folder replies and cards),
+                     drive_import.py (a Drive link pasted in chat, offered for the existing import)
 tests/               run from the repo root: python -m unittest discover -s tests -t .
 scripts/  migrations/
 ```
@@ -57,7 +60,11 @@ Every domain gets exactly ONE base path — list/create/delete/activate/upload/e
                                      pdf-indices/public-links/{id}/{version}/.
 
 /api/v1/analysis/gap-analysis       POST (run) + /runs GET
-                                     — router/compliance.py
+                                     — router/compliance.py. Since MS-1112 every run belongs to an
+                                     analysis (tables analyses + analysis_rule_sets: goal, target
+                                     folders, versioned requirement list with stable keys); items have
+                                     five statuses plus not_checked, findings with structured pointers
+                                     and a trend vs the previous run (rules in services/rag/gap_locations.py).
 
 /api/v1/auth                        register/login/me/change-password/admin/...
                                      — router/auth.py

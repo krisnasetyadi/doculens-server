@@ -98,15 +98,27 @@ async def get_pdf_text_content(
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=500),
     slide: Optional[int] = Query(default=None, ge=1),
+    section: Optional[str] = Query(default=None, max_length=500),
+    paragraph: Optional[int] = Query(default=None, ge=1),
+    sheet: Optional[str] = Query(default=None, max_length=200),
+    row: Optional[int] = Query(default=None, ge=1),
+    section_index: Optional[int] = Query(default=None, ge=0),
     user: UserRecord = Depends(get_current_user),
 ):
-    """Paginated plain-text content for a .txt or .pptx document source
-    (kind='pdf'), read line by line, for the formatted text viewer (MS-415).
-    A .pptx is shown slide by slide, each slide opening with a "Slide N"
-    line; `slide` starts the page at that line instead of `offset` (MS-910).
+    """Paginated plain-text content for a .txt, .pptx, .docx or .xlsx document
+    source (kind='pdf'), read line by line, for the formatted text viewer
+    (MS-415). A .pptx is shown slide by slide, each slide opening with a
+    "Slide N" line; `slide` starts the page at that line instead of `offset`
+    (MS-910). A .docx is shown paragraph by paragraph under its section
+    headings and an .xlsx row by row under its sheet names; `section` +
+    `paragraph` or `sheet` + `row` (a gap analysis pointer, MS-1112) start the
+    page just above that line and name it in `target_line`; `section_index`
+    picks the right section when two share a title.
     Read-only — never writes to the stored file.
     """
-    return await collection_service.get_text_content(collection_id, file_name, offset, limit, user, slide)
+    return await collection_service.get_text_content(
+        collection_id, file_name, offset, limit, user, slide, section, paragraph, sheet, row, section_index
+    )
 
 
 @router.get("/collection/{collection_id}/files", response_model=CollectionFilesResponse, response_model_exclude_unset=True)

@@ -51,12 +51,21 @@ class PromptLanguageTests(unittest.TestCase):
         self.assertIn("dalam Bahasa Indonesia", processor._build_general_prompt("ctx", "q", [], {}))
 
     def test_gap_check_prompt_language(self):
-        items = [{"label": "A.5.1", "target_context": ""}]
-        id_prompt = processor._build_gap_check_batch_prompt("ISO 27001", items, "id")
-        en_prompt = processor._build_gap_check_batch_prompt("ISO 27001", items, "en")
-        self.assertNotIn("bahasa Inggris", id_prompt)
-        self.assertIn("bahasa Inggris (English)", en_prompt)
-        self.assertEqual(id_prompt, processor._build_gap_check_batch_prompt("ISO 27001", items))
+        batch = [{"requirement": {"key": "A.5.1", "code": "A.5.1", "label": "Policies", "expected_document": "policy"},
+                  "sources": [{"id": "S1", "file_name": "policy.pdf", "page": "2", "text": "Approved yearly."}]}]
+        id_prompt = processor._build_gap_check_batch_prompt("ISO 27001", batch, ["policy.pdf"], language="id")
+        en_prompt = processor._build_gap_check_batch_prompt("ISO 27001", batch, ["policy.pdf"], language="en")
+        self.assertIn("in Indonesian (Bahasa Indonesia)", id_prompt)
+        self.assertNotIn("in Indonesian", en_prompt)
+        self.assertIn("in English.", en_prompt)
+        self.assertEqual(id_prompt, processor._build_gap_check_batch_prompt("ISO 27001", batch, ["policy.pdf"]))
+        # MS-1112: the selected documents decide not_checked versus missing; sources are numbered.
+        self.assertIn("THE USER SELECTED ONLY THESE DOCUMENTS TO CHECK:\n- policy.pdf", id_prompt)
+        self.assertIn("ITEM 1 (key: A.5.1): A.5.1 Policies", id_prompt)
+        self.assertIn("[S1] policy.pdf (page 2):\nApproved yearly.", id_prompt)
+        self.assertNotIn("DIRECTIONS FROM THE USER", id_prompt)
+        self.assertIn("DIRECTIONS FROM THE USER (follow them):\nIgnore drafts",
+                      processor._build_gap_check_batch_prompt("ISO 27001", batch, [], "Ignore drafts", "en"))
 
     def test_canned_english_replies_survive_validation(self):
         # The validator swaps answers matching failure_patterns for a raw
@@ -122,6 +131,66 @@ class RouterTests(unittest.TestCase):
         self.assertTrue(small_talk.answer.startswith("Sama-sama"))
         data = self.route("what is the leave policy?", broken)
         self.assertEqual((data.action, data.search_query, data.fallback), ("search", "what is the leave policy?", True))
+
+    def route_with_folders(self, question, llm, folder_paths, memory=None):
+        with patch.object(processor, "get_llm", return_value=(llm, "gemini/gemini-test")):
+            return processor.route_message(
+                question, "id", memory, False, ["ISO Policy"], 1, folder_paths=folder_paths,
+            )
+
+    def test_find_folder_is_offered_only_when_folders_were_read(self):
+        llm = fake_llm("Halo!")
+        self.route("hi", llm)
+        self.assertEqual([t["name"] for t in llm.bind_tools.call_args[0][0]], ["search_documents"])
+        self.assertNotIn("find_folder", llm.invoke.call_args[0][0])
+
+        llm = fake_llm("Halo!")
+        self.route_with_folders("halo", llm, [])  # read, but none: a named project still gets asked about
+        tools = llm.bind_tools.call_args[0][0]
+        self.assertEqual([t["name"] for t in tools], ["search_documents", "find_folder"])
+        self.assertNotIn("folder", tools[0]["parameters"]["properties"])
+        self.assertIn("CALL find_folder", llm.invoke.call_args[0][0])
+
+    def test_folder_paths_become_the_search_folder_enum(self):
+        llm = fake_llm("Halo!")
+        paths = ["Delivery", "Delivery › Proyek Klien Y"]
+        self.route_with_folders("halo", llm, paths)
+        folder = llm.bind_tools.call_args[0][0][0]["parameters"]["properties"]["folder"]
+        self.assertEqual(folder["enum"], paths)
+
+        llm = fake_llm("Halo!")
+        self.route_with_folders("halo", llm, [f"F{i}" for i in range(51)])
+        folder = llm.bind_tools.call_args[0][0][0]["parameters"]["properties"]["folder"]
+        self.assertNotIn("enum", folder)  # past the cap: free text, matched back by the server
+
+    def test_find_folder_call_carries_only_the_name(self):
+        decision = self.route_with_folders(
+            "aku baru masuk Proyek Klien Y",
+            fake_llm(tool_name="find_folder", tool_args={"name": " Proyek Klien Y "}, total_tokens=7),
+            ["Delivery › Proyek Klien Y"],
+        )
+        self.assertEqual(
+            (decision.action, decision.folder_name, decision.total_tokens), ("find_folder", "Proyek Klien Y", 7),
+        )
+
+    def test_find_folder_without_a_name_searches_as_typed(self):
+        decision = self.route_with_folders(
+            "dokumen onboarding", fake_llm(tool_name="find_folder", tool_args={"name": " "}), [],
+        )
+        self.assertEqual((decision.action, decision.search_query), ("search", "dokumen onboarding"))
+
+    def test_search_keeps_the_confirmed_folder(self):
+        memory = [{"role": "assistant", "content": "Aku menemukan Sources › Delivery › Proyek Klien Y. Benar?"}]
+        decision = self.route_with_folders(
+            "ya, apa yang harus kubaca dulu?",
+            fake_llm(tool_args={"query": "dokumen onboarding", "folder": "Delivery › Proyek Klien Y", "task": "answer"}),
+            ["Delivery › Proyek Klien Y"], memory,
+        )
+        self.assertEqual((decision.action, decision.search_folder), ("search", "Delivery › Proyek Klien Y"))
+
+    def test_a_folder_argument_is_ignored_when_folders_are_off(self):
+        decision = self.route("what is in it?", fake_llm(tool_args={"query": "x", "folder": "Secret", "task": "answer"}))
+        self.assertIsNone(decision.search_folder)
 
     def test_reply_leak_is_replaced(self):
         decision = self.route("hi", fake_llm("DocuLens runs on FastAPI with Gemini."))
@@ -197,6 +266,25 @@ class GapCheckJsonParsingTests(unittest.TestCase):
         self.assertEqual(parse('[{"label": "A.5"}]'), [{"label": "A.5"}])
         self.assertEqual(parse('Result: [{"label": "A.5"}] done'), [{"label": "A.5"}])
         self.assertEqual(parse("[not json"), [])
+
+
+class GapCheckSourcesTests(unittest.TestCase):
+    """MS-1112: a requirement is judged on passages from every selected document."""
+
+    def test_every_document_gets_its_best_passage_in_before_any_second_best(self):
+        from langchain_core.documents import Document
+
+        def search(query, collection_ids, top_k):
+            cid = collection_ids[0]
+            return [Document(page_content=f"{cid}-{n}", metadata={"source": f"{cid}.pdf", "collection_id": cid, "page": "1"})
+                    for n in range(1, top_k + 2)]
+
+        requirement = {"key": "A.8.13", "code": "A.8.13", "label": "Backup", "expected_document": None}
+        with patch.object(processor, "search_across_collections", side_effect=search) as searched:
+            sources = processor._retrieve_sources(requirement, ["a", "b", "c", "d", "e"])
+        self.assertEqual(searched.call_count, 5)  # one search per document
+        self.assertEqual([s["text"] for s in sources], ["a-1", "b-1", "c-1", "d-1", "e-1", "a-2", "b-2", "c-2"])
+        self.assertEqual((sources[0]["id"], sources[-1]["id"]), ("S1", "S8"))  # capped at 8
 
 if __name__ == "__main__":
     unittest.main()

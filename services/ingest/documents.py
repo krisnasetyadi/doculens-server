@@ -65,6 +65,100 @@ def extract_text_from_docx(docx_path):
         return None
 
 
+# A short numbered line such as "4. Backup" or "4.2 Restore test" reads as a
+# heading even in documents that never use Word's Heading styles.
+_NUMBERED_HEADING = re.compile(r"^\d+(\.\d+)*[.)]?\s+\S")
+_DOCX_HEADING_MAX_CHARS = 120
+
+
+def _is_docx_heading(paragraph) -> bool:
+    style = (paragraph.style.name if paragraph.style is not None else "") or ""
+    if style.lower().startswith(("heading", "title", "judul")):
+        return True
+    text = paragraph.text.strip()
+    if len(text) > _DOCX_HEADING_MAX_CHARS or not _NUMBERED_HEADING.match(text):
+        return False
+    runs = [r for r in paragraph.runs if r.text.strip()]
+    return bool(runs) and all(r.bold for r in runs)
+
+
+def extract_docx_blocks(docx_path):
+    """MS-1112: a Word document as numbered paragraphs under their section
+    heading, in reading order (tables included, one paragraph per row), so a
+    finding can point at "Section 4, paragraph 2" instead of the whole file.
+    Paragraph numbers restart at 1 under each heading; text before the first
+    heading has section None. `section_index` counts the headings (0 before
+    the first one), so two sections with the same title ("Scope" twice) are
+    still told apart. Returns [] when the file can't be read."""
+    try:
+        import docx
+        from docx.table import Table
+        from docx.text.paragraph import Paragraph
+
+        document = docx.Document(docx_path)
+        blocks = []
+        section = None
+        section_index = 0
+        number = 0
+
+        def add(text):
+            nonlocal number
+            text = re.sub(r"\s+", " ", text).strip()
+            if text:
+                number += 1
+                blocks.append({"section": section, "section_index": section_index, "paragraph": number, "text": text})
+
+        for child in document.element.body.iterchildren():
+            tag = child.tag.rsplit("}", 1)[-1]
+            if tag == "p":
+                paragraph = Paragraph(child, document)
+                if paragraph.text.strip() and _is_docx_heading(paragraph):
+                    section = re.sub(r"\s+", " ", paragraph.text).strip()
+                    section_index += 1
+                    number = 0
+                else:
+                    add(paragraph.text)
+            elif tag == "tbl":
+                for row in Table(child, document).rows:
+                    add(" | ".join(cell.text.strip() for cell in row.cells).strip(" |"))
+        return blocks
+    except Exception as e:
+        logger.error(f"Failed to read Word structure from {docx_path}: {str(e)}")
+        return []
+
+
+def extract_xlsx_blocks(xlsx_path):
+    """MS-1112: every non-empty spreadsheet row with its sheet name and its row
+    number as Excel shows it, written "header: value" like the indexed text, so
+    a finding can point at "Sheet Access, row 7". The first non-empty row of a
+    sheet is its header and is not a block itself."""
+    try:
+        import openpyxl
+        workbook = openpyxl.load_workbook(xlsx_path, read_only=True, data_only=True)
+        blocks = []
+        for sheet in workbook.worksheets:
+            header = None
+            for cells in sheet.iter_rows():
+                row = tuple(getattr(c, "value", None) for c in cells)
+                if not any(v is not None and str(v).strip() for v in row):
+                    continue
+                # From the cell, not a counter: read-only mode may skip empty rows.
+                row_number = next(c.row for c in cells if getattr(c, "row", None))
+                if header is None:
+                    header = row
+                    continue
+                if len(header) == len(row):
+                    text = ", ".join(f"{h}: {v}" for h, v in zip(header, row) if v is not None)
+                else:
+                    text = ", ".join(str(v) for v in row if v is not None)
+                blocks.append({"sheet": sheet.title, "row": row_number, "text": text})
+        workbook.close()
+        return blocks
+    except Exception as e:
+        logger.error(f"Failed to read spreadsheet rows from {xlsx_path}: {str(e)}")
+        return []
+
+
 def extract_text_from_doc(doc_path):
     """Extract text from a legacy binary .doc file via the `antiword` CLI.
     python-docx only understands the modern .docx XML format — the old
