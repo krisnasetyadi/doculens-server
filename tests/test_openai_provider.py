@@ -56,6 +56,16 @@ class LoadOpenAITests(unittest.TestCase):
                 processor.get_llm("openai", "gpt-5.4-mini")
         gemini.assert_not_called()
 
+    def test_a_model_that_is_not_offered_is_refused_before_it_is_loaded(self):
+        # Cost control: the API cannot pick a pricier model than the dropdown offers.
+        with patch.object(config, "openai_api_key", "sk-test"), patch.object(processor, "_llm_cache", {}), \
+                patch.object(processor, "_load_openai_llm") as load:
+            with self.assertRaisesRegex(ValueError, "not offered"):
+                processor.get_llm("openai", "gpt-unlisted-pro")
+            with self.assertRaisesRegex(ValueError, "not offered"):
+                processor.get_llm("gemini", "gpt-5.4-mini")  # a GPT model under the Gemini provider
+        load.assert_not_called()
+
     def test_an_unknown_provider_is_an_error_not_the_default(self):
         with patch.object(processor, "_llm_cache", {}), patch.object(processor, "_load_gemini_llm") as gemini:
             with self.assertRaises(ValueError):

@@ -4,7 +4,7 @@ Mixin of services.rag.processor.PDFQAProcessor; the methods were moved
 verbatim from that class by MS-657."""
 import logging
 import torch
-from config import LLMProvider, config
+from config import AVAILABLE_MODELS, LLMProvider, config
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.llms import HuggingFacePipeline
 from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, GenerationConfig, pipeline
@@ -37,7 +37,11 @@ class LLMMixin:
             inferred_gemini = bool(model and model.lower().startswith("gemini"))
             llm_provider = LLMProvider.GEMINI if inferred_gemini else config.default_llm_provider
             llm_model = model or config.default_llm_model
-        
+        # Cost control (MS-1192): a model the caller names must be one we offer, so the API
+        # cannot run a pricier model than the dropdown lists. Config defaults are trusted.
+        if model and model not in AVAILABLE_MODELS.get(llm_provider, []):
+            raise ValueError(f"Model '{model}' is not offered for provider '{llm_provider.value}'")
+
         # Create cache key
         cache_key = f"{llm_provider.value}:{llm_model}"
         model_identifier = f"{llm_provider.value}/{llm_model}"
