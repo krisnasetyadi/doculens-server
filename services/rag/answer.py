@@ -1,9 +1,10 @@
-"""Turning search results into an answer: prompts per question type, the LLM call, cleanup of its output, and the fallbacks when it fails.
+"""Turning search results into an answer: prompts per question type, the LLM call and cleanup of its output.
 
 Mixin of services.rag.processor.PDFQAProcessor; the methods were moved
 verbatim from that class by MS-657."""
 import logging
 import re
+from config import LLMProvider
 from dataclasses import dataclass, field
 from services.rag.conversation.language import ReplyLanguage, answer_language_instruction, detect_reply_language
 from services.rag.conversation.messages import fallback_text
@@ -76,16 +77,14 @@ class AnswerMixin:
         )
         if plan.ready is not None:
             return plan.ready
-        try:
-            result = plan.llm.invoke(plan.prompt)
-            # Raw shape straight off the LLM response: proof this number comes
-            # from Gemini's own usage_metadata (langchain_google_genai just
-            # relays prompt_token_count/candidates_token_count/total_token_count
-            # into this dict), not something we or LangChain compute ourselves.
-            logger.info("LLM usage_metadata: %s", getattr(result, 'usage_metadata', None))
-            return self.finish_hybrid_answer(plan, text_of(result), _extract_total_tokens(result))
-        except Exception as e:
-            return self.fallback_hybrid_answer(plan, e)
+        # A failed model call raises (MS-1192): the caller answers with an
+        # error, never with a raw passage dressed up as the model's answer.
+        result = plan.llm.invoke(plan.prompt)
+        # Raw shape straight off the LLM response: proof this number comes
+        # from the provider's own usage_metadata (LangChain relays it into
+        # this dict), not something we or LangChain compute ourselves.
+        logger.info("LLM usage_metadata: %s", getattr(result, 'usage_metadata', None))
+        return self.finish_hybrid_answer(plan, text_of(result), _extract_total_tokens(result))
 
     def plan_hybrid_answer(
         self,
@@ -154,8 +153,8 @@ class AnswerMixin:
             processing_steps.append("Person query detected - prioritized chat/DB results")
         
         # Check if confidence is too low and no chat/db results - use direct extraction
-        # Use a dynamic threshold: lower for smarter models like Gemini to leverage generative reasoning
-        threshold = 0.12 if 'gemini' in model_id.lower() else 0.18
+        # Lower for cloud models (Gemini, GPT), which reason over weak matches; higher for local HuggingFace models.
+        threshold = 0.18 if model_id.startswith(f"{LLMProvider.HUGGINGFACE.value}/") else 0.12
         if not is_summary and merged_results and merged_results[0]['confidence'] < threshold:
             if merged_results[0]['type'] == 'pdf' and not any(r['type'] in ['chat', 'database'] for r in merged_results[:3]):
                 logger.warning(f"Low confidence ({merged_results[0]['confidence']:.2%}), using direct extraction")
@@ -411,18 +410,6 @@ class AnswerMixin:
             **plan.metadata,
             "processing_steps": plan.processing_steps,
             "total_tokens": total_tokens,
-        }
-
-    def fallback_hybrid_answer(self, plan: AnswerPlan, error: Exception) -> GeneratedAnswer:
-        """The answer when the model call failed: the best retrieved passage."""
-        logger.error(f"LLM generation failed: {error}")
-        plan.processing_steps.append(f"LLM generation failed: {str(error)[:100]}")
-        return self._generate_fallback_answer(plan.hybrid_results, plan.question, plan.language), plan.model_id, {
-            "error": str(error),
-            "processing_steps": plan.processing_steps,
-            "sources_used": {"pdf": 0, "database": 0, "chat": 0},
-            "confidence_score": 0,
-            "conflicts_detected": False
         }
 
     # English "not found" replies, quoted verbatim by the model when the reply
@@ -752,78 +739,3 @@ JAWABAN:"""
         # Fallback: return relevant snippet
         snippet = self._extract_relevant_snippet(content, question)
         return f"{based_on}\n\n{snippet}"
-
-    def _generate_fallback_answer(
-        self, hybrid_results: Dict[str, Any], question: str, language: ReplyLanguage = "id"
-    ) -> str:
-        """Generate a simpler fallback answer when LLM produces garbage"""
-        pdf_docs = hybrid_results.get('pdf_documents', [])
-        db_results = hybrid_results.get('database_results', {})
-        chat_docs = hybrid_results.get('chat_documents', [])
-        question_lower = question.lower()
-        
-        # Extract keywords from question
-        keywords = []
-        for word in question_lower.split():
-            if len(word) > 3:
-                keywords.append(word)
-        
-        # Priority 1: Database results (most structured)
-        if db_results:
-            for table_name, db_result in db_results.items():
-                if db_result.record_count > 0:
-                    # Format database results nicely
-                    records_text = []
-                    for record in db_result.data[:3]:  # Limit to 3 records
-                        # Filter out internal fields
-                        display_fields = {k: v for k, v in record.items() 
-                                         if not k.startswith('_') and k not in ['search_vector', 'relevance_score', 'created_at']}
-                        record_str = ", ".join(f"{k}: {v}" for k, v in display_fields.items())
-                        records_text.append(f"• {record_str}")
-                    
-                    result_text = "\n".join(records_text)
-                    return f"{fallback_text(language, 'based_on_table', table=table_name)}\n\n{result_text}"
-        
-        # Priority 2: PDF documents
-        if pdf_docs:
-            # Find the most relevant document based on question keywords
-            best_doc = None
-            best_score = 0
-            
-            for doc in pdf_docs:
-                content_lower = doc.page_content.lower()
-                # Count how many question keywords appear in the content
-                matches = sum(1 for kw in keywords if kw in content_lower)
-                doc_score = doc.metadata.get('similarity_score', 0) + (matches * 0.1)
-                
-                if doc_score > best_score:
-                    best_score = doc_score
-                    best_doc = doc
-            
-            if best_doc is None:
-                best_doc = pdf_docs[0]
-            
-            source = best_doc.metadata.get('source', 'dokumen')
-            page = best_doc.metadata.get('page', '?')
-            
-            # Try to extract relevant sentence containing keyword
-            content = best_doc.page_content
-            # Convert keywords list to question string for _extract_relevant_snippet
-            keyword_query = " ".join(keywords)
-            relevant_snippet = self._extract_relevant_snippet(content, keyword_query)
-            
-            prefix = fallback_text(language, 'based_on_page', source=source, page=page)
-            if relevant_snippet:
-                return f"{prefix}\n\n{relevant_snippet}"
-            else:
-                return f"{prefix}\n\n{content}"
-
-        # Priority 3: Chat results
-        if chat_docs:
-            best_chat = chat_docs[0]
-            source = best_chat.metadata.get('source', 'chat')
-            platform = best_chat.metadata.get('platform', 'unknown')
-            prefix = fallback_text(language, 'based_on_chat', source=source, platform=platform)
-            return f"{prefix}\n\n{best_chat.page_content}"
-
-        return fallback_text(language, 'no_valid_answer')

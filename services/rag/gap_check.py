@@ -162,7 +162,7 @@ Example: {example}
 
 JSON:"""
 
-        llm, _ = self.get_llm(provider="gemini")
+        llm, _ = self.get_llm()
         raw = ""
         tokens_consumed = 0
         entries: List[Any] = []
@@ -330,7 +330,7 @@ JSON:"""
         prompt = self._build_gap_check_batch_prompt(
             check.framework_name, batch, check.document_names, check.directions, check.language
         )
-        llm, _ = self.get_llm(provider="gemini")
+        llm, _ = self.get_llm()
         tokens = 0
         verdicts: List[Dict[str, Any]] = []
         for attempt in range(2):
