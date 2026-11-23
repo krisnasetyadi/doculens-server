@@ -49,6 +49,19 @@ class LoadOpenAITests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "OPENAI_API_KEY"):
                 processor._load_openai_llm("gpt-test")
 
+    def test_a_requested_model_that_cannot_load_is_an_error_not_a_switch_to_gemini(self):
+        with patch.object(config, "openai_api_key", None), patch.object(processor, "_llm_cache", {}), \
+                patch.object(processor, "_load_gemini_llm") as gemini:
+            with self.assertRaisesRegex(ValueError, "OPENAI_API_KEY"):
+                processor.get_llm("openai", "gpt-5.4-mini")
+        gemini.assert_not_called()
+
+    def test_an_unknown_provider_is_an_error_not_the_default(self):
+        with patch.object(processor, "_llm_cache", {}), patch.object(processor, "_load_gemini_llm") as gemini:
+            with self.assertRaises(ValueError):
+                processor.get_llm("openia")
+        gemini.assert_not_called()
+
 
 class AvailableModelsTests(unittest.TestCase):
     def test_openai_is_listed_only_with_a_key(self):

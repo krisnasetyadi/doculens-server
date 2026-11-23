@@ -27,11 +27,8 @@ class LLMMixin:
             llm_provider = config.default_llm_provider
             llm_model = config.default_llm_model
         elif provider:
-            try:
-                llm_provider = LLMProvider(provider.lower())
-            except ValueError:
-                logger.warning(f"Invalid provider '{provider}', using default")
-                llm_provider = config.default_llm_provider
+            # An unknown provider is an error, never a silent switch to the default (MS-1192).
+            llm_provider = LLMProvider(provider.lower())
             llm_model = model or {
                 LLMProvider.GEMINI: config.gemini_model,
                 LLMProvider.OPENAI: config.openai_model,
@@ -72,10 +69,9 @@ class LLMMixin:
             return llm, model_identifier
             
         except Exception as e:
+            # No switch to the default model (MS-1192): the user asked for this
+            # one and must not get another model's answer without being told.
             logger.error(f"❌ Failed to load {model_identifier}: {e}")
-            if provider or model:
-                logger.info("⚠️ Falling back to configured default LLM")
-                return self.get_llm(config.default_llm_provider.value, config.default_llm_model)
             raise
 
     def _load_huggingface_llm(self, model_name: str):
