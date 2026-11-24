@@ -366,6 +366,60 @@ REPLY:"""
             decision.guard_replaced = True
         return decision
 
+    # Lens Guide (MS-1182): the names a context question offers.
+    FACETS_TOOL_NAME = "report_facets"
+
+    def extract_facets(
+        self, folder_brief: str, llm_provider: Optional[str] = None, llm_model: Optional[str] = None,
+    ) -> tuple:
+        """(roles, parts, total_tokens): the team roles and the system parts a
+        folder's documents give different reading or work for, as written
+        there. Only reading: the server decides whether to ask (services/
+        lens_guide/clarify.py). Never raises: a failure gives no names, and no
+        question is asked; (None, None, tokens) when the model answered
+        without reporting, so the caller does not keep it."""
+        try:
+            llm, _ = self.get_llm(llm_provider, llm_model)
+        except Exception as e:
+            logger.warning(f"extract_facets: no LLM available ({e})")
+            return [], [], 0
+        names = {"type": "array", "items": {"type": "string"}}
+        tool = {
+            "name": self.FACETS_TOOL_NAME,
+            "description": "Report the names found in the folder's documents.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "roles": {**names, "description": "Team roles the documents give different reading or work for."},
+                    "parts": {**names, "description": "System parts or modules a person holds, where the documents give different reading or setup per part."},
+                },
+                "required": ["roles", "parts"],
+            },
+        }
+        prompt = f"""Read these documents of a project folder and CALL {self.FACETS_TOOL_NAME}.
+
+{folder_brief}
+
+- roles: the team roles (e.g. developer, QA, project manager) for which the documents give DIFFERENT reading, steps or work. Empty when the documents name no roles or give everyone the same.
+- parts: the parts of the system or modules a person holds or works on (e.g. web, an API, a worker), for which the documents give DIFFERENT reading or setup. Empty when there are none or it does not differ.
+Copy each name as written in the documents. Never invent a name, never add a role or part the documents do not name."""
+        try:
+            result = llm.bind_tools([tool]).invoke(prompt)
+        except Exception as e:
+            logger.error(f"extract_facets: LLM call failed: {e}")
+            return [], [], 0
+        call = next(
+            (c for c in (getattr(result, "tool_calls", None) or []) if c.get("name") == self.FACETS_TOOL_NAME), None,
+        )
+        if call is None:
+            logger.warning("extract_facets: the model did not report")
+            return None, None, _extract_total_tokens(result)
+        args = call.get("args") or {}
+        roles = args.get("roles") if isinstance(args.get("roles"), list) else []
+        parts = args.get("parts") if isinstance(args.get("parts"), list) else []
+        logger.info("extract_facets: roles=%r parts=%r", roles, parts)
+        return roles, parts, _extract_total_tokens(result)
+
     def is_unknown_slash_command(self, question: str) -> bool:
         """True kalau pesan diawali '/' tapi bukan salah satu command yang
         dikenal. Jaring pengaman untuk request yang bypass frontend's

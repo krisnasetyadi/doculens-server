@@ -58,6 +58,24 @@ def _paths(folders: List[dict]) -> Dict[str, List[str]]:
     return paths
 
 
+def _labelled(folders: List[dict]) -> List[dict]:
+    """Same-named folders under one parent (an admin seeing two users' "A", or
+    one user's two "A") become "A (1)", "A (2)", oldest first. A picked card
+    sends its path as text, so two equal paths could never be told apart and
+    the user was asked "which one?" again (MS-1182)."""
+    ids = {f["folder_id"] for f in folders}
+    groups: Dict[tuple, List[dict]] = {}
+    for f in folders:
+        parent = f.get("parent_folder_id") if f.get("parent_folder_id") in ids else None
+        groups.setdefault((parent, f["name"].strip().lower()), []).append(f)
+    labels = {}
+    for group in groups.values():
+        if len(group) > 1:
+            group = sorted(group, key=lambda f: (str(f.get("created_at") or ""), f["folder_id"]))
+            labels.update({f["folder_id"]: f"{f['name'].strip()} ({i})" for i, f in enumerate(group, 1)})
+    return [{**f, "name": labels.get(f["folder_id"], f["name"])} for f in folders]
+
+
 def load_scope(user: UserRecord) -> Scope:
     """Blocking (two DB queries): call through asyncio.to_thread."""
     is_admin = user.role == "admin"
@@ -68,7 +86,7 @@ def load_scope(user: UserRecord) -> Scope:
         folder_rows, folders_loaded = [], False
     collection_rows = supabase_storage.list_active_collections_for_user(user.user_id, is_admin)
 
-    paths = _paths(folder_rows)
+    paths = _paths(_labelled(folder_rows))
     folders = {
         f["folder_id"]: ScopeFolder(
             folder_id=f["folder_id"],
