@@ -275,7 +275,11 @@ def ensure():
                     ADD COLUMN IF NOT EXISTS trend TEXT,
                     -- false: the AI gave no answer for this requirement in this
                     -- run, so it is left out of trends (theirs and the next run's).
-                    ADD COLUMN IF NOT EXISTS answered BOOLEAN NOT NULL DEFAULT TRUE;
+                    ADD COLUMN IF NOT EXISTS answered BOOLEAN NOT NULL DEFAULT TRUE,
+                    -- MS-1115: a person's correction of the AI's status (kind, status,
+                    -- reason, the documents it relied on); `status` keeps the AI's own.
+                    ADD COLUMN IF NOT EXISTS correction JSONB,
+                    ADD COLUMN IF NOT EXISTS corrected_by TEXT;
                 -- Five statuses plus not_checked replace met / partial / not_met /
                 -- unknown. Done once: only while the status check does not yet
                 -- know 'needs_decision', so later startups skip the table scan and

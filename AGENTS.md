@@ -65,6 +65,9 @@ Every domain gets exactly ONE base path — list/create/delete/activate/upload/e
                                      folders, versioned requirement list with stable keys); items have
                                      five statuses plus not_checked, findings with structured pointers
                                      and a trend vs the previous run (rules in services/rag/gap_locations.py).
+                                     {run_id}/items/{item_id}/correction PUT/DELETE: a person corrects
+                                     the AI's status or undoes it (MS-1115); kept on later runs unless a
+                                     document it relied on changed (rules in services/compliance_corrections.py).
 
 /api/v1/auth                        register/login/me/change-password/admin/...
                                      — router/auth.py

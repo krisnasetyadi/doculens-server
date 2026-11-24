@@ -607,6 +607,53 @@ class GapAnalysisFinding(BaseModel):
     location: Optional[GapAnalysisPointer] = None
     suggested_place: Optional[str] = None  # where a missing part should go
     searched: Optional[str] = None  # where the AI looked, for a missing finding
+    added_by: Optional[str] = None  # MS-1115: the person who pointed at it (a document the AI missed)
+
+
+# MS-1115: what was wrong when a person corrects the AI's status.
+CORRECTION_KINDS = ("missed_document", "wrong_status", "not_applicable")
+
+
+class GapAnalysisCorrectionDocument(BaseModel):
+    """The document (and section) the AI missed, as a person points at it."""
+    collection_id: str = Field(..., min_length=1, max_length=200)
+    file_name: str = Field(..., min_length=1, max_length=500)
+    section: Optional[str] = Field(default=None, max_length=200)
+
+
+class GapAnalysisCorrectionRequest(BaseModel):
+    kind: str  # one of CORRECTION_KINDS
+    status: str  # the right status: done | incomplete | missing | not_applicable
+    reason: str = Field(..., min_length=1, max_length=500)  # shown to the team and in the export
+    document: Optional[GapAnalysisCorrectionDocument] = None  # required for missed_document
+    remember: bool = False  # add a direction to the analysis's rule set for next checks
+
+    @field_validator("kind")
+    @classmethod
+    def _known_kind(cls, v: str) -> str:
+        if v not in CORRECTION_KINDS:
+            raise ValueError(f"kind must be one of {CORRECTION_KINDS}")
+        return v
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_has_text(cls, v: str) -> str:
+        if not v.strip():
+            raise ValueError("Enter a short reason")
+        return v.strip()
+
+
+class GapAnalysisCorrection(BaseModel):
+    """A person's correction of one item, as stored and returned."""
+    kind: str
+    status: str
+    reason: str
+    document: Optional[GapAnalysisPointer] = None  # missed_document: where the proof is
+    corrected_by: Optional[str] = None  # user id
+    corrected_by_name: Optional[str] = None
+    corrected_at: Optional[str] = None
+    direction: Optional[str] = None  # the direction "Remember for next checks" added
+    carried_from_run_id: Optional[str] = None  # set when an earlier run's correction was kept
 
 
 class GapAnalysisNextStep(BaseModel):
@@ -632,6 +679,11 @@ class GapAnalysisItem(BaseModel):
     searched: Optional[Dict[str, Any]] = None  # {"folders": [names], "document_count": n}, missing items only
     trend: Optional[str] = None  # "improved" | "worse" | "unchanged" vs the previous run; None on a first run
     answered: bool = True  # False: the AI gave no answer for it in this run (no findings, no trend)
+    # MS-1115: `status` is the corrected one when a person corrected the item;
+    # `ai_status` is always the AI's own. `item_id` addresses it for a correction.
+    item_id: Optional[int] = None
+    ai_status: Optional[str] = None
+    correction: Optional[GapAnalysisCorrection] = None
 
 
 class GapAnalysisRun(BaseModel):
@@ -673,6 +725,9 @@ class GapAnalysisResponse(BaseModel):
     not_checked: int = 0  # requirements whose kind of document was not selected
     total_requirements: int = 0  # every requirement in the rule set, checked or not
     disclaimer: Optional[str] = None
+    # MS-1115: {"checked": items the AI gave a status, "corrected": of those, how many
+    # a person changed}: what AI accuracy is measured from.
+    ai_accuracy: Dict[str, int] = {}
 
 
 # ===================== SKILLS (MS-251) =====================

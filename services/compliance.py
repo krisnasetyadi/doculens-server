@@ -21,6 +21,7 @@ from fastapi.responses import Response
 from services.storage import supabase as supabase_storage
 from config import config
 from models import (
+    GapAnalysisCorrectionRequest,
     GapAnalysisItem,
     GapAnalysisRequest,
     GapAnalysisResponse,
@@ -34,6 +35,15 @@ from services.rag.gap_locations import NOT_CHECKED, STATUSES, normalize_status, 
 from services.billing.enforcement import enforce_gap_check_plan, enforce_member_allocation, enforce_plan_limit
 from services.billing.inflight import begin_in_flight, end_in_flight, get_workspace_lock, in_flight_tokens, resolve_workspace_id
 from services.billing.ledger import enforce_rate_limit, log_token_usage
+from services.compliance_corrections import (
+    ai_accuracy,
+    build_correction,
+    carry_corrections,
+    correction_status,
+    effective_status,
+    present_item,
+    remembered_direction,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,12 +60,12 @@ def _normalize_item(item: dict) -> dict:
     """A stored item as the API returns it: runs stored before MS-1112 carry
     met / partial / not_met / unknown, which read as their new statuses, and
     their evidence, citation and recommendation read as a finding, a reason
-    and a next step."""
+    and a next step. A corrected item reads as its correction (MS-1115)."""
     item = dict(item)
     item["status"] = normalize_status(item.get("status"))
     item["findings"] = item.get("findings") or []
     item["answered"] = item.get("answered", True) is not False
-    return with_legacy_details(item)
+    return present_item(with_legacy_details(item))
 
 
 def _summarize(items: List[dict]) -> dict:
@@ -77,6 +87,7 @@ def _response(run_row: dict, items: List[dict], disclaimer: Optional[str]) -> Ga
         not_checked=sum(1 for it in items if it.get("status") == NOT_CHECKED),
         total_requirements=len(items),
         disclaimer=disclaimer,
+        ai_accuracy=ai_accuracy(items),
     )
 
 
@@ -113,9 +124,22 @@ EXPORT_STATUS_LABELS = {
 }
 
 
-def _export_status(status: str) -> str:
+def _export_status_label(status: str) -> str:
     status = normalize_status(status)
     return EXPORT_STATUS_LABELS.get(status, status)
+
+
+def _export_status(item: dict) -> str:
+    """The status an auditor reads. A corrected item (MS-1115) says who
+    corrected it, what the AI said, and why: "comply (dikoreksi Dewi; AI:
+    not comply). Buktinya ada di MLT-PO-P03." """
+    label = _export_status_label(item.get("status", ""))
+    correction = item.get("correction")
+    if not correction:
+        return label
+    ai = _export_status_label(item.get("ai_status") or "")
+    who = correction.get("corrected_by_name") or "-"
+    return f"{label} (dikoreksi {who}; AI: {ai}). {correction.get('reason') or ''}".strip()
 
 
 def _item_name(item: dict) -> str:
@@ -143,7 +167,7 @@ def _render_markdown(run_row: dict, items: List[dict]) -> str:
         source = (item.get("source_citation") or item.get("target_collection_id") or "").replace("|", "/")
         evidence = (item.get("evidence") or "").replace("\n", " ").replace("|", "/")
         recommendation = (item.get("recommendation") or "").replace("\n", " ").replace("|", "/")
-        lines.append(f"| {_item_name(item)} | {source} | {_export_status(item.get('status', ''))} | {evidence} | {recommendation} |")
+        lines.append(f"| {_item_name(item)} | {source} | {_export_status(item).replace('|', '/')} | {evidence} | {recommendation} |")
     return "\n".join(lines)
 
 
@@ -216,7 +240,7 @@ def _render_pdf(run_row: dict, items: List[dict], markdown_fallback: str) -> byt
             if has_multiple_targets:
                 source = item.get("source_citation") or item.get("target_collection_id") or ""
                 row.append(cell(source))
-            row.append(cell(_export_status(item.get("status", ""))))
+            row.append(cell(_export_status(item)))
             row.append(cell(item.get("evidence", "")))
             row.append(cell(item.get("recommendation", "")))
             table_data.append(row)
@@ -244,8 +268,9 @@ async def run_gap_analysis(body: GapAnalysisRequest, user: UserRecord):
 
     The story: open the analysis being run again (if any), settle which rule
     set this run checks, make sure every document is the user's to read, run
-    the metered check, file the run under its analysis, record how each
-    requirement moved since the last run, and store it."""
+    the metered check, file the run under its analysis, keep the corrections
+    people made on the last run (MS-1115), record how each requirement moved
+    since then, and store it."""
     _check_request(body)
     analysis = await _open_analysis(body.analysis_id, user)
     rule_set = _rule_set_for(body, analysis)
@@ -270,6 +295,7 @@ async def run_gap_analysis(body: GapAnalysisRequest, user: UserRecord):
     items, disclaimer, requirements = await _run_metered_gap_check(user, rule_set, body.target_collection_ids, searched)
 
     filed = await _file_under_analysis(body, user, analysis, rule_set, requirements, folder_ids)
+    await asyncio.to_thread(carry_corrections, items, filed.previous_corrections)
     _record_trends(items, filed.previous_statuses)
     return await _store_run(body, user, rule_set, items, disclaimer, filed, searched)
 
@@ -389,10 +415,12 @@ async def _run_metered_gap_check(
 @dataclass
 class FiledRun:
     """Where a run is filed: its analysis, the rule-set version it checked,
-    and the statuses of the analysis's previous run, by requirement key."""
+    and, by requirement key, the statuses its trends compare against and the
+    corrections people made on the analysis's previous run."""
     analysis_id: Optional[str] = None
     rule_set_version: Optional[int] = None
     previous_statuses: Dict[str, str] = field(default_factory=dict)
+    previous_corrections: Dict[str, dict] = field(default_factory=dict)
 
 
 async def _file_under_analysis(
@@ -419,6 +447,7 @@ async def _file_under_analysis(
 
     analysis_id = analysis["analysis_id"]
     previous_statuses = await asyncio.to_thread(supabase_storage.get_latest_run_statuses, analysis_id)
+    previous_corrections = await asyncio.to_thread(supabase_storage.get_latest_corrections, analysis_id)
     version = analysis.get("rule_set_version")
     if requirements != (analysis.get("requirements") or []) or rule_set.directions != (analysis.get("directions") or ""):
         version = await asyncio.to_thread(
@@ -427,17 +456,19 @@ async def _file_under_analysis(
         ) or version
     if body.target_folder_ids and list(body.target_folder_ids) != list(analysis.get("target_folder_ids") or []):
         await asyncio.to_thread(supabase_storage.update_analysis_targets, analysis_id, body.target_folder_ids)
-    return FiledRun(analysis_id, version, previous_statuses)
+    return FiledRun(analysis_id, version, previous_statuses, previous_corrections)
 
 
 def _record_trends(items: List[dict], previous_statuses: Dict[str, str]) -> None:
-    """Each item's move since the previous run: improved, worse or unchanged
-    (None on a first run, for requirements that were not checked, and for
-    ones the AI gave no answer for, which say nothing about the documents)."""
+    """Each item's move since the previous run, by the status in use (a kept
+    correction over the AI's): improved, worse or unchanged. None on a first
+    run, for requirements that were not checked, and for ones the AI gave no
+    answer for and nobody corrected, which say nothing about the documents."""
     for item in items:
         previous = previous_statuses.get(item.get("requirement_key"))
-        compared = item["status"] != NOT_CHECKED and item.get("answered", True)
-        item["trend"] = trend(previous, item["status"]) if compared else None
+        status = effective_status(item)
+        compared = status != NOT_CHECKED and (item.get("answered", True) or item.get("correction"))
+        item["trend"] = trend(previous, status) if compared else None
 
 
 async def _store_run(
@@ -466,7 +497,10 @@ async def _store_run(
     await asyncio.to_thread(supabase_storage.create_gap_analysis_run, owner_id=user.user_id, **run)
     await asyncio.to_thread(supabase_storage.save_gap_analysis_items, run_id, items)
     stored = await asyncio.to_thread(supabase_storage.get_gap_analysis_run, run_id)
-    return _response(stored or {**run, "created_at": ""}, items, disclaimer)
+    # Read back so each item has the id a correction addresses it by (MS-1115).
+    stored_items = await asyncio.to_thread(supabase_storage.get_gap_analysis_items, run_id) if items else []
+    shown = [_normalize_item(it) for it in stored_items] or [present_item(it) for it in items]
+    return _response(stored or {**run, "created_at": ""}, shown, disclaimer)
 
 
 async def list_runs(user: UserRecord):
@@ -479,13 +513,14 @@ async def list_runs(user: UserRecord):
 
 
 async def get_run(run_id: str, user: UserRecord):
-    run_row = supabase_storage.get_gap_analysis_run(run_id)
+    run_row = await asyncio.to_thread(supabase_storage.get_gap_analysis_run, run_id)
     if not run_row:
         raise HTTPException(status_code=404, detail="Run not found")
     if not _can_access_run(run_row, user):
         raise HTTPException(status_code=403, detail="Not allowed to access this run")
 
-    items = [_normalize_item(it) for it in supabase_storage.get_gap_analysis_items(run_id)]
+    stored = await asyncio.to_thread(supabase_storage.get_gap_analysis_items, run_id)
+    items = [_normalize_item(it) for it in stored]
     return _response(run_row, items, None)
 
 
@@ -503,13 +538,14 @@ async def delete_run(run_id: str, user: UserRecord):
 
 
 async def export_run(run_id: str, format: str, user: UserRecord):
-    run_row = supabase_storage.get_gap_analysis_run(run_id)
+    run_row = await asyncio.to_thread(supabase_storage.get_gap_analysis_run, run_id)
     if not run_row:
         raise HTTPException(status_code=404, detail="Run not found")
     if not _can_access_run(run_row, user):
         raise HTTPException(status_code=403, detail="Not allowed to access this run")
 
-    items = supabase_storage.get_gap_analysis_items(run_id)
+    stored = await asyncio.to_thread(supabase_storage.get_gap_analysis_items, run_id)
+    items = [_normalize_item(it) for it in stored]
     markdown = _render_markdown(run_row, items)
 
     if format == "markdown":
@@ -525,3 +561,85 @@ async def export_run(run_id: str, format: str, user: UserRecord):
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="gap-analysis-{run_id}.pdf"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Correcting a status (MS-1115); the rules are in services/compliance_corrections.py
+# ---------------------------------------------------------------------------
+
+async def correct_item(run_id: str, item_id: int, body: GapAnalysisCorrectionRequest, user: UserRecord):
+    """Store a person's correction of one item and return the run as it now
+    reads, so its counts update at once. The story: open the item, check the
+    correction makes sense (a status a person may set; for a missed document,
+    one they can open that holds the file), store it beside the AI's status,
+    and only then, when asked to remember it, add it to the rule set's
+    directions (so a failed save never leaves a direction behind)."""
+    run_row, item = await _open_item(run_id, item_id, user)
+    if item.get("status") == NOT_CHECKED:
+        raise HTTPException(status_code=400, detail="A requirement that was not checked can't be corrected")
+    if correction_status(body) is None:
+        raise HTTPException(status_code=400, detail="Choose done, incomplete, missing or not applicable")
+    if body.kind == "missed_document":
+        await _check_missed_document(body, user)
+
+    correction = await asyncio.to_thread(build_correction, body, item, user)
+    if not await asyncio.to_thread(supabase_storage.set_item_correction, run_id, item_id, correction):
+        raise HTTPException(status_code=500, detail="Failed to save the correction")
+    if body.remember:
+        direction = await _remember(run_row, item, body)
+        if direction:
+            await asyncio.to_thread(
+                supabase_storage.set_item_correction, run_id, item_id, {**correction, "direction": direction}
+            )
+    return await get_run(run_id, user)
+
+
+async def undo_correction(run_id: str, item_id: int, user: UserRecord):
+    """Take a correction back: the item reads as the AI said again. A
+    direction it added to the rule set stays; it is edited with the rule set."""
+    await _open_item(run_id, item_id, user)
+    if not await asyncio.to_thread(supabase_storage.set_item_correction, run_id, item_id, None):
+        raise HTTPException(status_code=500, detail="Failed to undo the correction")
+    return await get_run(run_id, user)
+
+
+async def _open_item(run_id: str, item_id: int, user: UserRecord) -> Tuple[dict, dict]:
+    """The run and one of its items, as stored (status = the AI's), for
+    someone allowed to change the run: its owner or an admin."""
+    run_row = await asyncio.to_thread(supabase_storage.get_gap_analysis_run, run_id)
+    if not run_row:
+        raise HTTPException(status_code=404, detail="Run not found")
+    if not _can_access_run(run_row, user):
+        raise HTTPException(status_code=403, detail="Not allowed to change this run")
+    items = await asyncio.to_thread(supabase_storage.get_gap_analysis_items, run_id)
+    item = next((it for it in items if it.get("item_id") == item_id), None)
+    if not item:
+        raise HTTPException(status_code=404, detail="Item not found in this run")
+    item = with_legacy_details({**item, "status": normalize_status(item.get("status")), "findings": item.get("findings") or []})
+    return run_row, item
+
+
+async def _check_missed_document(body: GapAnalysisCorrectionRequest, user: UserRecord) -> None:
+    """A missed document must be named, be one the user can open, and hold
+    the file they name: its pointer has to open for whoever reads the item."""
+    document = body.document
+    if not document:
+        raise HTTPException(status_code=400, detail="Choose the document the AI missed")
+    await _check_collection_access(user, [document.collection_id], checking_again=False)
+    collection = await asyncio.to_thread(supabase_storage.get_collection, document.collection_id)
+    if not collection or document.file_name not in (collection.get("file_names") or []):
+        raise HTTPException(status_code=400, detail="That file is not in the chosen document")
+
+
+async def _remember(run_row: dict, item: dict, body: GapAnalysisCorrectionRequest) -> Optional[str]:
+    """Add the correction as a direction to the analysis's rule set, as a new
+    version (a rule set is never changed in place), and return the line
+    added. None for a run that belongs to no analysis (stored before
+    MS-1112), which has no rule set, or when the direction couldn't be
+    stored."""
+    analysis_id = run_row.get("analysis_id")
+    if not analysis_id:
+        return None
+    line = remembered_direction(item, body)
+    version = await asyncio.to_thread(supabase_storage.add_rule_set_direction, analysis_id, line)
+    return line if version is not None else None

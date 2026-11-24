@@ -417,6 +417,13 @@ def _say_where_searched(findings: List[Dict[str, Any]], reason: str, where: str)
         findings.append(_finding("missing", reason, searched=where))
 
 
+def default_next_step(status: str) -> Optional[Dict[str, Any]]:
+    """The usual next step for a status (upload / revise / decide), or None
+    for one that needs nothing done: what a corrected item shows (MS-1115)."""
+    action = _DEFAULT_ACTION.get(status)
+    return {"action": action, "explain": None} if action else None
+
+
 def _next_step(status: str, verdict: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """What to do about a missing, incomplete or undecided item: the LLM's
     suggestion when it is one of the known actions, else the usual one."""
