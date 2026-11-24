@@ -40,13 +40,19 @@ from services.rag.conversation.messages import internal_refusal, no_source_selec
 from services.rag.model_stream import ModelStream
 from services.rag.processor import processor
 from services.storage import supabase as supabase_storage
-from models import AgnosticQueryRequest, AgnosticQueryResponse, Guide, MemoryTurn, PdfSourceDetail, UserRecord
+from models import (
+    AgnosticQueryRequest, AgnosticQueryResponse, Guide, GuideQuestion, MemoryTurn, PdfSourceDetail, UserRecord,
+)
+from services.lens_guide.clarify import (
+    BRIEF_PASSAGES, BRIEF_QUERY, Facets, clean_options, conversation_folder, folder_brief, guidance_request,
+    guide_context, is_folder_pick, known_answers, next_question, question_text, request_text, search_question,
+)
 from services.lens_guide.match import (
-    collection_ids_in, find_mentioned_folders, folder_label, match_folders, resolve_folder_label,
+    collection_ids_in, find_mentioned_folders, folder_label, match_folders, named_exactly, resolve_folder_label,
 )
 from services.lens_guide.drive_import import find_drive_link, import_offer
-from services.lens_guide.reply import empty_folder_reply, folder_reply, requested_name
-from services.lens_guide.scope import load_scope
+from services.lens_guide.reply import empty_folder_reply, folder_question_reply, folder_reply, requested_name
+from services.lens_guide.scope import Scope, ScopeFolder, load_scope
 from services.public_links import resolve_active_public_link_sources
 from services.database_connections import resolve_active_database_connections
 from services.billing.allocation import get_usage_snapshot
@@ -129,6 +135,37 @@ def _system_response(
         retrieved_count=0,
         guide=guide,
     )
+
+
+# shortcut: the names are kept per folder and its documents while the server
+# runs, with no expiry; a document replaced in place keeps the old names until
+# a restart. Upgrade to a stored column if that bites.
+_FACETS: Dict[tuple, Facets] = {}
+
+
+async def _facets_for(
+    folder: ScopeFolder, scope: Scope, ids: List[str], req: AgnosticQueryRequest,
+) -> Tuple[Facets, int]:
+    """(names, tokens used): the roles and parts a folder's documents tell
+    apart (MS-1182), read by the model from its titles and one small search in
+    it (plan K6). A failed read is not kept, so the next message tries again."""
+    key = (folder.folder_id, tuple(sorted(ids)))
+    if key in _FACETS:
+        return _FACETS[key], 0
+    try:
+        passages = await asyncio.to_thread(processor.search_across_collections, BRIEF_QUERY, ids, BRIEF_PASSAGES)
+    except Exception:
+        logger.warning("agnostic_query: folder brief search failed", exc_info=True)
+        passages = []
+    roles, parts, tokens = await asyncio.to_thread(
+        processor.extract_facets, folder_brief(folder, scope, passages), req.llm_provider, req.llm_model,
+    )
+    facets = Facets(roles=clean_options(roles), parts=clean_options(parts))
+    if tokens and roles is not None:
+        if len(_FACETS) >= 256:
+            _FACETS.clear()
+        _FACETS[key] = facets
+    return facets, tokens
 
 
 async def _log_tokens(user_id: str, tokens: int) -> None:
@@ -229,6 +266,7 @@ class PendingAnswer:
     source_type: str
     stop: StopCheck
     reservation: _Reservation
+    guide: Optional[Guide] = None   # Lens Guide cards for the answer (MS-1182: the context it used)
 
     def __post_init__(self) -> None:
         self.reservation.hand_over()
@@ -365,6 +403,16 @@ async def _answer_query(
         # would search everything ("dokumen Proyek Klien Y").
         if intent == "retrieval" and not req.skill_id and find_mentioned_folders(req.question, scope):
             intent = None
+        # MS-1182: a guidance conversation in a known folder is led by the
+        # server (guide_turn below), whatever the rules would do with a short
+        # answer such as "core-api".
+        folder, confirmed = (
+            conversation_folder(req.question, memory_payload, scope)
+            if scope.folders_loaded and not req.skill_id else (None, False)
+        )
+        start = guidance_request(req.question, memory_payload) if folder else None
+        if start is not None:
+            intent = None
         # MS-1181: a pasted Google Drive link is offered for import (no model
         # call), whether or not a source is switched on; the UI imports it with
         # the existing upload-from-urls if the user agrees.
@@ -440,6 +488,71 @@ async def _answer_query(
                     reservation=reservation,
                 )
 
+            async def guide_turn(target: ScopeFolder, confirmed: bool, start: int):
+                """MS-1182: one turn of a guidance conversation in `target`. The
+                server asks the role, then the part, when the folder's documents
+                tell them apart, and searches the folder once nothing is left
+                to ask (scenario table: docs/MS-1182-SCENARIOS.md)."""
+                ids = collection_ids_in([target], scope)
+                if not ids:
+                    if confirmed:
+                        text, guide = empty_folder_reply([target], language), None
+                    else:
+                        text, guide = await asyncio.to_thread(
+                            folder_reply, target.path[-1], [target], scope, user.user_id, language,
+                        )
+                    return _system_response(
+                        text, "system/lens-guide", req.question, start_time, source_type="Conversation", guide=guide,
+                    )
+                facets, tokens = await _facets_for(target, scope, ids, req)
+                if await stop.stopped():
+                    await _log_tokens(user.user_id, tokens)
+                    raise QueryStopped
+                known = known_answers(facets, req.question, memory_payload, start)
+                kind = next_question(facets, known)
+                if not confirmed or kind:
+                    await _log_tokens(user.user_id, tokens)
+                    if not confirmed and kind:
+                        text, guide = await asyncio.to_thread(
+                            folder_question_reply, target, question_text(kind, target, language),
+                            facets.options(kind), scope, user.user_id, language,
+                        )
+                    elif not confirmed:
+                        text, guide = await asyncio.to_thread(
+                            folder_reply, target.path[-1], [target], scope, user.user_id, language,
+                        )
+                    else:
+                        text = question_text(kind, target, language)
+                        guide = Guide(question=GuideQuestion(options=facets.options(kind)))
+                    return _system_response(
+                        text, "system/lens-guide", req.question, start_time, source_type="Conversation", guide=guide,
+                    )
+                if not has_source:
+                    await _log_tokens(user.user_id, tokens)
+                    return _system_response(
+                        no_source_selected(language), "system/no-source-selected", req.question, start_time,
+                    )
+                request = request_text(req.question, memory_payload, start, target, language)
+                return await _retrieve(
+                    req, user, is_admin, allowed_pdf_ids, pdf_collection_ids, base_url, start_time,
+                    memory_payload, language,
+                    routing_tokens=tokens,
+                    question=search_question(request, known, language),
+                    scope_collection_ids=ids,
+                    task="answer",
+                    stop=stop,
+                    reservation=reservation,
+                    guide=Guide(context=guide_context(target, facets, known, language)),
+                )
+
+            if folder and confirmed and is_folder_pick(req.question) and not collection_ids_in([folder], scope):
+                return _system_response(
+                    empty_folder_reply([folder], language), "system/lens-guide", req.question, start_time,
+                    source_type="Conversation",
+                )
+            if start is not None:
+                return await guide_turn(folder, confirmed, start)
+
             usage = await asyncio.to_thread(get_usage_snapshot, user)
             if await stop.stopped():
                 raise QueryStopped
@@ -464,9 +577,14 @@ async def _answer_query(
                 # The model only named the folder; which ones match, and the
                 # reply, come from this user's scope.
                 await _log_tokens(user.user_id, decision.total_tokens)
+                matches = match_folders(decision.folder_name, scope)
+                start = guidance_request(req.question, memory_payload)
+                if len(matches) == 1 and start is not None and named_exactly(decision.folder_name, matches[0]):
+                    # MS-1182: a whole folder name only the model spotted ("aku
+                    # masuk Atlas"): confirmed together with the first question.
+                    return await guide_turn(matches[0], False, start)
                 text, guide = await asyncio.to_thread(
-                    folder_reply,
-                    decision.folder_name, match_folders(decision.folder_name, scope), scope, user.user_id, language,
+                    folder_reply, decision.folder_name, matches, scope, user.user_id, language,
                 )
                 return _system_response(
                     text, decision.model_id, req.question, start_time, source_type="Conversation", guide=guide,
@@ -537,6 +655,7 @@ async def _retrieve(
     question: Optional[str] = None,
     scope_collection_ids: Optional[List[str]] = None,
     task: str = "answer",
+    guide: Optional[Guide] = None,
 ) -> PendingAnswer:
     """The token-costing half of agnostic_query up to the model call:
     source resolution and the search, run while the question holds its
@@ -630,7 +749,7 @@ async def _retrieve(
         memory=memory_payload, skill_instruction=skill_instruction, task=task,
         routing_tokens=routing_tokens,
         source_type=_describe_source_type(should_search_public_links, should_search_external_db),
-        stop=stop, reservation=reservation,
+        stop=stop, reservation=reservation, guide=guide,
     )
 
 
@@ -722,6 +841,7 @@ def _build_response(
         source_type=pending.source_type,
         retrieved_count=len(pdf_sources) + len(chat_results),
         efficiency=efficiency,
+        guide=pending.guide,
     )
 
 

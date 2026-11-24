@@ -1105,8 +1105,9 @@ class GuideQuestion(BaseModel):
 
 
 class GuideContext(BaseModel):
-    label: str
-    value: str
+    label:   str
+    value:   str
+    options: List[str] = []   # what "Ubah" offers instead (MS-1182); none for the folder
 
 
 class GuideStep(BaseModel):

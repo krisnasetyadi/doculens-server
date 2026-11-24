@@ -34,6 +34,12 @@ def match_folders(name: str, scope: Scope) -> List[ScopeFolder]:
     return sorted(found, key=lambda f: [p.lower() for p in f.path])
 
 
+def named_exactly(name: str, folder: ScopeFolder) -> bool:
+    """`name` is the folder's whole name, not a part of it or of its path
+    (MS-1182: such a folder is confirmed together with the first question)."""
+    return bool(_words(name)) and _words(folder.path[-1]) == _words(name)
+
+
 def folder_label(folder: ScopeFolder) -> str:
     """The path as written in replies and passed back by the router."""
     return " › ".join(folder.path)

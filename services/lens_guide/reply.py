@@ -12,7 +12,7 @@ asyncio.to_thread.
 import re
 from typing import Dict, List, Optional, Tuple
 
-from models import Guide, GuideFolder
+from models import Guide, GuideFolder, GuideQuestion
 from services.lens_guide.match import folder_label, subfolders
 from services.lens_guide.scope import Scope, ScopeFolder
 from services.storage import supabase as supabase_storage
@@ -97,6 +97,18 @@ def folder_reply(
             "folders, or paste the public Google Drive folder link here for me to import."
         )
     return text, Guide(missing_source=True, folders=_cards(picker, scope, user_id, language) or None)
+
+
+def folder_question_reply(
+    folder: ScopeFolder, question: str, options: List[str], scope: Scope, user_id: str, language: str,
+) -> Tuple[str, Guide]:
+    """MS-1182: a folder named exactly, confirmed together with the first
+    question (mockup state 2): answering it confirms the folder, "Bukan folder
+    ini" turns it down. The path stays in the text for the next turn."""
+    card = _cards([folder], scope, user_id, language)[0]
+    path = f"**{' › '.join(card.path)}**"
+    lead = f"Saya menemukan folder {path}." if language == "id" else f"I found the folder {path}."
+    return f"{lead} {question}", Guide(folder=card, question=GuideQuestion(options=options))
 
 
 def requested_name(memory: Optional[List[Dict[str, str]]]) -> Optional[str]:
