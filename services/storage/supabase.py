@@ -22,6 +22,7 @@ Buckets (create once in Supabase Dashboard -> Storage):
 """
 
 import json
+import psycopg2.errors
 import logging
 import os
 from typing import Any, Dict, List, Optional, Tuple
@@ -805,8 +806,9 @@ def save_gap_analysis_items(run_id: str, items: List[Dict[str, Any]]) -> bool:
                 cur.execute("""
                     INSERT INTO gap_analysis_items
                         (run_id, label, status, evidence, source_citation, recommendation, target_collection_id,
-                         requirement_key, code, reason, summary, next_step, findings, searched, trend, answered)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                         requirement_key, code, reason, summary, next_step, findings, searched, trend, answered,
+                         correction, corrected_by)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """, (
                     run_id,
                     item.get("label", ""),
@@ -824,6 +826,8 @@ def save_gap_analysis_items(run_id: str, items: List[Dict[str, Any]]) -> bool:
                     as_json(item.get("searched")),
                     item.get("trend"),
                     item.get("answered", True),
+                    as_json(item.get("correction")),
+                    (item.get("correction") or {}).get("corrected_by"),
                 ))
         return True
     except Exception as e:
@@ -848,6 +852,10 @@ _RUN_COLLECTION_LABELS = """
 
 # The statuses a run's summary counts (MS-1112); not_checked is counted apart.
 RUN_SUMMARY_STATUSES = ("done", "incomplete", "missing", "needs_decision", "not_applicable")
+
+# An item's status as results, summaries and trends use it: a person's
+# correction (MS-1115) over the AI's own status.
+_EFFECTIVE_STATUS = "COALESCE(i.correction->>'status', i.status)"
 
 
 def list_gap_analysis_runs(owner_id: Optional[str] = None, is_admin: bool = False) -> List[Dict[str, Any]]:
@@ -876,15 +884,17 @@ def list_gap_analysis_runs(owner_id: Optional[str] = None, is_admin: bool = Fals
                 LEFT JOIN analyses a ON a.analysis_id = r.analysis_id
                 -- Counted per listed run (LATERAL, on idx_gap_analysis_items_run), not
                 -- for the whole items table before the owner filter applies. Old
-                -- status values count as their MS-1112 equivalents.
+                -- status values count as their MS-1112 equivalents, corrected
+                -- items as their corrected status (MS-1115).
                 LEFT JOIN LATERAL (
-                    SELECT COUNT(*) FILTER (WHERE i.status IN ('done', 'met'))           AS done,
-                           COUNT(*) FILTER (WHERE i.status IN ('incomplete', 'partial')) AS incomplete,
-                           COUNT(*) FILTER (WHERE i.status IN ('missing', 'not_met'))    AS missing,
-                           COUNT(*) FILTER (WHERE i.status IN ('needs_decision', 'unknown')) AS needs_decision,
-                           COUNT(*) FILTER (WHERE i.status = 'not_applicable')           AS not_applicable,
-                           COUNT(*) FILTER (WHERE i.status = 'not_checked')              AS not_checked
-                    FROM gap_analysis_items i WHERE i.run_id = r.run_id
+                    SELECT COUNT(*) FILTER (WHERE st IN ('done', 'met'))               AS done,
+                           COUNT(*) FILTER (WHERE st IN ('incomplete', 'partial'))     AS incomplete,
+                           COUNT(*) FILTER (WHERE st IN ('missing', 'not_met'))        AS missing,
+                           COUNT(*) FILTER (WHERE st IN ('needs_decision', 'unknown')) AS needs_decision,
+                           COUNT(*) FILTER (WHERE st = 'not_applicable')               AS not_applicable,
+                           COUNT(*) FILTER (WHERE st = 'not_checked')                  AS not_checked
+                    FROM (SELECT """ + _EFFECTIVE_STATUS + """ AS st
+                          FROM gap_analysis_items i WHERE i.run_id = r.run_id) per_item
                 ) s ON true
                 LEFT JOIN LATERAL (""" + _RUN_COLLECTION_LABELS + """) l ON true
                 WHERE %(is_admin)s OR r.owner_id = %(owner_id)s
@@ -945,9 +955,10 @@ def get_gap_analysis_items(run_id: str) -> List[Dict[str, Any]]:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT label, status, evidence, source_citation, recommendation, target_collection_id,
+                SELECT id AS item_id, label, status, evidence, source_citation, recommendation, target_collection_id,
                        requirement_key, code, reason, summary, next_step,
-                       COALESCE(findings, '[]'::jsonb) AS findings, searched, trend, answered, created_at
+                       COALESCE(findings, '[]'::jsonb) AS findings, searched, trend, answered,
+                       correction, created_at
                 FROM gap_analysis_items WHERE run_id = %s ORDER BY id ASC
             """, (run_id,))
             rows = cur.fetchall()
@@ -1097,7 +1108,8 @@ def get_latest_run_statuses(analysis_id: str) -> Dict[str, str]:
     """{requirement_key: status} each requirement had in the analysis's newest
     run that answered it: what a new run's trends compare against. A run where
     the AI gave no answer for a requirement is skipped for that requirement,
-    so a failed check never counts as a baseline. Empty when the analysis has
+    so a failed check never counts as a baseline; one a person corrected
+    counts, with the corrected status (MS-1115). Empty when the analysis has
     no run yet."""
     conn = db.get_conn("storage")
     if not conn:
@@ -1105,10 +1117,11 @@ def get_latest_run_statuses(analysis_id: str) -> Dict[str, str]:
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT DISTINCT ON (i.requirement_key) i.requirement_key, i.status
+                SELECT DISTINCT ON (i.requirement_key) i.requirement_key, """ + _EFFECTIVE_STATUS + """ AS status
                 FROM gap_analysis_items i
                 JOIN gap_analysis_runs r ON r.run_id = i.run_id
-                WHERE r.analysis_id = %s AND i.requirement_key IS NOT NULL AND i.answered
+                WHERE r.analysis_id = %s AND i.requirement_key IS NOT NULL
+                      AND (i.answered OR i.correction IS NOT NULL)
                 ORDER BY i.requirement_key, r.created_at DESC, i.id DESC
             """, (analysis_id,))
             rows = cur.fetchall()
@@ -1118,6 +1131,102 @@ def get_latest_run_statuses(analysis_id: str) -> Dict[str, str]:
         return {}
     finally:
         conn.close()
+
+
+def set_item_correction(run_id: str, item_id: int, correction: Optional[Dict[str, Any]]) -> bool:
+    """Store a person's correction of one item (MS-1115), or clear it (None)
+    to undo. False when the item is not in that run or the write failed."""
+    conn = db.get_conn("storage")
+    if not conn:
+        return False
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                UPDATE gap_analysis_items SET correction = %s, corrected_by = %s
+                WHERE run_id = %s AND id = %s
+            """, (
+                json.dumps(correction) if correction else None,
+                (correction or {}).get("corrected_by"),
+                run_id, item_id,
+            ))
+            return cur.rowcount == 1
+    except Exception as e:
+        logger.warning("set_item_correction failed for %s/%s: %s", run_id, item_id, e)
+        return False
+    finally:
+        conn.close()
+
+
+def get_latest_corrections(analysis_id: str) -> Dict[str, Dict[str, Any]]:
+    """{requirement_key: correction} a new run may carry over (MS-1115): for
+    each requirement, the correction on the newest run of the analysis that
+    checked it. A run without that requirement (one that stored no items, say)
+    is skipped, so it does not wipe the correction; a newer run that has the
+    requirement without a correction (it was undone there) wins, so an undone
+    correction never comes back. Each correction names the run it was made on
+    in `carried_from_run_id`."""
+    conn = db.get_conn("storage")
+    if not conn:
+        return {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT DISTINCT ON (i.requirement_key) i.requirement_key, i.correction, i.run_id
+                FROM gap_analysis_items i
+                JOIN gap_analysis_runs r ON r.run_id = i.run_id
+                WHERE r.analysis_id = %s AND i.requirement_key IS NOT NULL
+                ORDER BY i.requirement_key, r.created_at DESC, i.id DESC
+            """, (analysis_id,))
+            rows = cur.fetchall()
+        return {
+            r["requirement_key"]: {**r["correction"], "carried_from_run_id": r["correction"].get("carried_from_run_id") or r["run_id"]}
+            for r in rows if r["correction"]
+        }
+    except Exception as e:
+        logger.warning("get_latest_corrections failed for %s: %s", analysis_id, e)
+        return {}
+    finally:
+        conn.close()
+
+
+def add_rule_set_direction(analysis_id: str, line: str) -> Optional[int]:
+    """Add one direction line to the analysis's rule set as its next version
+    (MS-1115, "Remember for next checks"), read and written in one statement
+    so two corrections remembered at once can't drop each other's line: the
+    one that loses the race on the version number tries again on the newer
+    version. Returns the new version, the current one when the line is
+    already there, or None when it could not be stored."""
+    for _ in range(3):
+        conn = db.get_conn("storage")
+        if not conn:
+            return None
+        try:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    WITH latest AS (
+                        SELECT * FROM analysis_rule_sets WHERE analysis_id = %(analysis_id)s
+                        ORDER BY version DESC LIMIT 1
+                    ), added AS (
+                        INSERT INTO analysis_rule_sets
+                            (analysis_id, version, framework_name, reference_collection_ids, requirements, directions)
+                        SELECT analysis_id, version + 1, framework_name, reference_collection_ids, requirements,
+                               CASE WHEN directions = '' THEN %(line)s ELSE directions || E'\\n' || %(line)s END
+                        FROM latest
+                        WHERE NOT (%(line)s = ANY(string_to_array(directions, E'\\n')))
+                        RETURNING version
+                    )
+                    SELECT COALESCE((SELECT version FROM added), (SELECT version FROM latest)) AS version
+                """, {"analysis_id": analysis_id, "line": line})
+                row = cur.fetchone()
+            return row["version"] if row else None
+        except psycopg2.errors.UniqueViolation:
+            continue  # another direction took this version number: retry on the newer version
+        except Exception as e:
+            logger.warning("add_rule_set_direction failed for %s: %s", analysis_id, e)
+            return None
+        finally:
+            conn.close()
+    return None
 
 
 # ---------------------------------------------------------------------------

@@ -335,6 +335,140 @@ class RunsListTest(ComplianceTestCase):
         self.assertEqual((run["summary"], run["not_checked"]), (ZERO, 0))
 
 
+class CorrectionTest(ComplianceTestCase):
+    """MS-1115: correcting a status the AI got wrong."""
+
+    def setUp(self):
+        super().setUp()
+        self.run = self.run_check().json()
+        self.run_id = self.run["run"]["run_id"]
+        self.ids = {i["requirement_key"]: i["item_id"] for i in self.run["items"]}
+
+    def correct(self, key, who=None, run_id=None, **body):
+        payload = {"kind": "wrong_status", "status": "done", "reason": "The access review is in the HR folder.", **body}
+        url = f"/api/v1/analysis/gap-analysis/{run_id or self.run_id}/items/{self.ids[key]}/correction"
+        return self.client(who or self.owner).put(url, json=payload)
+
+    def item(self, body, key):
+        return next(i for i in body["items"] if i["requirement_key"] == key)
+
+    def test_a_corrected_status_is_used_and_the_ais_stays_visible(self):
+        resp = self.correct("A.8.2")
+        self.assertEqual(resp.status_code, 200, resp.text)
+        body = resp.json()
+        access = self.item(body, "A.8.2")
+        self.assertEqual((access["status"], access["ai_status"]), ("done", "missing"))
+        self.assertEqual((access["correction"]["corrected_by_name"], access["correction"]["kind"]),
+                         (self.owner.email, "wrong_status"))
+        self.assertEqual((access["reason"], access["next_step"]), ("The access review is in the HR folder.", None))
+        self.assertEqual(body["summary"], {**SUMMARY, "done": 2, "missing": 0})
+        self.assertEqual(body["ai_accuracy"], {"checked": 3, "corrected": 1})
+        # The history list and a fresh read count the corrected status too.
+        listed = self.client(self.owner).get("/api/v1/analysis/gap-analysis/runs").json()[0]
+        self.assertEqual(listed["summary"], body["summary"])
+        self.assertEqual(self.client(self.owner).get(f"/api/v1/analysis/gap-analysis/{self.run_id}").json(), body)
+
+    def test_a_correction_can_be_undone(self):
+        self.correct("A.8.2")
+        url = f"/api/v1/analysis/gap-analysis/{self.run_id}/items/{self.ids['A.8.2']}/correction"
+        body = self.client(self.owner).delete(url).json()
+        access = self.item(body, "A.8.2")
+        self.assertEqual((access["status"], access["correction"]), ("missing", None))
+        self.assertEqual(body["summary"], SUMMARY)
+
+    def test_a_missed_document_is_shown_as_a_finding_added_by_its_corrector(self):
+        doc = {"collection_id": self.target, "file_name": "Our policies.pdf", "section": "Section 2"}
+        self.assertEqual(self.correct("A.8.2", kind="missed_document").status_code, 400)  # no document named
+        self.assertEqual(self.correct("A.8.2", kind="missed_document",
+                                      document={**doc, "file_name": "nope.pdf"}).status_code, 400)
+        stranger_doc = self.collection(user(), "Secret")
+        self.assertEqual(self.correct("A.8.2", kind="missed_document",
+                                      document={**doc, "collection_id": stranger_doc}).status_code, 403)
+
+        access = self.item(self.correct("A.8.2", kind="missed_document", document=doc).json(), "A.8.2")
+        added = access["findings"][0]
+        self.assertEqual((added["added_by"], added["verdict"], added["text"]),
+                         (self.owner.email, "met", "The access review is in the HR folder."))
+        self.assertEqual((added["location"]["collection_id"], added["location"]["label"]),
+                         (self.target, "Our policies.pdf · Section 2"))
+
+    def test_what_a_person_may_set(self):
+        self.assertEqual(self.item(self.correct("A.9", kind="not_applicable", status="done").json(), "A.9")["status"],
+                         "not_applicable")  # "not applicable to us" always sets not_applicable
+        self.assertEqual(self.correct("A.9", status="needs_decision").status_code, 400)
+        self.assertEqual(self.correct("A.9", kind="guess").status_code, 422)
+        self.assertEqual(self.correct("A.9", reason="  ").status_code, 422)
+        self.assertEqual(self.correct("A.7.1").status_code, 400)  # not checked
+        self.assertEqual(self.correct("A.9", who=user()).status_code, 403)
+        self.ids["nope"] = 999999
+        self.assertEqual(self.correct("nope").status_code, 404)
+
+    def test_remember_for_next_checks_adds_a_direction_to_the_rule_set(self):
+        analysis_id = self.run["run"]["analysis_id"]
+        access = self.item(self.correct("A.8.2", remember=True).json(), "A.8.2")
+        self.assertEqual(access["correction"]["direction"], "A.8.2: The access review is in the HR folder.")
+        analysis = storage.get_analysis(analysis_id)
+        self.assertEqual((analysis["directions"], analysis["rule_set_version"]),
+                         ("A.8.2: The access review is in the HR folder.", 2))
+        self.correct("A.8.2", remember=True)  # the same direction is not added twice
+        self.assertEqual(storage.get_analysis(analysis_id)["rule_set_version"], 2)
+
+    def test_a_later_run_keeps_the_correction_unless_its_document_changed(self):
+        doc = {"collection_id": self.target, "file_name": "Our policies.pdf"}
+        self.correct("A.8.2", kind="missed_document", document=doc)
+        analysis_id = self.run["run"]["analysis_id"]
+
+        second = self.run_check(analysis_id=analysis_id).json()
+        access = self.item(second, "A.8.2")
+        self.assertEqual((access["status"], access["ai_status"]), ("done", "missing"))
+        self.assertEqual(access["correction"]["carried_from_run_id"], self.run_id)
+        self.assertEqual(access["trend"], "unchanged")  # compared with the corrected status
+
+        # Switching the document off and on again changes nothing in it: the correction stays.
+        self.assertTrue(storage.set_collection_status(self.target, False))
+        self.assertTrue(storage.set_collection_status(self.target, True))
+        self.assertEqual(self.item(self.run_check(analysis_id=analysis_id).json(), "A.8.2")["status"], "done")
+
+        # Uploading it again (new content) does: the AI's answer stands.
+        self.assertTrue(storage.register_collection(self.target, ["Our policies.pdf"], 9, title="Our policies",
+                                                    owner_id=self.owner.user_id))
+        third = self.run_check(analysis_id=analysis_id).json()
+        access = self.item(third, "A.8.2")
+        self.assertEqual((access["status"], access["correction"], access["trend"]), ("missing", None, "worse"))
+
+    def test_a_run_without_items_does_not_wipe_a_correction(self):
+        self.correct("A.8.2")
+        analysis_id = self.run["run"]["analysis_id"]
+        self.m["run"].side_effect = lambda **_: ([], "AI generated", 5, REQUIREMENTS)  # nothing stored
+        self.run_check(analysis_id=analysis_id)
+        self.m["run"].side_effect = lambda **_: engine_result()
+        access = self.item(self.run_check(analysis_id=analysis_id).json(), "A.8.2")
+        self.assertEqual((access["status"], access["correction"]["carried_from_run_id"]), ("done", self.run_id))
+
+    def test_an_undone_correction_does_not_come_back(self):
+        analysis_id = self.run["run"]["analysis_id"]
+        self.correct("A.8.2")
+        second = self.run_check(analysis_id=analysis_id).json()
+        second_id = second["run"]["run_id"]
+        access_id = self.item(second, "A.8.2")["item_id"]
+        self.client(self.owner).delete(f"/api/v1/analysis/gap-analysis/{second_id}/items/{access_id}/correction")
+        third = self.run_check(analysis_id=analysis_id).json()
+        self.assertEqual((self.item(third, "A.8.2")["status"], self.item(third, "A.8.2")["correction"]), ("missing", None))
+
+    def test_a_new_answer_from_the_ai_replaces_the_correction(self):
+        self.correct("A.8.2", status="incomplete")  # a correction resting on no document
+        analysis_id = self.run["run"]["analysis_id"]
+        self.m["run"].side_effect = lambda **_: engine_result([ITEMS[0], dict(ITEMS[1], status="done"), *ITEMS[2:]])
+        access = self.item(self.run_check(analysis_id=analysis_id).json(), "A.8.2")
+        self.assertEqual((access["status"], access["correction"]), ("done", None))
+
+    def test_the_export_shows_the_correction(self):
+        self.correct("A.8.2")
+        md = self.client(self.owner).get(f"/api/v1/analysis/gap-analysis/{self.run_id}/export").text
+        self.assertIn(f"| A.8.2 Access |  | comply (dikoreksi {self.owner.email}; AI: not comply). "
+                      "The access review is in the HR folder. |", md)
+
+
 class ExportTest(ComplianceTestCase):
     def test_markdown_and_pdf(self):
         run_id = self.run_check().json()["run"]["run_id"]

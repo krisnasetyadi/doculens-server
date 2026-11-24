@@ -6,6 +6,7 @@ from typing import List
 from fastapi import APIRouter, Depends, Query
 
 from models import (
+    GapAnalysisCorrectionRequest,
     GapAnalysisRequest,
     GapAnalysisResponse,
     GapAnalysisRunListItem,
@@ -60,3 +61,21 @@ async def export_gap_analysis_run(
     MVP (not deferred): download is an additional way to take the report
     outside the app, not the only way to see the full result."""
     return await compliance_service.export_run(run_id, format, user)
+
+
+@router.put("/analysis/gap-analysis/{run_id}/items/{item_id}/correction", response_model=GapAnalysisResponse)
+async def correct_gap_analysis_item(
+    run_id: str,
+    item_id: int,
+    body: GapAnalysisCorrectionRequest,
+    user: UserRecord = Depends(get_current_user),
+):
+    """Correct a status the AI got wrong (MS-1115). Returns the whole run, so
+    its counts update at once."""
+    return await compliance_service.correct_item(run_id, item_id, body, user)
+
+
+@router.delete("/analysis/gap-analysis/{run_id}/items/{item_id}/correction", response_model=GapAnalysisResponse)
+async def undo_gap_analysis_correction(run_id: str, item_id: int, user: UserRecord = Depends(get_current_user)):
+    """Undo a correction: the item reads as the AI said again."""
+    return await compliance_service.undo_correction(run_id, item_id, user)
