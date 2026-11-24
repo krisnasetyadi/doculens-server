@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 from models import UserRecord
 from services.lens_guide import scope as scope_module
+from services.lens_guide.match import match_folders, resolve_folder_label
 from services.lens_guide.scope import load_scope
 from services.storage import supabase as storage
 from tests.testing_db import IsolatedSchemaTestCase, _base_url
@@ -65,6 +66,29 @@ class ScopePathTests(unittest.TestCase):
         self.assertIsNone(result.folders[0].parent_folder_id)
         self.assertEqual(result.folders[0].file_count, 1)
         self.assertEqual((result.collections[0].folder_id, result.collections[0].folder_path), (None, []))
+
+    def test_same_named_folders_get_a_number_so_a_pick_names_one(self):
+        # MS-1182: an admin sees their "A" and another user's "A" at the root.
+        # Picking one sends its path as text; equal paths looped on "which one?".
+        result = fake_scope(
+            [
+                {"folder_id": "new", "name": "A", "parent_folder_id": None, "owner_id": "u2", "created_at": "2026-11-02"},
+                {"folder_id": "old", "name": "A ", "parent_folder_id": None, "owner_id": "u1", "created_at": "2026-11-01"},
+                {"folder_id": "sub", "name": "Docs", "parent_folder_id": "new"},
+                {"folder_id": "b", "name": "B", "parent_folder_id": None},
+            ],
+            [],
+        )
+        folders = {f.folder_id: f for f in result.folders}
+        self.assertEqual(
+            {k: f.path for k, f in folders.items()},
+            {"old": ["A (1)"], "new": ["A (2)"], "sub": ["A (2)", "Docs"], "b": ["B"]},
+        )
+        self.assertEqual(folders["new"].name, "A")  # the stored name is untouched
+
+        self.assertEqual({f.folder_id for f in match_folders("A", result)}, {"old", "new"})
+        self.assertEqual([f.folder_id for f in match_folders("folder A (2)", result)], ["new"])
+        self.assertEqual([f.folder_id for f in resolve_folder_label("A (2)", result)], ["new"])
 
     def test_a_cycle_does_not_hang(self):
         result = fake_scope(

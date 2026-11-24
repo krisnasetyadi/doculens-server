@@ -481,10 +481,8 @@ async def _answer_query(
             scoped_titles = [decision.search_collection] if decision.search_collection else []
             scope_ids = _collection_ids_for(scoped_titles, collections)
             # MS-1181: a confirmed folder limits the search to it and every
-            # folder below it. shortcut: two folders with one full path (an
-            # admin seeing two users' folders) are searched together, since the
-            # conversation text cannot tell them apart; upgrade by carrying the
-            # folder id once the cards are saved with the message.
+            # folder below it. Every path in the scope is unique (same-named
+            # folders are numbered, MS-1182), so one label is one folder.
             folders = resolve_folder_label(decision.search_folder, scope) if decision.search_folder else []
             if folders:
                 in_folder = collection_ids_in(folders, scope)
