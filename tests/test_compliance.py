@@ -335,6 +335,39 @@ class RunsListTest(ComplianceTestCase):
         self.assertEqual((run["summary"], run["not_checked"]), (ZERO, 0))
 
 
+class ApprovedListTest(ComplianceTestCase):
+    """MS-1114: a new analysis starts from the requirement list the user read and approved."""
+
+    APPROVED = [
+        {"key": "A.5.1", "code": "A.5.1", "label": "Policies", "applicable": True,
+         "source": {"label": "SoA · row 4", "sheet": "SoA", "row": 4}},
+        {"key": "A.8.2", "code": "A.8.2", "label": "Access", "expected_document": "access review"},
+    ]
+
+    def test_the_approved_list_is_rule_set_version_1_and_is_what_gets_checked(self):
+        body = self.run_check(requirements=self.APPROVED, goal="Ready for the ISO audit?").json()
+        _, kwargs = self.m["run"].call_args
+        checked = kwargs["requirements"]
+        self.assertEqual([r["key"] for r in checked], ["A.5.1", "A.8.2"])
+        self.assertEqual(checked[0]["source"]["label"], "SoA · row 4")
+        self.assertNotIn("applicable", checked[0])  # what the rule file said is not part of the rule set
+        analysis = storage.get_analysis(body["run"]["analysis_id"])
+        self.assertEqual((analysis["rule_set_version"], analysis["goal"]), (1, "Ready for the ISO audit?"))
+
+    def test_an_approved_list_needs_items_with_their_own_keys(self):
+        self.assertEqual(self.run_check(requirements=[]).status_code, 400)
+        self.assertEqual(self.run_check(requirements=[self.APPROVED[0], self.APPROVED[0]]).status_code, 400)
+
+    def test_rule_sets_a_new_check_can_reuse(self):
+        first = self.run_check().json()["run"]
+        reusable = self.client(self.owner).get("/api/v1/analysis/gap-analysis/analyses")
+        self.assertEqual(reusable.status_code, 200)  # not read as a run id
+        [row] = reusable.json()
+        self.assertEqual((row["analysis_id"], row["requirement_count"], row["last_run_id"], row["last_target_collection_ids"]),
+                         (first["analysis_id"], len(REQUIREMENTS), first["run_id"], [self.target]))
+        self.assertEqual(self.client(user()).get("/api/v1/analysis/gap-analysis/analyses").json(), [])
+
+
 class ExportTest(ComplianceTestCase):
     def test_markdown_and_pdf(self):
         run_id = self.run_check().json()["run"]["run_id"]

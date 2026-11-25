@@ -7,11 +7,17 @@ from fastapi import APIRouter, Depends, Query
 
 from models import (
     GapAnalysisRequest,
+    ReusableAnalysis,
+    SetupDraft,
+    SetupDraftRequest,
+    SetupSuggestRequest,
+    SetupSuggestion,
     GapAnalysisResponse,
     GapAnalysisRunListItem,
     RunDeletedResponse,
     UserRecord,
 )
+from services import analysis_setup
 from services import compliance as compliance_service
 from services.auth import get_current_user
 
@@ -32,6 +38,27 @@ async def run_gap_analysis(
 async def list_gap_analysis_runs(user: UserRecord = Depends(get_current_user)):
     """History of runs visible to the current user (own runs, or all for admins)."""
     return await compliance_service.list_runs(user)
+
+
+@router.post("/analysis/gap-analysis/setup/suggest", response_model=SetupSuggestion)
+async def suggest_analysis_setup(body: SetupSuggestRequest, user: UserRecord = Depends(get_current_user)):
+    """From "What do you want to check?": the rule file and the folders the AI
+    suggests (MS-1114)."""
+    return await analysis_setup.suggest_for(body.goal, user)
+
+
+@router.post("/analysis/gap-analysis/setup/draft", response_model=SetupDraft)
+async def draft_analysis_requirements(body: SetupDraftRequest, user: UserRecord = Depends(get_current_user)):
+    """The requirement list a new analysis would check, for the user to read
+    and approve first (MS-1114)."""
+    return await analysis_setup.draft_for(body, user)
+
+
+@router.get("/analysis/gap-analysis/analyses", response_model=List[ReusableAnalysis])
+async def list_reusable_analyses(user: UserRecord = Depends(get_current_user)):
+    """Analyses whose rule set a new check can reuse (MS-1114). Declared before
+    /{run_id} so "analyses" is not read as a run id."""
+    return await analysis_setup.reusable_for(user)
 
 
 @router.get("/analysis/gap-analysis/{run_id}", response_model=GapAnalysisResponse)

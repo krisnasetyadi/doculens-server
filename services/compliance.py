@@ -279,6 +279,12 @@ def _check_request(body: GapAnalysisRequest) -> None:
         raise HTTPException(status_code=400, detail=f"Unknown skill_id. Supported: {sorted(SUPPORTED_SKILLS)}")
     if not body.reference_collection_ids:
         raise HTTPException(status_code=400, detail="reference_collection_ids is required")
+    if body.requirements is not None:
+        keys = [r.key for r in body.requirements]
+        if not keys:
+            raise HTTPException(status_code=400, detail="Keep at least one requirement to check")
+        if len(set(keys)) != len(keys):
+            raise HTTPException(status_code=400, detail="Each requirement in the list needs its own key")
 
 
 async def _open_analysis(analysis_id: Optional[str], user: UserRecord) -> Optional[dict]:
@@ -304,12 +310,15 @@ class RuleSet:
 
 
 def _rule_set_for(body: GapAnalysisRequest, analysis: Optional[dict]) -> RuleSet:
-    """A new analysis takes everything from the request. A run of an existing
-    one keeps its reference and requirement list, so items compare by key with
-    the last run; directions sent with the request replace the stored ones (and
-    become a new rule-set version, see _file_under_analysis)."""
+    """A new analysis takes everything from the request: the requirement list
+    the user approved (MS-1114), or none, so the check reads it from the
+    reference. A run of an existing one keeps its reference and requirement
+    list, so items compare by key with the last run; directions sent with the
+    request replace the stored ones (and become a new rule-set version, see
+    _file_under_analysis)."""
     if not analysis:
-        return RuleSet(body.framework_name, list(body.reference_collection_ids), None, body.directions or "")
+        approved = [r.model_dump(exclude={"applicable"}) for r in body.requirements] if body.requirements else None
+        return RuleSet(body.framework_name, list(body.reference_collection_ids), approved, body.directions or "")
     return RuleSet(
         framework_name=analysis.get("framework_name") or body.framework_name,
         reference_collection_ids=list(analysis.get("reference_collection_ids") or body.reference_collection_ids),
