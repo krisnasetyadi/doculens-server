@@ -583,6 +583,104 @@ class GapAnalysisRequest(BaseModel):
     goal: Optional[str] = None
     directions: Optional[str] = None  # extra instructions for the AI, kept in the rule set
     target_folder_ids: List[str] = []  # the folders the documents were picked from, for "where the AI searched"
+    # MS-1114: the requirement list the user approved for a new analysis
+    # (rule set version 1); None reads it from the reference as before.
+    requirements: Optional[List["DraftRequirement"]] = Field(default=None, max_length=2000)
+
+
+# ===================== ANALYSIS SETUP (MS-1114) =====================
+# Starting an analysis from one sentence: the AI suggests the rule file and
+# the folders, drafts the requirement list for the user to read, and the run
+# starts from the approved list.
+
+class SetupSuggestRequest(BaseModel):
+    goal: str = Field(..., min_length=3, max_length=500)  # "What do you want to check?"
+
+
+class RuleFileOption(BaseModel):
+    collection_id: str
+    file_name: str
+    title: str
+    flagged: bool = False  # marked as a reference framework in Sources
+    folder_path: List[str] = []
+
+
+class FolderOption(BaseModel):
+    folder_id: Optional[str] = None  # None: documents that are in no folder
+    name: str
+    path: List[str] = []
+    document_count: int = 0
+    collection_ids: List[str] = []  # every document in it and its subfolders
+    suggested: bool = False
+
+
+class SetupSuggestion(BaseModel):
+    rule_file: Optional[RuleFileOption] = None
+    rule_file_why: Optional[str] = None
+    rule_files: List[RuleFileOption] = []  # what "Use another file" offers, rule files first
+    folders: List[FolderOption] = []
+    folders_why: Optional[str] = None
+    suggested_by: str = "guess"  # "ai" | "guess" (the AI could not be reached)
+
+
+class TableMapping(BaseModel):
+    """Which sheet, header row and columns (letters) of a spreadsheet hold the requirements."""
+    sheet: str = Field(..., min_length=1, max_length=200)
+    header_row: int = Field(..., ge=1)
+    code: Optional[str] = Field(default=None, max_length=3)
+    name: str = Field(..., min_length=1, max_length=3)
+    applicable: Optional[str] = Field(default=None, max_length=3)
+
+
+class SetupDraftRequest(BaseModel):
+    goal: str = Field(default="", max_length=500)
+    collection_id: str = Field(..., min_length=1, max_length=200)
+    file_name: Optional[str] = Field(default=None, max_length=500)
+    mapping: Optional[TableMapping] = None  # the user's mapping; None: the AI proposes one
+
+
+class DraftRequirement(BaseModel):
+    key: str = Field(..., min_length=1, max_length=200)
+    code: Optional[str] = Field(default=None, max_length=100)
+    label: str = Field(..., min_length=1, max_length=1000)
+    expected_document: Optional[str] = Field(default=None, max_length=500)
+    applicable: Optional[bool] = None  # what the rule file says; None when it doesn't
+    source: Optional[Dict[str, Any]] = None  # {"label": "SoA · row 12", "sheet", "row"} or {"label", "page"}
+
+
+class SheetPreview(BaseModel):
+    name: str
+    row_count: int = 0
+    columns: List[str] = []
+    rows: List[Dict[str, Any]] = []  # [{"row": 3, "cells": [...]}]
+
+
+class SetupDraft(BaseModel):
+    collection_id: str
+    file_name: str
+    framework_name: str
+    kind: str  # "table" (a spreadsheet, read row by row) | "document" (read by the AI)
+    sheets: List[SheetPreview] = []
+    mapping: Optional[TableMapping] = None
+    mapped_by: Optional[str] = None  # "ai" | "guess" | "user"; None when no mapping was found
+    requirements: List[DraftRequirement] = []
+
+
+class ReusableAnalysis(BaseModel):
+    """An analysis whose rule set a new check can reuse."""
+    analysis_id: str
+    goal: str = ""
+    framework_name: str = ""
+    reference_collection_ids: List[str] = []
+    requirement_count: int = 0
+    rule_set_version: Optional[int] = None
+    target_folder_ids: List[str] = []
+    last_run_id: Optional[str] = None
+    last_run_at: Optional[Union[str, datetime]] = None
+    last_target_collection_ids: List[str] = []
+
+
+GapAnalysisRequest.model_rebuild()  # its `requirements` refers to DraftRequirement, defined above
 
 
 class GapAnalysisPointer(BaseModel):

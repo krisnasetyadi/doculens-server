@@ -65,6 +65,11 @@ Every domain gets exactly ONE base path — list/create/delete/activate/upload/e
                                      folders, versioned requirement list with stable keys); items have
                                      five statuses plus not_checked, findings with structured pointers
                                      and a trend vs the previous run (rules in services/rag/gap_locations.py).
+                                     setup/suggest POST, setup/draft POST, analyses GET (MS-1114): starting
+                                     an analysis from one sentence: the AI suggests the rule file and folders,
+                                     drafts the requirement list (spreadsheets read row by row,
+                                     services/ingest/requirement_table.py), and a run may carry the approved
+                                     list as rule set version 1 (services/analysis_setup.py).
 
 /api/v1/auth                        register/login/me/change-password/admin/...
                                      — router/auth.py

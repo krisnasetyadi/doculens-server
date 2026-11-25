@@ -65,14 +65,21 @@ def build_requirements(raw: Iterable[Any]) -> List[Dict[str, Any]]:
             continue
         seen_labels.add(label.lower())
         code, title = split_code(label)
-        base = code.upper() if code else _slug(title)
-        key, n = base, 1
-        while key in taken:
-            n += 1
-            key = f"{base}-{n}"
-        taken.add(key)
-        requirements.append({"key": key, "code": code, "label": title, "expected_document": expected})
+        requirements.append({"key": requirement_key(code, title, taken), "code": code, "label": title, "expected_document": expected})
     return requirements
+
+
+def requirement_key(code: Optional[str], title: str, taken: set) -> str:
+    """A requirement's key in its rule set: its code when it has one
+    ("A.5.1"), else a slug of its name, with "-2", "-3" added when it is
+    already in `taken` (which it is then added to)."""
+    base = code.upper() if code else _slug(title)
+    key, n = base, 1
+    while key in taken:
+        n += 1
+        key = f"{base}-{n}"
+    taken.add(key)
+    return key
 
 
 def trend(previous_status: Optional[str], status: str) -> Optional[str]:

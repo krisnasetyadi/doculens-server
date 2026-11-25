@@ -58,15 +58,21 @@ def _paths(folders: List[dict]) -> Dict[str, List[str]]:
     return paths
 
 
-def load_scope(user: UserRecord) -> Scope:
-    """Blocking (two DB queries): call through asyncio.to_thread."""
+def load_scope(user: UserRecord, active_only: bool = True) -> Scope:
+    """Blocking (two DB queries): call through asyncio.to_thread.
+
+    active_only=False also takes the collections the user switched off (kept
+    out of chat): an analysis may still check them (MS-1114)."""
     is_admin = user.role == "admin"
     try:
         folder_rows = supabase_storage.list_folders_for_user(user.user_id, is_admin, strict=True)
         folders_loaded = True
     except Exception:
         folder_rows, folders_loaded = [], False
-    collection_rows = supabase_storage.list_active_collections_for_user(user.user_id, is_admin)
+    list_collections = (
+        supabase_storage.list_active_collections_for_user if active_only else supabase_storage.list_pdf_collections_for_user
+    )
+    collection_rows = list_collections(user.user_id, is_admin)
 
     paths = _paths(folder_rows)
     folders = {

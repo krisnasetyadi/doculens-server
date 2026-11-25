@@ -685,6 +685,34 @@ def list_active_collections_for_user(user_id: str, is_admin: bool) -> List[Dict[
         conn.close()
 
 
+def list_pdf_collections_for_user(user_id: str, is_admin: bool) -> List[Dict[str, Any]]:
+    """Like list_active_collections_for_user, switched-off collections
+    included: an analysis may check a document, or use a rule file, the user
+    keeps out of chat answers (MS-1114)."""
+    conn = db.get_conn("storage")
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            if is_admin:
+                cur.execute(
+                    "SELECT collection_id, title, file_names, folder_id FROM collections "
+                    "WHERE kind = 'pdf' ORDER BY created_at DESC"
+                )
+            else:
+                cur.execute(
+                    "SELECT collection_id, title, file_names, folder_id FROM collections "
+                    "WHERE kind = 'pdf' AND owner_id = %s ORDER BY created_at DESC",
+                    (user_id,),
+                )
+            return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.warning("list_pdf_collections_for_user failed: %s", e)
+        return []
+    finally:
+        conn.close()
+
+
 def collection_display_title(row: Dict[str, Any]) -> str:
     """Title, else the first file name, else the id, like the chat UI does."""
     return row.get("title") or (row.get("file_names") or [""])[0] or row["collection_id"]
@@ -1089,6 +1117,64 @@ def update_analysis_targets(analysis_id: str, target_folder_ids: List[str]) -> b
     except Exception as e:
         logger.warning("update_analysis_targets failed for %s: %s", analysis_id, e)
         return False
+    finally:
+        conn.close()
+
+
+def list_reusable_analyses(owner_id: str, is_admin: bool) -> List[Dict[str, Any]]:
+    """Analyses whose latest rule set holds requirements, newest first (all for
+    an admin, else the owner's): what a new check can reuse (MS-1114). Each
+    with its latest rule set's summary and its last run's documents."""
+    conn = db.get_conn("storage")
+    if not conn:
+        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT a.analysis_id, a.goal, a.target_folder_ids,
+                       rs.version AS rule_set_version, rs.framework_name, rs.reference_collection_ids,
+                       jsonb_array_length(rs.requirements) AS requirement_count,
+                       lr.run_id AS last_run_id, lr.created_at AS last_run_at,
+                       COALESCE(lr.target_collection_ids, '{}') AS last_target_collection_ids
+                FROM analyses a
+                JOIN LATERAL (
+                    SELECT * FROM analysis_rule_sets s WHERE s.analysis_id = a.analysis_id
+                    ORDER BY s.version DESC LIMIT 1
+                ) rs ON true
+                LEFT JOIN LATERAL (
+                    SELECT r.run_id, r.created_at, r.target_collection_ids FROM gap_analysis_runs r
+                    WHERE r.analysis_id = a.analysis_id ORDER BY r.created_at DESC LIMIT 1
+                ) lr ON true
+                WHERE (%(is_admin)s OR a.owner_id = %(owner_id)s) AND jsonb_array_length(rs.requirements) > 0
+                ORDER BY COALESCE(lr.created_at, a.updated_at) DESC
+                LIMIT 50
+            """, {"is_admin": is_admin, "owner_id": owner_id})
+            return [dict(r) for r in cur.fetchall()]
+    except Exception as e:
+        logger.warning("list_reusable_analyses failed: %s", e)
+        return []
+    finally:
+        conn.close()
+
+
+def collection_reference_flags(collection_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """{collection_id: {"file_names", "is_reference_framework"}} for the given
+    collections, in one query (MS-1114: which documents could be rule files)."""
+    if not collection_ids:
+        return {}
+    conn = db.get_conn("storage")
+    if not conn:
+        return {}
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT collection_id, file_names, COALESCE(is_reference_framework, false) AS is_reference_framework
+                FROM collections WHERE collection_id = ANY(%s)
+            """, (list(collection_ids),))
+            return {r["collection_id"]: dict(r) for r in cur.fetchall()}
+    except Exception as e:
+        logger.warning("collection_reference_flags failed: %s", e)
+        return {}
     finally:
         conn.close()
 
