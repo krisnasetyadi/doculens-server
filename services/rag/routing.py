@@ -11,6 +11,7 @@ from services.rag.conversation.language import ReplyLanguage, language_name
 from services.rag.conversation.messages import internal_refusal, small_talk_fallback
 from typing import Any, Dict, List, Optional
 from services.rag.shared import _extract_total_tokens
+from services.lens_guide.answer import GUIDE_KINDS
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,53 @@ class RoutingMixin:
     # Lens Guide (MS-1181): finds the folder the user means. The model only
     # passes the name; the server matches it to the user's own folders.
     FIND_FOLDER_TOOL_NAME = "find_folder"
+    # MS-1183: a reading list or steps were shown; the user reports progress or asks for the next one.
+    CONTINUE_TOOL_NAME = "continue_list"
+
+    # What a message asks for, read by the model (probe 26 Nov 2026: 57/58 right,
+    # where the fixed word lists caught about 40%). The server leads the flow.
+    _GUIDE_ARG = {
+        "type": "string",
+        "enum": ["start", "learn", "do", "none"],
+        "description": (
+            "What the user asks for. start = they say they just joined, were assigned, moved to, or begin work in "
+            "a project or team and want to be guided from the beginning (\"aku baru masuk Atlas\", \"first day on X\"); "
+            "start needs them to say something about themselves joining or starting, asking for a document never is. "
+            "learn = they want to learn or understand a module or topic (\"ajarin aku modul backup\", \"teach me X step by "
+            "step\", \"pengen ngerti alur backup\", \"mau memahami SOP secara bertahap\"): a verb of learning, teaching or "
+            "understanding decides it, even with \"step by step\" or \"bertahap\". "
+            "do = they want to carry out a piece of work and ask for its steps, order or procedure, however casually "
+            "(\"bikin release note, urutannya gimana\", \"how do I request access\"); a task is do, "
+            "never start, even when it says \"mulai dari mana\". none = anything else: a fact, a person, a date or "
+            "schedule (\"jadwal belajar tim kapan?\"), a summary, comparing or explaining documents, finding or opening "
+            "a document (\"I need the onboarding doc\", \"dokumen onboarding di mana\"), small talk, or how to use "
+            "DocuLens. Words like belajar or onboarding inside a fact or a document request do not make it start or "
+            "learn. A follow-up about a list already shown is none. When unsure, none."
+        ),
+    }
+
+    def _build_continue_tool(self) -> Dict[str, Any]:
+        return {
+            "name": self.CONTINUE_TOOL_NAME,
+            "description": (
+                "An earlier reply showed a reading list or numbered steps (keys a, b, c or 1, 2, 3) and the user "
+                "reports what they read or finished, or asks for the next item, or asks to see one item again. "
+                "Short follow-ups count (\"terus?\", \"yang d apa?\"). Not for a new question about the content."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "read": {
+                        "type": "array", "items": {"type": "string"},
+                        "description": "Keys the user says they read, finished, or want to skip, e.g. [\"a\", \"b\"].",
+                    },
+                    "show": {
+                        "type": "string",
+                        "description": "One key the user asks to see again or go back to, if any.",
+                    },
+                },
+            },
+        }
 
     def _build_find_folder_tool(self) -> Dict[str, Any]:
         return {
@@ -135,6 +183,7 @@ class RoutingMixin:
                         "type": "string",
                         "description": "The folder/project name exactly as the user said it, without extra words.",
                     },
+                    "guide": self._GUIDE_ARG,
                 },
                 "required": ["name"],
             },
@@ -167,6 +216,8 @@ class RoutingMixin:
             if len(unique_paths) <= self.SEARCH_TOOL_MAX_ENUM:
                 folder["enum"] = unique_paths
             properties["folder"] = folder
+        if folder_paths is not None:
+            properties["guide"] = self._GUIDE_ARG
         return {
             "name": self.SEARCH_TOOL_NAME,
             "description": (
@@ -217,16 +268,31 @@ class RoutingMixin:
         memory: Optional[List[Dict[str, str]]],
         user_state: str,
         folders: bool = False,
+        step_list: bool = False,
     ) -> str:
         folder_rules = (
             f"\n- If the user names a project, client, module, or folder they want to work from and no earlier "
             f"reply confirmed that folder, CALL {self.FIND_FOLDER_TOOL_NAME} with the name. Never name, list, or "
-            f"guess folders yourself.\n"
+            f"guess folders yourself. A piece of work or a feature (\"rilis pembayaran\", \"code review\", \"deploy\") "
+            f"is not a folder name.\n"
+            f"- A request for the steps, order or procedure of some work, even a casual one (\"step-by-step ...\", "
+            f"\"urutannya gimana\"), asks for information in their documents: CALL {self.SEARCH_TOOL_NAME} with "
+            f"guide=do. Never answer it yourself.\n"
             f"- If the user says the folder you found is not the right one and names no other, reply asking "
             f"which project or folder they mean. If they name another, call {self.FIND_FOLDER_TOOL_NAME} with it.\n"
             f"- After a reply confirmed a folder (it shows the folder's path) and the user goes on with it, pass "
-            f"that path as `folder` when you call {self.SEARCH_TOOL_NAME}."
+            f"that path as `folder` when you call {self.SEARCH_TOOL_NAME}.\n"
+            f"- Whenever you call {self.FIND_FOLDER_TOOL_NAME} or {self.SEARCH_TOOL_NAME}, set `guide` to what the "
+            f"user asks for, read from the meaning of their words, not from exact phrases. Casual or misspelled "
+            f"Indonesian counts the same (\"ak msk project A\" means they just joined project A)."
         ) if folders else ""
+        if step_list:
+            folder_rules += (
+                f"\n- An earlier reply showed a reading list or steps. If the user reports what they read or "
+                f"finished, asks what comes next (\"terus?\", \"abis itu apa?\", \"what's after that?\"), says they read everything "
+                f"(\"sudah baca semuanya\"), or asks for "
+                f"or to go back to one item (\"yang d apa?\", \"balik ke c\"), CALL {self.CONTINUE_TOOL_NAME}."
+            )
         history = ""
         if memory:
             history_lines = [
@@ -267,6 +333,7 @@ REPLY:"""
         llm_model: Optional[str] = None,
         has_source: bool = True,
         folder_paths: Optional[List[str]] = None,
+        step_list: bool = False,
     ) -> RouteDecision:
         """The conversation router: ONE LLM call that either replies (small
         talk, questions about DocuLens — from the feature guide + this user's
@@ -307,10 +374,15 @@ REPLY:"""
             is_admin, pdf_collection_titles, pdf_collection_count, usage, has_source=has_source
         )
         folders = folder_paths is not None
-        prompt = self._build_conversation_prompt(question, language, memory, user_state, folders=folders)
+        step_list = step_list and folders
+        prompt = self._build_conversation_prompt(
+            question, language, memory, user_state, folders=folders, step_list=step_list,
+        )
         tools = [self._build_search_tool(pdf_collection_titles, folder_paths)]
         if folders:
             tools.append(self._build_find_folder_tool())
+        if step_list:
+            tools.append(self._build_continue_tool())
         try:
             router_llm = llm.bind_tools(tools)
             result = router_llm.invoke(prompt)
@@ -324,12 +396,23 @@ REPLY:"""
             (c for c in (getattr(result, "tool_calls", None) or []) if c.get("name") in known),
             None,
         )
+        guide = (call.get("args") or {}).get("guide") if call else None
+        guide = guide if guide in GUIDE_KINDS else None
+        if call and call.get("name") == self.CONTINUE_TOOL_NAME:
+            args = call.get("args") or {}
+            read = args.get("read") if isinstance(args.get("read"), list) else []
+            show = str(args.get("show") or "").strip().lower() or None
+            logger.info("route_message: %r -> continue_list(read=%r, show=%r)", question[:80], read, show)
+            return RouteDecision(
+                action="continue", continue_read=[str(k).strip().lower() for k in read if str(k).strip()],
+                continue_show=show, model_id=model_id, total_tokens=total_tokens,
+            )
         if call and call.get("name") == self.FIND_FOLDER_TOOL_NAME:
             name = str((call.get("args") or {}).get("name") or "").strip()
             if name:
-                logger.info("route_message: %r -> find_folder(name=%r)", question[:80], name)
+                logger.info("route_message: %r -> find_folder(name=%r, guide=%r)", question[:80], name, guide)
                 return RouteDecision(
-                    action="find_folder", folder_name=name, model_id=model_id, total_tokens=total_tokens,
+                    action="find_folder", folder_name=name, guide=guide, model_id=model_id, total_tokens=total_tokens,
                 )
             call = {"name": self.SEARCH_TOOL_NAME, "args": {}}  # no name to look for: search as typed
         if call:
@@ -342,13 +425,14 @@ REPLY:"""
                 search_collection=collection,
                 search_folder=(str(args.get("folder") or "").strip() or None) if folders else None,
                 search_task=task,
+                guide=guide if folders else None,
                 model_id=model_id,
                 total_tokens=total_tokens,
             )
             logger.info(
-                "route_message: %r -> search(query=%r, collection=%r, folder=%r, task=%s)",
+                "route_message: %r -> search(query=%r, collection=%r, folder=%r, task=%s, guide=%r)",
                 question[:80], decision.search_query, decision.search_collection,
-                decision.search_folder, decision.search_task,
+                decision.search_folder, decision.search_task, decision.guide,
             )
             return decision
 
@@ -365,6 +449,60 @@ REPLY:"""
             decision.answer = internal_refusal(language)
             decision.guard_replaced = True
         return decision
+
+    # Lens Guide (MS-1182): the names a context question offers.
+    FACETS_TOOL_NAME = "report_facets"
+
+    def extract_facets(
+        self, folder_brief: str, llm_provider: Optional[str] = None, llm_model: Optional[str] = None,
+    ) -> tuple:
+        """(roles, parts, total_tokens): the team roles and the system parts a
+        folder's documents give different reading or work for, as written
+        there. Only reading: the server decides whether to ask (services/
+        lens_guide/clarify.py). Never raises: a failure gives no names, and no
+        question is asked; (None, None, tokens) when the model answered
+        without reporting, so the caller does not keep it."""
+        try:
+            llm, _ = self.get_llm(llm_provider, llm_model)
+        except Exception as e:
+            logger.warning(f"extract_facets: no LLM available ({e})")
+            return [], [], 0
+        names = {"type": "array", "items": {"type": "string"}}
+        tool = {
+            "name": self.FACETS_TOOL_NAME,
+            "description": "Report the names found in the folder's documents.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "roles": {**names, "description": "Team roles the documents give different reading or work for."},
+                    "parts": {**names, "description": "System parts or modules a person holds, where the documents give different reading or setup per part."},
+                },
+                "required": ["roles", "parts"],
+            },
+        }
+        prompt = f"""Read these documents of a project folder and CALL {self.FACETS_TOOL_NAME}.
+
+{folder_brief}
+
+- roles: the team roles (e.g. developer, QA, project manager) for which the documents give DIFFERENT reading, steps or work. A role is a job or function, never a person's name: people listed with what they hold (who handles what) are not roles. Empty when the documents name no roles or give everyone the same.
+- parts: the parts of the system or modules a person holds or works on (e.g. web, an API, a worker), for which the documents give DIFFERENT reading or setup. Empty when there are none or it does not differ.
+Copy each name as written in the documents. Never invent a name, never add a role or part the documents do not name."""
+        try:
+            result = llm.bind_tools([tool]).invoke(prompt)
+        except Exception as e:
+            logger.error(f"extract_facets: LLM call failed: {e}")
+            return [], [], 0
+        call = next(
+            (c for c in (getattr(result, "tool_calls", None) or []) if c.get("name") == self.FACETS_TOOL_NAME), None,
+        )
+        if call is None:
+            logger.warning("extract_facets: the model did not report")
+            return None, None, _extract_total_tokens(result)
+        args = call.get("args") or {}
+        roles = args.get("roles") if isinstance(args.get("roles"), list) else []
+        parts = args.get("parts") if isinstance(args.get("parts"), list) else []
+        logger.info("extract_facets: roles=%r parts=%r", roles, parts)
+        return roles, parts, _extract_total_tokens(result)
 
     def is_unknown_slash_command(self, question: str) -> bool:
         """True kalau pesan diawali '/' tapi bukan salah satu command yang

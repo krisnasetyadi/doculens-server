@@ -1105,8 +1105,9 @@ class GuideQuestion(BaseModel):
 
 
 class GuideContext(BaseModel):
-    label: str
-    value: str
+    label:   str
+    value:   str
+    options: List[str] = []   # what "Ubah" offers instead (MS-1182); none for the folder
 
 
 class GuideStep(BaseModel):
@@ -1117,6 +1118,8 @@ class GuideStep(BaseModel):
     why:     str
     minutes: Optional[int] = None
     origin:  Optional[str] = None
+    source:  Optional[PdfSourceDetail] = None
+    sources: Optional[List[PdfSourceDetail]] = None
 
 
 class GuideNotice(BaseModel):
@@ -1135,6 +1138,7 @@ class Guide(BaseModel):
     import_link:    Optional[GuideImportLink] = None     # a Drive link pasted in the chat: import it?
     question:       Optional[GuideQuestion] = None
     context:        Optional[List[GuideContext]] = None
+    lead:           Optional[str] = None
     steps:          Optional[List[GuideStep]] = None
     notices:        Optional[List[GuideNotice]] = None
 

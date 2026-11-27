@@ -18,7 +18,10 @@ services/ingest/     documents.py (text extractors, indexing), chat_parser.py, c
 services/security/   ssrf_guard.py, telegram_crypto.py
 services/lens_guide/ Lens Guide (MS-1179): scope.py (documents and folders a user may open, with folder paths),
                      match.py (which folders a name refers to), reply.py (find_folder replies and cards),
-                     drive_import.py (a Drive link pasted in chat, offered for the existing import)
+                     drive_import.py (a Drive link pasted in chat, offered for the existing import),
+                     answer.py (MS-1183: source-bound guidance and related passages),
+                     continuation.py (MS-1183: reading progress from conversation text),
+                     clarify.py (MS-1182: the server-led context questions, role then part, read from the folder's documents)
 tests/               run from the repo root: python -m unittest discover -s tests -t .
 scripts/  migrations/
 ```

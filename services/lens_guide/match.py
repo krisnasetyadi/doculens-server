@@ -10,10 +10,16 @@ from services.lens_guide.scope import Scope, ScopeFolder
 
 # Words people put around a folder name that are not part of it.
 _FILLER = {"project", "projek", "proyek", "projects", "modul", "module", "folder", "folders"}
+# "&" is not a word, so "Backup & Pemulihan" must also match "backup dan pemulihan".
+_CONNECTORS = {"dan", "and"}
+
+
+def _tokens(text: str) -> List[str]:
+    return [w for w in re.findall(r"[^\W_]+", (text or "").lower()) if w not in _CONNECTORS]
 
 
 def _words(text: str) -> List[str]:
-    return [w for w in re.findall(r"[^\W_]+", (text or "").lower()) if w not in _FILLER]
+    return [w for w in _tokens(text) if w not in _FILLER]
 
 
 def match_folders(name: str, scope: Scope) -> List[ScopeFolder]:
@@ -32,6 +38,12 @@ def match_folders(name: str, scope: Scope) -> List[ScopeFolder]:
         if set(wanted) <= set(_words(" ".join(f.path))) and set(wanted) & set(_words(f.name))
     ]
     return sorted(found, key=lambda f: [p.lower() for p in f.path])
+
+
+def named_exactly(name: str, folder: ScopeFolder) -> bool:
+    """`name` is the folder's whole name, not a part of it or of its path
+    (MS-1182: such a folder is confirmed together with the first question)."""
+    return bool(_words(name)) and _words(folder.path[-1]) == _words(name)
 
 
 def folder_label(folder: ScopeFolder) -> str:
@@ -74,8 +86,7 @@ def find_mentioned_folders(question: str, scope: Scope) -> List[ScopeFolder]:
     Y"), or a one-word name right after "proyek", "modul", "folder", ...
     ("modul Backend"). A lone common word ("laporan", "policy") that happens
     to be a folder name is not taken as one."""
-    tokens = re.findall(r"[^\W_]+", question.lower())
-    text = " " + " ".join(tokens) + " "
+    text = " " + " ".join(_tokens(question)) + " "
     found = []
     for f in scope.folders:
         words = _words(f.name)

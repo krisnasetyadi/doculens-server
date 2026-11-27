@@ -28,12 +28,16 @@ class LLMProvider(str, Enum):
     """Supported LLM providers (FREE only)"""
     HUGGINGFACE = "huggingface"  # Local, free
     GEMINI = "gemini"            # Cloud, free tier (60 req/min)
+    OPENAI = "openai"            # Cloud, paid (OPENAI_API_KEY), alternative to Gemini
 
 
 # Floating alias to Google's current-recommended flash model — survives
 # Gemini version transitions (unlike a pinned name such as "gemini-2.5-flash",
 # which 404s on API keys/projects created after Google's cutoff for it).
 DEFAULT_GEMINI_MODEL = "gemini-flash-latest"
+
+# Priced close to the Gemini Flash default (see MS-1192), so switching does not raise the bill.
+DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
 
 # Available models per provider
 AVAILABLE_MODELS = {
@@ -48,6 +52,10 @@ AVAILABLE_MODELS = {
         "gemini-2.5-pro",           # Best quality, paid
         "gemini-2.0-flash",         # Previous gen flash
         "gemini-1.5-flash",         # Legacy, free tier
+    ],
+    LLMProvider.OPENAI: [
+        DEFAULT_OPENAI_MODEL,       # Default, closest in price to the Gemini Flash default
+        "gpt-6.1-terra",            # Higher quality, about a third more expensive
     ],
 }
 
@@ -72,6 +80,10 @@ class Config(BaseSettings):
     # models reject a 0 budget (they only run in thinking mode).
     gemini_thinking_budget: Optional[int] = Field(default=0)
 
+    # OpenAI settings (cloud - paid, alternative to Gemini; env OPENAI_API_KEY / OPENAI_MODEL)
+    openai_api_key: Optional[str] = Field(default=None)
+    openai_model: str = Field(default=DEFAULT_OPENAI_MODEL)
+
     @field_validator("gemini_thinking_budget", mode="before")
     @classmethod
     def _empty_thinking_budget_is_default(cls, value):
@@ -83,13 +95,17 @@ class Config(BaseSettings):
 
     @property
     def default_llm_provider(self) -> LLMProvider:
-        return LLMProvider.GEMINI
+        # Only LLM_PROVIDER=openai changes the default; every other value keeps
+        # the Gemini default this property always had.
+        return LLMProvider.OPENAI if self.llm_provider == LLMProvider.OPENAI else LLMProvider.GEMINI
 
     @property
     def default_llm_model(self) -> str:
         # Delegates to gemini_model (env-configurable via GEMINI_MODEL) so
         # changing .env is enough — this used to hardcode a literal model
         # name here, silently ignoring gemini_model/the env var entirely.
+        if self.default_llm_provider == LLMProvider.OPENAI:
+            return self.openai_model
         return self.gemini_model
     
     # Common LLM settings

@@ -12,7 +12,7 @@ asyncio.to_thread.
 import re
 from typing import Dict, List, Optional, Tuple
 
-from models import Guide, GuideFolder
+from models import Guide, GuideFolder, GuideQuestion
 from services.lens_guide.match import folder_label, subfolders
 from services.lens_guide.scope import Scope, ScopeFolder
 from services.storage import supabase as supabase_storage
@@ -28,6 +28,35 @@ _NOT_FOUND = {
     "id": 'Saya belum menemukan folder "{name}"',
     "en": 'I couldn\'t find a folder "{name}"',
 }
+
+
+# MS-1183: when the router (not a word list) read that the user asks to be
+# guided, the server says so in one plain sentence. The text is the only memory
+# (cards are not saved), so later turns read the kind of guidance back from it.
+GUIDE_NOTES = {
+    "id": {"start": "Saya bantu arahkan dari awal.", "learn": "Saya bantu susun tahapan belajarnya.",
+           "do": "Saya bantu susun langkah kerjanya."},
+    "en": {"start": "I'll guide you from the start.", "learn": "I'll lay out the learning stages.",
+           "do": "I'll lay out the steps of the work."},
+}
+
+
+def guide_note(kind: Optional[str], language: str) -> str:
+    return GUIDE_NOTES["en" if language == "en" else "id"].get(kind or "", "")
+
+
+def note_kind(text: str) -> Optional[str]:
+    """The kind of guidance a server reply announced, if any."""
+    for notes in GUIDE_NOTES.values():
+        for kind, note in notes.items():
+            if note in (text or ""):
+                return kind
+    return None
+
+
+def _with_note(text: str, kind: Optional[str], language: str) -> str:
+    note = guide_note(kind, language)
+    return f"{text} {note}" if note else text
 
 
 def _owner_names(folders: List[ScopeFolder], user_id: str) -> Dict[str, str]:
@@ -53,6 +82,15 @@ def _cards(folders: List[ScopeFolder], scope: Scope, user_id: str, language: str
 
 
 def folder_reply(
+    name: str, matches: List[ScopeFolder], scope: Scope, user_id: str, language: str, guide: Optional[str] = None,
+) -> Tuple[str, Guide]:
+    """`guide`: the kind of guidance the router read (MS-1183); announced so the
+    folder pick that follows still knows it."""
+    text, card = _folder_reply(name, matches, scope, user_id, language)
+    return (_with_note(text, guide, language) if matches else text), card
+
+
+def _folder_reply(
     name: str, matches: List[ScopeFolder], scope: Scope, user_id: str, language: str,
 ) -> Tuple[str, Guide]:
     """The reply to find_folder(name): confirm one, ask which of several, or
@@ -97,6 +135,19 @@ def folder_reply(
             "folders, or paste the public Google Drive folder link here for me to import."
         )
     return text, Guide(missing_source=True, folders=_cards(picker, scope, user_id, language) or None)
+
+
+def folder_question_reply(
+    folder: ScopeFolder, question: str, options: List[str], scope: Scope, user_id: str, language: str,
+    guide: Optional[str] = None,
+) -> Tuple[str, Guide]:
+    """MS-1182: a folder named exactly, confirmed together with the first
+    question (mockup state 2): answering it confirms the folder, "Bukan folder
+    ini" turns it down. The path stays in the text for the next turn."""
+    card = _cards([folder], scope, user_id, language)[0]
+    path = f"**{' › '.join(card.path)}**"
+    lead = f"Saya menemukan folder {path}." if language == "id" else f"I found the folder {path}."
+    return f"{_with_note(lead, guide, language)} {question}", Guide(folder=card, question=GuideQuestion(options=options))
 
 
 def requested_name(memory: Optional[List[Dict[str, str]]]) -> Optional[str]:

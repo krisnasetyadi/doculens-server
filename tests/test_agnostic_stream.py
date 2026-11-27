@@ -147,20 +147,23 @@ class StreamUsageTest(StreamTestCase):
         self.assertEqual(logged_before_done, [1])
         self.assert_nothing_held()
 
-    def test_a_model_that_fails_before_any_text_gives_the_same_fallback_answer_as_without_stream(self):
+    def test_a_model_that_fails_before_any_text_ends_with_error_as_without_stream_it_is_a_500(self):
+        # MS-1192: no retrieved passage stands in for the model's answer.
         self.model = FakeModel(fail_at=0)
         _, events = self.stream()
-        self.assertEqual([e["type"] for e in events], ["sources", "done"])
-        self.assertEqual(events[-1]["result"]["answer"], self.ask().json()["answer"])
+        self.assertEqual([e["type"] for e in events], ["sources", "error"])
+        self.assertEqual(events[-1]["detail"], "Failed to answer the question")
+        self.assertEqual(self.ask().status_code, 500)
         self.assert_nothing_held()
 
-    def test_a_failure_validating_the_finished_text_gives_the_same_fallback_answer_as_without_stream(self):
+    def test_a_failure_validating_the_finished_text_ends_with_error_as_without_stream_it_is_a_500(self):
         with patch.object(processor, "_validate_and_clean_answer", side_effect=RuntimeError("validator down")):
             _, events = self.stream()
-            plain = self.ask().json()
-        self.assertEqual([e["type"] for e in events], ["sources"] + ["delta"] * len(PIECES) + ["done"])
-        self.assertEqual(events[-1]["result"]["answer"], plain["answer"])
-        self.assertNotEqual(events[-1]["result"]["answer"], ANSWER)
+            status = self.ask().status_code
+        self.assertEqual([e["type"] for e in events], ["sources"] + ["delta"] * len(PIECES) + ["error"])
+        self.assertEqual(status, 500)
+        self.m["log"].assert_called_once()
+        self.assertEqual(self.m["log"].call_args[0][:2], ("u1", 3 * len(PIECES)))  # the stream's tokens still count
         self.assert_nothing_held()
 
     def test_a_model_that_fails_after_text_went_out_ends_with_error_and_counts_what_was_used(self):

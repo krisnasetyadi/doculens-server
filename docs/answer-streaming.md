@@ -144,10 +144,10 @@ Per provider:
   `.stream()` returns the whole answer as one chunk. It still works: one
   `delta`, then `done`. Token count stays 0, as today.
 
-If a model call fails before the first chunk, the existing fallback applies
-(`_generate_fallback_answer`) and the result goes out as a normal `done`. If
-it fails after text was already sent, send `error` (the text on screen is not
-trusted any more).
+If a model call fails, before the first chunk or after text was already sent,
+send `error`. The non-streamed endpoint answers 500 in the same case. Since
+MS-1192 no retrieved passage stands in for the model's answer: the user must
+not take a raw passage for what the model said.
 
 ### 4.3 Tokens and the reservation
 
@@ -289,8 +289,7 @@ yields scripted chunks):
 - `done.result` equals the non-streaming response for the same inputs.
 - 401, 403, 422 and 429 are plain HTTP errors with `stream=true`.
 - Canned replies produce a lone `done`.
-- A model that fails before the first chunk gives `done` with the fallback; a
-  model that fails mid-stream gives `error`.
+- A model that fails, before the first chunk or mid-stream, gives `error`.
 - Tokens logged once for: completion, stop mid-stream, disconnect before the
   first chunk, error mid-stream. The in-flight counters return to 0 in all of
   them.
