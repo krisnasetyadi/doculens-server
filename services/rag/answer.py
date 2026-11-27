@@ -11,6 +11,9 @@ from services.rag.efficient_mode.compressor import ContextPart, compress_context
 from services.rag.efficient_mode.token_estimate import estimate_tokens
 from typing import Any, Dict, List, Optional, Tuple
 from services.rag.shared import _extract_total_tokens, _off_topic_instruction
+from services.lens_guide.answer import (
+    build_guide_prompt, missing_answer, parse_guide_answer, references_for_context,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +38,9 @@ class AnswerPlan:
     question: str = ""
     language: ReplyLanguage = "id"
     is_summary: bool = False
+    guide_intent: Optional[str] = None
+    guide_sources: List[Any] = field(default_factory=list)
+    guide_documents: List[dict] = field(default_factory=list)
     hybrid_results: Dict[str, Any] = field(default_factory=dict)
     merged_results: List[Dict[str, Any]] = field(default_factory=list)
     # The metadata that does not depend on the model's reply; the reply adds
@@ -103,13 +109,20 @@ class AnswerMixin:
         (same arguments): pick the model, rank and trim the sources, build the
         prompt. See AnswerPlan."""
         is_summary = task == "summarize"
+        is_guide = task in ("guide_start", "guide_do", "guide_learn", "guide_fact")
+        guide_kind = task[6:] if is_guide else None
 
         language = language or detect_reply_language(question, memory)
-        llm, model_id = self.get_llm(llm_provider, llm_model)
         
         intent_analysis = hybrid_results.get('search_analysis', {}).get('intent', {})
         merged_results = hybrid_results.get('merged_results', [])
+        if is_guide and not merged_results:
+            result = missing_answer(language, empty=True)
+            return AnswerPlan(llm=None, model_id="system/lens-guide", guide_intent=guide_kind,
+                              ready=(result.text, "system/lens-guide", {"guide_answer": result, "total_tokens": 0}))
         
+        llm, model_id = self.get_llm(llm_provider, llm_model)
+
         # Enhanced conflict detection
         conflicts = self.detect_conflicts(merged_results)
         
@@ -156,7 +169,7 @@ class AnswerMixin:
         # Check if confidence is too low and no chat/db results - use direct extraction
         # Use a dynamic threshold: lower for smarter models like Gemini to leverage generative reasoning
         threshold = 0.12 if 'gemini' in model_id.lower() else 0.18
-        if not is_summary and merged_results and merged_results[0]['confidence'] < threshold:
+        if not is_summary and not is_guide and merged_results and merged_results[0]['confidence'] < threshold:
             if merged_results[0]['type'] == 'pdf' and not any(r['type'] in ['chat', 'database'] for r in merged_results[:3]):
                 logger.warning(f"Low confidence ({merged_results[0]['confidence']:.2%}), using direct extraction")
                 return AnswerPlan(llm=llm, model_id=model_id, ready=(
@@ -193,6 +206,12 @@ class AnswerMixin:
         # must not be re-truncated here, or the same "only some rows survive"
         # problem the bigger chunk size was meant to fix just reappears.
         structured_max_content_len = 150 if is_small_model else 6000
+
+        if is_guide:
+            # Reserve prompt slots for the two outside-folder passages.
+            outside = [r for r in merged_results if r.get("metadata", {}).get("lens_related")][:2]
+            inside = [r for r in merged_results if not r.get("metadata", {}).get("lens_related")]
+            merged_results = inside[:max_results - len(outside)] + outside
 
         for i, result in enumerate(merged_results[:max_results]):
             source_type = result['type']
@@ -288,7 +307,12 @@ class AnswerMixin:
         elif db_is_sole_source:
             sole_source_type = 'database'
 
-        if is_summary:
+        guide_sources = []
+        guide_documents = hybrid_results.get("lens_documents", []) if is_guide else []
+        if is_guide:
+            guide_sources = references_for_context(context, merged_results, hybrid_results.get("lens_base_url", ""))
+            prompt = build_guide_prompt(context, question, guide_kind, guide_documents, language)
+        elif is_summary:
             prompt = self._build_summary_prompt(context, question, language=language)
         elif intent_analysis.get('is_aggregation') and db_is_sole_source and has_db_results:
             prompt = self._build_aggregation_prompt(context, question, conflicts, language=language)
@@ -394,6 +418,7 @@ class AnswerMixin:
             llm=llm, model_id=model_id, prompt=prompt, question=question, language=language,
             is_summary=is_summary, hybrid_results=hybrid_results, merged_results=merged_results,
             metadata=metadata, processing_steps=processing_steps,
+            guide_intent=guide_kind, guide_sources=guide_sources, guide_documents=guide_documents,
         )
 
     def finish_hybrid_answer(self, plan: AnswerPlan, raw_answer: str, total_tokens: int) -> GeneratedAnswer:
@@ -402,7 +427,15 @@ class AnswerMixin:
         model call cost."""
         answer = raw_answer.strip()
         # Validasi dan post-processing
-        if not plan.is_summary:
+        if plan.guide_intent:
+            result = parse_guide_answer(answer, plan.guide_intent, plan.guide_sources,
+                                        plan.guide_documents, plan.language,
+                                        plan.hybrid_results.get("lens_base_url", ""))
+            answer = result.text
+            plan.metadata["guide_answer"] = result
+            if result.dropped:
+                logger.warning("Lens Guide discarded %d ungrounded item(s)", result.dropped)
+        elif not plan.is_summary:
             # (A summary that opens with "Sorry," or is short is still the
             # summary, and swapping in one raw chunk would be strictly worse.)
             answer = self._validate_and_clean_answer(answer, plan.question, plan.merged_results, plan.language)
@@ -415,6 +448,8 @@ class AnswerMixin:
 
     def fallback_hybrid_answer(self, plan: AnswerPlan, error: Exception) -> GeneratedAnswer:
         """The answer when the model call failed: the best retrieved passage."""
+        if plan.guide_intent:
+            raise error
         logger.error(f"LLM generation failed: {error}")
         plan.processing_steps.append(f"LLM generation failed: {str(error)[:100]}")
         return self._generate_fallback_answer(plan.hybrid_results, plan.question, plan.language), plan.model_id, {

@@ -13,9 +13,12 @@ questions. Scenarios: ~/doculens/docs/MS-1182-SCENARIOS.md.
 import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import unquote
 
 from models import GuideContext
+from services.lens_guide.answer import GUIDE_KINDS, guide_intent, is_guidance as is_answer_guidance
 from services.lens_guide.match import collection_ids_in, find_mentioned_folders, folder_label
+from services.lens_guide.reply import note_kind
 from services.lens_guide.scope import Scope, ScopeFolder
 
 # The one small search in the folder that the names are read from (plan K6).
@@ -43,19 +46,21 @@ _ASKED = {
     for kind in (ROLE, PART)
 }
 
-# The messages that ask to be guided (the Home starters, MS-1181, and their
-# usual wordings). shortcut: a fixed list, so an unusual wording is answered
-# without questions; widen it from MS-1184's conversation set.
-# A bare noun ("dokumen onboarding", "jadwal belajar", "what's new in") is a
-# question about documents, not a request to be guided.
-_GUIDANCE = re.compile(
+# Starting a context questionnaire is deliberately narrower than choosing an
+# answer format. A procedural follow-up must not restart role/part questions.
+_CONTEXT_REQUEST = re.compile(
     r"\b(baru (masuk|di|gabung|join|bergabung|pindah)|pindah ke (project|proyek|modul|tim)|"
     r"(mau|ingin|perlu|minta|butuh) (onboarding|belajar)|mempelajari|pelajari|"
     r"mau (mengerjakan|ngerjain|kerjain)|mulai dari mana|harus baca|baca apa|"
     r"just joined|i'?m new|i am new|new to (this|the) (project|team)|onboard me|"
-    r"(want|need) to learn|where (do|should) i start|what should i read)\b",
-    re.I,
+    r"(want|need) to learn|where (do|should) i start|what should i read)\b", re.I,
 )
+
+
+def is_guidance(text: str) -> bool:
+    return bool(_CONTEXT_REQUEST.search(text or ""))
+
+
 # What the folder cards send (UI folder-part.tsx), and what "Ubah" sends (context-line.tsx).
 _PICK = re.compile(r"^(?:ya, )?pakai folder .+$", re.I)
 # "Ubah" names the folder too, so it still works once the card is out of the clamped history.
@@ -72,10 +77,6 @@ class Facets:
 
     def options(self, kind: str) -> List[str]:
         return self.roles if kind == ROLE else self.parts
-
-
-def is_guidance(text: str) -> bool:
-    return bool(_GUIDANCE.search(text or ""))
 
 
 def is_folder_pick(text: str) -> bool:
@@ -125,7 +126,9 @@ def _asked_before(turns: List[Dict[str, str]], i: int) -> Optional[str]:
     return next((kind for kind, pattern in _ASKED.items() if pattern.search(previous)), None)
 
 
-def guidance_request(question: str, memory: Optional[List[Dict[str, str]]]) -> Optional[int]:
+def guidance_request(
+    question: str, memory: Optional[List[Dict[str, str]]], allow_procedural: bool = False,
+) -> Optional[int]:
     """Index (in memory + this message) of the message that asked to be
     guided, when this message belongs to that guidance: it is one itself, a
     folder pick, an answer to the server's question, or an "Ubah" change.
@@ -134,23 +137,121 @@ def guidance_request(question: str, memory: Optional[List[Dict[str, str]]]) -> O
     last = len(turns) - 1
     # Only a guided answer offers "Ubah", and only the guidance asks these questions.
     guided_only = bool(_CHANGE.match(question.strip())) or _asked_before(turns, last) is not None
-    if not (guided_only or is_guidance(question) or is_folder_pick(question)):
+    if not (guided_only or is_guidance(question) or is_folder_pick(question)
+            or allow_procedural and guide_intent(question) == "do"):
         return None
-    found = next((i for i in range(last, -1, -1)
-                  if turns[i].get("role") == "user" and is_guidance(turns[i].get("content") or "")), None)
+    def started_at(i: int) -> bool:
+        text = turns[i].get("content") or ""
+        if turns[i].get("role") != "user":
+            return False
+        if is_guidance(text):
+            return True
+        # A request only the router recognized (MS-1183): the server's reply right after it says so.
+        if i + 1 < len(turns) and turns[i + 1].get("role") == "assistant" and note_kind(turns[i + 1].get("content")):
+            return True
+        # A broad procedural request starts context only when this server
+        # actually followed it with its own question, or for a newly named
+        # folder now. Later "how do I" turns are not context boundaries.
+        return is_answer_guidance(text) and (
+            i == last and allow_procedural or
+            i + 1 < len(turns) and turns[i + 1].get("role") == "assistant"
+            and _asks_context(turns[i + 1].get("content") or "")
+        )
+    found = next((i for i in range(last, -1, -1) if started_at(i)), None)
     # The history is clamped to the last 5 questions (MS-237): after a few
     # follow-ups the request is gone, but the guidance still goes on.
     return 0 if found is None and guided_only else found
 
 
-def request_text(question: str, memory: Optional[List[Dict[str, str]]], start: int, folder: ScopeFolder, language: str) -> str:
-    """The guidance request at `start`, or, when it is no longer in the
-    clamped history, one written from the folder's name."""
+def _asks_context(reply: str) -> bool:
+    """Whether a reply is one of the server's own role or part questions."""
+    return any(p.search(reply) for p in _ASKED.values())
+
+
+def _question_before(turns: List[Dict[str, str]], i: int) -> str:
+    return next((t.get("content") or "" for t in reversed(turns[:i]) if t.get("role") == "user"), "")
+
+
+def active_request(question: str, memory: Optional[List[Dict[str, str]]]) -> Optional[int]:
+    """Index of the request that started the guidance already going on in this
+    conversation (before this message), or None. A guidance is going on when a
+    request was followed by the server's own question or announcement."""
+    turns = _turns(question, memory)
+    for i in range(len(turns) - 2, -1, -1):
+        if turns[i].get("role") != "user" or i + 1 >= len(turns):
+            continue
+        reply = turns[i + 1].get("content") or ""
+        if is_guidance(turns[i].get("content") or "") or note_kind(reply) or _asks_context(reply):
+            return i
+    return None
+
+
+def has_guidance_context(memory: Optional[List[Dict[str, str]]], folder: ScopeFolder, scope: Scope) -> bool:
+    """Opt in only after a guidance request for this folder, not any folder chat.
+
+    Text survives reloads. A saved list can establish the same context after
+    its initial question has left the five-question memory window.
+    """
+    turns = list(memory or [])
+    inside = set(collection_ids_in([folder], scope))
+    labels = sorted(((folder_label(f).lower(), f.folder_id) for f in scope.folders), key=lambda p: -len(p[0]))
+    for i in range(len(turns) - 1, -1, -1):
+        if turns[i].get("role") != "assistant":
+            continue
+        text = turns[i].get("content") or ""
+        lower = text.lower()
+        named = next((fid for label, fid in labels if f"**{label}**" in lower), None)
+        if named is not None:
+            if named != folder.folder_id:
+                return False
+            if is_answer_guidance(_question_before(turns, i)) or note_kind(text):
+                return True
+            # A plain folder confirmation must not inherit an older project.
+            if "benar ini folder" in lower or "is this the folder" in lower:
+                return False
+        if re.search(r"^[a-z0-9]+\. \*\*.+?\*\* \(", text, re.M):
+            source = re.search(r"/api/v1/files/([^/\s)]+)/", text)
+            if source and unquote(source[1]) in inside:
+                return True
+        if folder.path[-1].lower() in lower and _asks_context(text) and is_answer_guidance(_question_before(turns, i)):
+            return True
+    return False
+
+
+_WRITTEN_REQUEST = {
+    "id": {"start": "Arahkan saya untuk mulai di project {name}", "learn": "Saya mau mempelajari {name}",
+           "do": "Saya mau mengerjakan pekerjaan di {name}, apa langkahnya"},
+    "en": {"start": "Guide me to get started in {name}", "learn": "I want to learn {name}",
+           "do": "I want to do the work in {name}, what are the steps"},
+}
+
+
+def guide_kind(question: str, memory: Optional[List[Dict[str, str]]], start: int, label: Optional[str] = None) -> str:
+    """What this guidance is for: the router's label on this turn, else the kind
+    a server reply announced since the request (router-read requests), else the
+    request's own words, else a start."""
+    if label in GUIDE_KINDS:
+        return label
+    turns = _turns(question, memory)
+    for turn in turns[start:]:
+        kind = note_kind(turn.get("content")) if turn.get("role") == "assistant" else None
+        if kind:
+            return kind
+    kind = guide_intent(turns[start].get("content") or "") if 0 <= start < len(turns) else "fact"
+    return kind if kind in GUIDE_KINDS else "start"
+
+
+def request_text(
+    question: str, memory: Optional[List[Dict[str, str]]], start: int, folder: ScopeFolder, language: str,
+    kind: str = "start",
+) -> str:
+    """The guidance request at `start`, or, when its words alone do not say it
+    (clamped history, or a request only the router read), one written for `kind`."""
     text = (_turns(question, memory)[start].get("content") or "").strip()
-    if is_guidance(text):
+    if is_answer_guidance(text) and guide_intent(text) == kind:
         return text
-    return (f"Guide me to get started in {folder.path[-1]}" if language == "en"
-            else f"Arahkan saya untuk mulai di project {folder.path[-1]}")
+    written = _WRITTEN_REQUEST["en" if language == "en" else "id"]
+    return written.get(kind, written["start"]).format(name=folder.path[-1])
 
 
 def match_option(text: str, options: List[str]) -> Optional[str]:

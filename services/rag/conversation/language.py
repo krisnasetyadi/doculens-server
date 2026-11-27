@@ -36,6 +36,9 @@ _ID_MARKERS = frozenset({
     "tolong", "mohon", "jelaskan", "ringkas", "ringkasan", "rangkum", "cari",
     "carikan", "tampilkan", "sebutkan", "buatkan", "berikan", "lihat", "mau",
     "ingin", "boleh", "pakai", "pake",
+    # casual chat spellings (MS-1183 manual test: "ak mw pelajari modul backup")
+    "mw", "ak", "aq", "udah", "udh", "sdh", "blm", "pengen", "pingin", "pelajari", "pelajarin",
+    "belajar", "belajarin", "baca", "kubaca", "lanjut", "lanjutkan",
     # greetings/small talk
     "halo", "hai", "hallo", "makasih", "terima", "kasih", "trims", "selamat",
     "pagi", "siang", "sore", "malam", "oke", "sip", "siap", "baik", "kabar",

@@ -10,10 +10,16 @@ from services.lens_guide.scope import Scope, ScopeFolder
 
 # Words people put around a folder name that are not part of it.
 _FILLER = {"project", "projek", "proyek", "projects", "modul", "module", "folder", "folders"}
+# "&" is not a word, so "Backup & Pemulihan" must also match "backup dan pemulihan".
+_CONNECTORS = {"dan", "and"}
+
+
+def _tokens(text: str) -> List[str]:
+    return [w for w in re.findall(r"[^\W_]+", (text or "").lower()) if w not in _CONNECTORS]
 
 
 def _words(text: str) -> List[str]:
-    return [w for w in re.findall(r"[^\W_]+", (text or "").lower()) if w not in _FILLER]
+    return [w for w in _tokens(text) if w not in _FILLER]
 
 
 def match_folders(name: str, scope: Scope) -> List[ScopeFolder]:
@@ -80,8 +86,7 @@ def find_mentioned_folders(question: str, scope: Scope) -> List[ScopeFolder]:
     Y"), or a one-word name right after "proyek", "modul", "folder", ...
     ("modul Backend"). A lone common word ("laporan", "policy") that happens
     to be a folder name is not taken as one."""
-    tokens = re.findall(r"[^\W_]+", question.lower())
-    text = " " + " ".join(tokens) + " "
+    text = " " + " ".join(_tokens(question)) + " "
     found = []
     for f in scope.folders:
         words = _words(f.name)

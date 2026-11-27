@@ -26,6 +26,7 @@ from fastapi.responses import StreamingResponse
 from config import config
 from services.rag.conversation.guard import is_internal_question
 from services.rag.conversation.intent import (
+    RouteDecision,
     is_app_question,
     is_summary_request,
     is_whole_document_summary,
@@ -35,6 +36,7 @@ from services.rag.conversation.intent import (
     small_talk_kind,
 )
 from services.rag.conversation.language import ReplyLanguage, detect_reply_language
+from services.rag.conversation.limits import MAX_MEMORY_CHATS, MAX_MEMORY_MESSAGES
 from services.rag.answer import AnswerPlan
 from services.rag.conversation.messages import internal_refusal, no_source_selected
 from services.rag.model_stream import ModelStream
@@ -44,15 +46,22 @@ from models import (
     AgnosticQueryRequest, AgnosticQueryResponse, Guide, GuideQuestion, MemoryTurn, PdfSourceDetail, UserRecord,
 )
 from services.lens_guide.clarify import (
-    BRIEF_PASSAGES, BRIEF_QUERY, Facets, clean_options, conversation_folder, folder_brief, guidance_request,
-    guide_context, is_folder_pick, known_answers, next_question, question_text, request_text, search_question,
+    BRIEF_PASSAGES, BRIEF_QUERY, Facets, active_request, clean_options, conversation_folder, folder_brief,
+    guidance_request,
+    guide_context, guide_kind, has_guidance_context, is_folder_pick, known_answers, next_question, question_text,
+    request_text, search_question,
 )
 from services.lens_guide.match import (
-    collection_ids_in, find_mentioned_folders, folder_label, match_folders, named_exactly, resolve_folder_label,
+    collection_ids_in, find_mentioned_folders, folder_label, match_folders,
+    named_exactly, resolve_folder_label,
 )
 from services.lens_guide.drive_import import find_drive_link, import_offer
-from services.lens_guide.reply import empty_folder_reply, folder_question_reply, folder_reply, requested_name
+from services.lens_guide.reply import empty_folder_reply, folder_question_reply, folder_reply, guide_note, requested_name
 from services.lens_guide.scope import Scope, ScopeFolder, load_scope
+from services.lens_guide.answer import add_related_results, folder_origins, guide_intent
+from services.lens_guide.continuation import (
+    carried_answers, carries_list_state, carry_list, continuation, has_step_list, list_context, strip_list_state,
+)
 from services.public_links import resolve_active_public_link_sources
 from services.database_connections import resolve_active_database_connections
 from services.billing.allocation import get_usage_snapshot
@@ -64,14 +73,6 @@ from services.billing.ledger import enforce_rate_limit, log_token_usage
 
 logger = logging.getLogger(__name__)
 
-# MS-237 poin 1: hard cap on the client-sent conversation-history window,
-# applied here regardless of what the client actually sends — a client that
-# sends 200 messages must not be able to balloon the prompt/token cost. The
-# window is counted in *chats* (one question plus the answer that followed
-# it), so 5 chats is up to ~10 messages; MAX_MEMORY_MESSAGES is the backstop
-# for a caller that pads one chat with a hundred assistant turns.
-MAX_MEMORY_CHATS = 5
-MAX_MEMORY_MESSAGES = MAX_MEMORY_CHATS * 4
 MAX_MEMORY_CHARS = 600
 
 
@@ -87,16 +88,18 @@ def _describe_source_type(has_public_links: bool, has_external_db: bool) -> str:
 
 
 def _clamp_memory(memory: Optional[List[MemoryTurn]]) -> Optional[List[Dict[str, str]]]:
-    """MS-237: clamp the client's conversation-history window before it
-    ever reaches a prompt — see MAX_MEMORY_* above. Cut at the start of the
-    5th-from-last question rather than at a raw message count, so every
-    remembered question keeps the answer that belongs to it."""
+    """MS-237: clamp history before it reaches a prompt. Limits come from
+    services/rag/conversation/limits.py. Cut at the start of the fifth-last
+    question so each remembered question keeps its corresponding answer."""
     if not memory:
         return None
+    if memory[0].role == "assistant" and carries_list_state(memory[0].content):
+        # The reply the client pinned for "lanjut" (continuation reads the raw history); not prompt text.
+        memory = memory[1:]
     question_at = [i for i, m in enumerate(memory) if m.role == "user"]
     start = question_at[-MAX_MEMORY_CHATS] if len(question_at) > MAX_MEMORY_CHATS else 0
     return [
-        {"role": m.role, "content": _clip_turn(m.content)}
+        {"role": m.role, "content": _clip_turn(strip_list_state(m.content))}
         for m in memory[start:][-MAX_MEMORY_MESSAGES:]
     ]
 
@@ -403,6 +406,10 @@ async def _answer_query(
         # would search everything ("dokumen Proyek Klien Y").
         if intent == "retrieval" and not req.skill_id and find_mentioned_folders(req.question, scope):
             intent = None
+        # MS-1183: so does a message that may ask to be guided ("perlu bikin dokumen kebijakan, langkahnya apa?"):
+        # the words only nominate it, the router reads what it asks for (and says "none" for a fact question).
+        if intent == "retrieval" and not req.skill_id and guide_intent(req.question) != "fact":
+            intent = None
         # MS-1182: a guidance conversation in a known folder is led by the
         # server (guide_turn below), whatever the rules would do with a short
         # answer such as "core-api".
@@ -410,7 +417,8 @@ async def _answer_query(
             conversation_folder(req.question, memory_payload, scope)
             if scope.folders_loaded and not req.skill_id else (None, False)
         )
-        start = guidance_request(req.question, memory_payload) if folder else None
+        start = (guidance_request(req.question, memory_payload, allow_procedural=not confirmed)
+                 if folder and not is_app_question(req.question) else None)
         if start is not None:
             intent = None
         # MS-1181: a pasted Google Drive link is offered for import (no model
@@ -470,6 +478,24 @@ async def _answer_query(
             ))
 
         try:
+            def lens_reply(continued: Tuple[str, Guide]) -> AgnosticQueryResponse:
+                """MS-1183: the next item of a reading list, written without a model call."""
+                text, guide = continued
+                return _system_response(text, "system/lens-guide", req.question, start_time, guide=guide)
+
+            async def guide_all_documents(kind: str, **search) -> PendingAnswer:
+                """MS-1183: steps or stages over every document the user may open (no folder named)."""
+                return await _retrieve(
+                    req, user, is_admin, allowed_pdf_ids, pdf_collection_ids, base_url, start_time,
+                    memory_payload, language, stop, reservation,
+                    task="guide_" + kind, lens_scope=scope, **search,
+                )
+
+            if not req.skill_id and not drive_link:
+                continued = continuation(req.question, req.memory, scope, base_url, language)
+                if continued:
+                    return lens_reply(continued)
+
             if drive_link:
                 text, guide = await import_offer(drive_link, requested_name(memory_payload), language)
                 return _system_response(
@@ -488,18 +514,25 @@ async def _answer_query(
                     reservation=reservation,
                 )
 
-            async def guide_turn(target: ScopeFolder, confirmed: bool, start: int):
+            async def guide_turn(
+                target: ScopeFolder, confirmed: bool, start: int, label: Optional[str] = None, ask: Optional[str] = None,
+            ):
                 """MS-1182: one turn of a guidance conversation in `target`. The
                 server asks the role, then the part, when the folder's documents
                 tell them apart, and searches the folder once nothing is left
-                to ask (scenario table: docs/MS-1182-SCENARIOS.md)."""
+                to ask (scenario table: docs/MS-1182-SCENARIOS.md). `label`
+                (MS-1183): what the router read the message to ask for, when
+                the word lists did not; announced in the reply for later turns.
+                `ask`: a new question inside a guidance already going on; it is what
+                gets searched, with the role and part the user gave since `start`."""
+                purpose = guide_kind(req.question, memory_payload, start, label)
                 ids = collection_ids_in([target], scope)
                 if not ids:
                     if confirmed:
                         text, guide = empty_folder_reply([target], language), None
                     else:
                         text, guide = await asyncio.to_thread(
-                            folder_reply, target.path[-1], [target], scope, user.user_id, language,
+                            folder_reply, target.path[-1], [target], scope, user.user_id, language, label,
                         )
                     return _system_response(
                         text, "system/lens-guide", req.question, start_time, source_type="Conversation", guide=guide,
@@ -509,39 +542,45 @@ async def _answer_query(
                     await _log_tokens(user.user_id, tokens)
                     raise QueryStopped
                 known = known_answers(facets, req.question, memory_payload, start)
+                if ask:
+                    # A new question inside a guidance going on: the role and part given earlier may have
+                    # left the history, they travel with the list (answers in the history win).
+                    known = {**carried_answers(req.memory, folder_label(target)), **known}
                 kind = next_question(facets, known)
                 if not confirmed or kind:
                     await _log_tokens(user.user_id, tokens)
                     if not confirmed and kind:
                         text, guide = await asyncio.to_thread(
                             folder_question_reply, target, question_text(kind, target, language),
-                            facets.options(kind), scope, user.user_id, language,
+                            facets.options(kind), scope, user.user_id, language, label,
                         )
                     elif not confirmed:
                         text, guide = await asyncio.to_thread(
-                            folder_reply, target.path[-1], [target], scope, user.user_id, language,
+                            folder_reply, target.path[-1], [target], scope, user.user_id, language, label,
                         )
                     else:
-                        text = question_text(kind, target, language)
+                        text = " ".join(t for t in [guide_note(label, language), question_text(kind, target, language)] if t)
                         guide = Guide(question=GuideQuestion(options=facets.options(kind)))
                     return _system_response(
                         text, "system/lens-guide", req.question, start_time, source_type="Conversation", guide=guide,
                     )
-                if not has_source:
+                if not has_source or not req.include_pdf_results:
                     await _log_tokens(user.user_id, tokens)
                     return _system_response(
                         no_source_selected(language), "system/no-source-selected", req.question, start_time,
                     )
-                request = request_text(req.question, memory_payload, start, target, language)
+                request = ask or request_text(req.question, memory_payload, start, target, language, purpose)
                 return await _retrieve(
                     req, user, is_admin, allowed_pdf_ids, pdf_collection_ids, base_url, start_time,
                     memory_payload, language,
                     routing_tokens=tokens,
                     question=search_question(request, known, language),
                     scope_collection_ids=ids,
-                    task="answer",
+                    task="guide_" + purpose,
                     stop=stop,
                     reservation=reservation,
+                    lens_scope=scope,
+                    guide_folder_ids=ids,
                     guide=Guide(context=guide_context(target, facets, known, language)),
                 )
 
@@ -561,11 +600,26 @@ async def _answer_query(
                 req.question, language, memory_payload, is_admin, titles, len(allowed_pdf_ids),
                 usage, req.llm_provider, req.llm_model, has_source,
                 folder_paths=[folder_label(f) for f in scope.folders] if scope.folders_loaded else None,
+                step_list=has_step_list(req.memory),
             )
             if await stop.stopped():
                 # The router call already ran: count it, answer nothing.
                 await _log_tokens(user.user_id, decision.total_tokens)
                 raise QueryStopped
+
+            if decision.action == "continue":
+                # MS-1183: progress the word lists missed ("a sama b kelar", "kembali ke a").
+                await _log_tokens(user.user_id, decision.total_tokens)
+                continued = continuation(
+                    req.question, req.memory, scope, base_url, language,
+                    read=decision.continue_read, show=decision.continue_show, forced=True,
+                )
+                if continued:
+                    return lens_reply(continued)
+                decision = RouteDecision(action="search", search_query=req.question, model_id=decision.model_id)
+
+            # MS-1183: what the model read the message to ask for (None for anything else).
+            guide_label = getattr(decision, "guide", None)
 
             if decision.action == "reply":
                 await _log_tokens(user.user_id, decision.total_tokens)
@@ -578,17 +632,56 @@ async def _answer_query(
                 # reply, come from this user's scope.
                 await _log_tokens(user.user_id, decision.total_tokens)
                 matches = match_folders(decision.folder_name, scope)
-                start = guidance_request(req.question, memory_payload)
+                start = guidance_request(req.question, memory_payload) if not is_app_question(req.question) else None
+                if not matches and guide_label in ("do", "learn") and req.include_pdf_results and pdf_collection_ids:
+                    # MS-1183: the model took a task for a folder name ("rilis ke produksi"):
+                    # steps over every document, not "folder not found".
+                    return await guide_all_documents(guide_label)
+                if start is None and guide_label:
+                    # MS-1183: a request only the model read ("aku masuk project Atlas") starts here.
+                    start = len(memory_payload or [])
                 if len(matches) == 1 and start is not None and named_exactly(decision.folder_name, matches[0]):
                     # MS-1182: a whole folder name only the model spotted ("aku
                     # masuk Atlas"): confirmed together with the first question.
-                    return await guide_turn(matches[0], False, start)
+                    return await guide_turn(matches[0], False, start, guide_label)
                 text, guide = await asyncio.to_thread(
-                    folder_reply, decision.folder_name, matches, scope, user.user_id, language,
+                    folder_reply, decision.folder_name, matches, scope, user.user_id, language, guide_label,
                 )
                 return _system_response(
                     text, decision.model_id, req.question, start_time, source_type="Conversation", guide=guide,
                 )
+
+            if guide_label and not is_app_question(req.question):
+                # MS-1183: a request to be guided only the model read ("cara deploy ke prod gimana",
+                # "ajarin aku modul X" in a confirmed folder). The server leads from here as usual.
+                labelled = resolve_folder_label(decision.search_folder, scope) if decision.search_folder else []
+                # One rule for a guidance already going on (a request answered, or a list shown) when
+                # no other folder is named: "start" again means "go on", and a new task or topic is
+                # answered with the role and part already given. Never ask them again.
+                going_on = active_request(req.question, memory_payload)
+                if (going_on is not None or has_step_list(req.memory)) and not find_mentioned_folders(req.question, scope):
+                    if guide_label == "start":
+                        # Manual test: "abis itu apa?" came back as start.
+                        continued = continuation(req.question, req.memory, scope, base_url, language, forced=True)
+                        if continued:
+                            await _log_tokens(user.user_id, decision.total_tokens)
+                            return lens_reply(continued)
+                    elif len(labelled) == 1:
+                        # Manual test: "gimana cara minta akses database staging?" asked the role again.
+                        await _log_tokens(user.user_id, decision.total_tokens)
+                        return await guide_turn(
+                            labelled[0], True, going_on or 0, guide_label, ask=decision.search_query or req.question,
+                        )
+                if len(labelled) == 1:
+                    await _log_tokens(user.user_id, decision.total_tokens)
+                    start = guidance_request(req.question, memory_payload, allow_procedural=True)
+                    return await guide_turn(
+                        labelled[0], True, len(memory_payload or []) if start is None else start, guide_label,
+                    )
+                if not labelled and guide_label in ("do", "learn") and req.include_pdf_results and pdf_collection_ids:
+                    return await guide_all_documents(
+                        guide_label, routing_tokens=decision.total_tokens, question=decision.search_query,
+                    )
 
             if not has_source:
                 await _log_tokens(user.user_id, decision.total_tokens)
@@ -621,6 +714,9 @@ async def _answer_query(
                 _strip_titles(decision.search_query, titles), include_topics=False
             ):
                 task = "answer"
+            if (len(folders) == 1 and task != "summarize" and not is_app_question(req.question)
+                    and has_guidance_context(memory_payload, folders[0], scope)):
+                task = "guide_" + (guide_label or guide_intent(req.question))
             return await _retrieve(
                 req, user, is_admin, allowed_pdf_ids, pdf_collection_ids, base_url, start_time,
                 memory_payload, language,
@@ -630,6 +726,8 @@ async def _answer_query(
                 task=task,
                 stop=stop,
                 reservation=reservation,
+                lens_scope=scope if task.startswith("guide_") else None,
+                guide_folder_ids=collection_ids_in(folders, scope) if folders and task.startswith("guide_") else None,
             )
         finally:
             # A reply that needed no model call has logged its usage before
@@ -656,6 +754,8 @@ async def _retrieve(
     scope_collection_ids: Optional[List[str]] = None,
     task: str = "answer",
     guide: Optional[Guide] = None,
+    lens_scope: Optional[Scope] = None,
+    guide_folder_ids: Optional[List[str]] = None,
 ) -> PendingAnswer:
     """The token-costing half of agnostic_query up to the model call:
     source resolution and the search, run while the question holds its
@@ -672,6 +772,7 @@ async def _retrieve(
     `stop` (MS-667): a question stopped before the model call goes no
     further. The PendingAnswer that comes back takes over the reservation."""
     question = question or req.question
+    guide_task = task.startswith("guide_")
     scoped_ids = [cid for cid in (scope_collection_ids or []) if cid in allowed_pdf_ids]
     if scoped_ids and req.include_pdf_results:
         pdf_collection_ids = scoped_ids
@@ -680,16 +781,16 @@ async def _retrieve(
     # added it (MS-913): only the asker's own chats are searched, and IDs the
     # client sends that aren't theirs are dropped.
     chat_collection_ids: List[str] = []
-    if is_admin and req.include_chat_results:
+    if is_admin and req.include_chat_results and not guide_task:
         own_chat_ids = await asyncio.to_thread(processor.get_user_chat_collections, user.user_id)
         requested = set(req.chat_collection_ids or [])
         chat_collection_ids = [cid for cid in own_chat_ids if not requested or cid in requested]
 
     should_search_pdfs = bool(req.include_pdf_results) and bool(pdf_collection_ids)
-    should_search_db   = bool(req.include_db_results)
+    should_search_db   = bool(req.include_db_results) and not guide_task
     should_search_chat = is_admin and bool(req.include_chat_results) and bool(chat_collection_ids)
     public_link_sources: List[Dict[str, Any]] = []
-    if bool(req.include_public_links):
+    if bool(req.include_public_links) and not guide_task:
         public_link_sources = await resolve_active_public_link_sources(
             req.public_link_ids, user_id=user.user_id, is_admin=is_admin
         )
@@ -697,7 +798,7 @@ async def _retrieve(
 
     # Database connections are admin-only (business rule), same as chat.
     external_db_connections: List[Dict[str, Any]] = []
-    if is_admin and bool(req.include_external_db):
+    if is_admin and bool(req.include_external_db) and not guide_task:
         external_db_connections = await resolve_active_database_connections(req.external_db_connection_ids)
     should_search_external_db = is_admin and bool(req.include_external_db) and bool(external_db_connections)
 
@@ -718,6 +819,32 @@ async def _retrieve(
             should_search_external_db,
             external_db_connections,
         )
+
+    if guide_task and lens_scope:
+        inside = set(guide_folder_ids or [])
+        if inside and task in ("guide_start", "guide_do", "guide_learn") and hybrid_results.get("merged_results"):
+            # shortcut: search the newest 50 outside collections; raise this cap if MS-1184 shows missing coverage.
+            outside = [c.collection_id for c in lens_scope.collections
+                       if c.collection_id in allowed_pdf_ids and c.collection_id not in inside][:50]
+            if outside:
+                related = await asyncio.to_thread(
+                    processor.hybrid_search, question, outside,
+                    include_chat=False, include_pdf=True, include_db=False, chat_collection_ids=[],
+                    include_public_links=False, public_link_sources=[],
+                    include_external_db=False, external_db_connections=[],
+                )
+                hybrid_results = add_related_results(hybrid_results, related, lens_scope, list(inside))
+        elif not inside:
+            origins = folder_origins(lens_scope)
+            hybrid_results = {**hybrid_results, "merged_results": [
+                {**row, "metadata": {**row.get("metadata", {}), "lens_origin": origins.get(row.get("metadata", {}).get("collection_id"))}}
+                for row in hybrid_results.get("merged_results", [])
+            ]}
+        # The folder's title list is a catalogue, never evidence of file content.
+        documents = [{"collection_id": c.collection_id, "file_name": name}
+                     for c in lens_scope.collections if not inside or c.collection_id in inside
+                     for name in c.file_names][:30]
+        hybrid_results = {**hybrid_results, "lens_documents": documents, "lens_base_url": base_url}
 
     # MS-252: resolve the one-shot skill (if any) to its instruction text.
     # get_skill_for_user already enforces personal/team visibility — an id
@@ -792,7 +919,7 @@ async def _generate_in_full(pending: PendingAnswer) -> AgnosticQueryResponse:
     if await pending.stop.stopped():
         raise QueryStopped
 
-    return _build_response(pending, answer, model_used, efficiency)
+    return _build_response(pending, answer, model_used, efficiency, guide_answer=answer_metadata.get("guide_answer"))
 
 
 async def _log_answer_tokens(user_id: str, tokens: int, efficiency: Optional[Dict[str, Any]]) -> None:
@@ -823,11 +950,17 @@ async def _log_answer_tokens(user_id: str, tokens: int, efficiency: Optional[Dic
 def _build_response(
     pending: PendingAnswer, answer: str, model_used: str, efficiency: Optional[Dict[str, Any]],
     mapped_sources: Optional[Tuple[List[str], List[PdfSourceDetail], List[Dict[str, Any]]]] = None,
+    guide_answer=None,
 ) -> AgnosticQueryResponse:
     """`mapped_sources` is `_map_sources` of this answer when the caller already has it."""
     pdf_sources, pdf_sources_detailed, chat_results = mapped_sources or _map_sources(
         pending.hybrid_results, pending.base_url, pending.language,
     )
+    guide = pending.guide
+    if guide_answer is not None:
+        guide = Guide(**{**(guide.model_dump() if guide else {}), "lead": guide_answer.lead,
+                         "steps": guide_answer.steps or None, "notices": guide_answer.notices or None})
+        answer = carry_list(guide_answer.text, list_context(guide))
     return AgnosticQueryResponse(
         answer=answer,
         model_used=model_used,
@@ -841,7 +974,7 @@ def _build_response(
         source_type=pending.source_type,
         retrieved_count=len(pdf_sources) + len(chat_results),
         efficiency=efficiency,
-        guide=pending.guide,
+        guide=guide,
     )
 
 
@@ -1002,7 +1135,8 @@ class _AnswerStream:
                 try:
                     async for text in model.chunks():
                         written.append(text)
-                        yield _event("delta", text=text)
+                        if not plan.guide_intent:
+                            yield _event("delta", text=text)
                 except Exception as error:
                     if written:
                         raise  # the user has already read part of it: no quiet replacement
@@ -1029,7 +1163,8 @@ class _AnswerStream:
             await self.settle()
             yield _event(
                 "done",
-                result=_build_response(pending, answer, model_used, metadata.get("efficiency"), mapped_sources),
+                result=_build_response(pending, answer, model_used, metadata.get("efficiency"), mapped_sources,
+                                       metadata.get("guide_answer")),
             )
         except Exception:
             logger.exception("agnostic_query: streamed answer failed")

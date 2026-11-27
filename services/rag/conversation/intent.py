@@ -14,7 +14,7 @@ Chat intent routing — the deterministic half.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable, List, Literal, Optional
 
 ChatIntent = Literal["conversation", "retrieval"]
@@ -305,8 +305,13 @@ def match_collection_titles(question: str, collection_titles: Iterable[str]) -> 
 @dataclass
 class RouteDecision:
     """What processor.route_message decided for one message."""
-    action: Literal["reply", "search", "find_folder"]
+    action: Literal["reply", "search", "find_folder", "continue"]
     answer: str = ""                          # action == "reply"
+    # Lens Guide (MS-1183): what the message asks for, read by the model.
+    # "start" | "learn" | "do", or None for anything else. The server leads the flow.
+    guide: Optional[str] = None
+    continue_read: List[str] = field(default_factory=list)   # action == "continue": keys reported read
+    continue_show: Optional[str] = None                      # action == "continue": a key asked for again
     folder_name: str = ""                     # action == "find_folder" (MS-1181): the name the user said
     search_query: str = ""                    # action == "search": the function call's args
     search_collection: Optional[str] = None

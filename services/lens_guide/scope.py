@@ -33,6 +33,7 @@ class ScopeCollection:
     file_count: int
     folder_id: Optional[str]    # None: at the root (or in a folder outside the scope)
     folder_path: List[str]      # [] at the root
+    file_names: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -108,6 +109,7 @@ def load_scope(user: UserRecord) -> Scope:
             file_count=file_count,
             folder_id=folder_id,
             folder_path=list(paths[folder_id]) if folder_id else [],
+            file_names=list(row.get("file_names") or []),
         ))
         # Count the files in this folder and in every folder above it.
         seen = set()
