@@ -68,27 +68,19 @@ _SMALL_TALK_FALLBACK: Dict[str, Dict[str, str]] = {
 FALLBACK_TEXT: Dict[ReplyLanguage, Dict[str, str]] = {
     "id": {
         "based_on": "Berdasarkan {source}:",
-        "based_on_page": "Berdasarkan {source} (halaman {page}):",
-        "based_on_table": "Berdasarkan data dari tabel {table}:",
         "based_on_db": "Berdasarkan data dari {source} (akurasi: {confidence}):",
-        "based_on_chat": "Berdasarkan percakapan dari {source} ({platform}):",
         "info_from": "Informasi dari {source}:",
         "info_from_doc": "Informasi dari dokumen {source} (relevansi: {confidence}):",
         "from": "Dari {source}:",
         "contacts": "Kontak lengkap:",
-        "no_valid_answer": "Maaf, sistem tidak dapat menghasilkan jawaban yang valid. Silakan coba pertanyaan yang lebih spesifik.",
     },
     "en": {
         "based_on": "Based on {source}:",
-        "based_on_page": "Based on {source} (page {page}):",
-        "based_on_table": "Based on data from table {table}:",
         "based_on_db": "Based on data from {source} (accuracy: {confidence}):",
-        "based_on_chat": "Based on the conversation from {source} ({platform}):",
         "info_from": "Information from {source}:",
         "info_from_doc": "Information from document {source} (relevance: {confidence}):",
         "from": "From {source}:",
         "contacts": "Full contact details:",
-        "no_valid_answer": "The system couldn't produce a valid answer. Please try a more specific question.",
     },
 }
 
